@@ -11,6 +11,8 @@
   "scripts": {
     "start": "bun run src/main.tsx",
     "dev": "bun --watch src/main.tsx",
+    "build:bin": "bash ./scripts/build-bin.sh",
+    "install:bin": "bash ./scripts/install-bin.sh",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

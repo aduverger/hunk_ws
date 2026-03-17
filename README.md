@@ -19,6 +19,24 @@ bun install
 bun run src/main.tsx -- git
 ```
 
+## Standalone binary
+
+Build a local executable:
+
+```bash
+bun run build:bin
+./dist/otdiff git
+```
+
+Install it into `~/.local/bin`:
+
+```bash
+bun run install:bin
+otdiff git
+```
+
+If you want a different install location, set `OTDIFF_INSTALL_DIR` before running the install script.
+
 ## Workflows
 
 - `otdiff git [range]`
