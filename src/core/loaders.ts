@@ -161,11 +161,12 @@ function normalizePatchChangeset(
 async function loadFileDiffChangeset(input: FileCommandInput | DiffToolCommandInput, agentContext: AgentContext | null) {
   const leftText = await Bun.file(input.left).text();
   const rightText = await Bun.file(input.right).text();
-  const displayPath =
+  const displayPath = input.kind === "difftool" ? input.path ?? basename(input.right) : basename(input.right);
+  const title =
     input.kind === "difftool"
-      ? input.path ?? basename(input.right)
+      ? `git difftool: ${displayPath}`
       : input.left === input.right
-        ? basename(input.left)
+        ? displayPath
         : `${basename(input.left)} ↔ ${basename(input.right)}`;
 
   const oldFile: FileContents = {
@@ -187,9 +188,9 @@ async function loadFileDiffChangeset(input: FileCommandInput | DiffToolCommandIn
   return {
     id: `pair:${displayPath}`,
     sourceLabel: input.kind === "difftool" ? "git difftool" : "file compare",
-    title: displayPath,
+    title,
     agentSummary: agentContext?.summary,
-    files: [buildDiffFile(metadata, patch, 0, displayPath, agentContext)],
+    files: [buildDiffFile(metadata, patch, 0, displayPath, agentContext, basename(input.left))],
   } satisfies Changeset;
 }
 
