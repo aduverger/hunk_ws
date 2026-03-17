@@ -1,4 +1,4 @@
-import { MouseButton, type KeyEvent, type SelectOption } from "@opentui/core";
+import { MouseButton, type KeyEvent, type MouseEvent as TuiMouseEvent, type SelectOption } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import type { Hunk } from "@pierre/diffs";
 import { startTransition, useDeferredValue, useEffect, useState } from "react";
@@ -196,6 +196,7 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
   const AGENT_GAP = 1;
   const BODY_PADDING = 2;
   const DIVIDER_WIDTH = 1;
+  const DIVIDER_HIT_WIDTH = 5;
 
   const renderer = useRenderer();
   const terminal = useTerminalDimensions();
@@ -241,6 +242,11 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
   const maxFilesPaneWidth = Math.max(FILES_MIN_WIDTH, availableCenterWidth - DIFF_MIN_WIDTH);
   const clampedFilesPaneWidth = clamp(filesPaneWidth, FILES_MIN_WIDTH, maxFilesPaneWidth);
   const diffPaneWidth = Math.max(DIFF_MIN_WIDTH, availableCenterWidth - clampedFilesPaneWidth);
+  const isResizingFilesPane = resizeDragOriginX !== null && resizeStartWidth !== null;
+  const dividerHitLeft = Math.max(
+    1,
+    1 + clampedFilesPaneWidth - Math.floor((DIVIDER_HIT_WIDTH - DIVIDER_WIDTH) / 2),
+  );
 
   useEffect(() => {
     setFilesPaneWidth((current) => clamp(current, FILES_MIN_WIDTH, maxFilesPaneWidth));
@@ -318,6 +324,40 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
 
   const closeMenu = () => {
     setActiveMenuId(null);
+  };
+
+  const beginFilesPaneResize = (event: TuiMouseEvent) => {
+    if (event.button !== MouseButton.LEFT) {
+      return;
+    }
+
+    setActiveMenuId(null);
+    setResizeDragOriginX(event.x);
+    setResizeStartWidth(clampedFilesPaneWidth);
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const updateFilesPaneResize = (event: TuiMouseEvent) => {
+    if (!isResizingFilesPane || resizeDragOriginX === null || resizeStartWidth === null) {
+      return;
+    }
+
+    const nextWidth = resizeStartWidth + (event.x - resizeDragOriginX);
+    setFilesPaneWidth(clamp(nextWidth, FILES_MIN_WIDTH, maxFilesPaneWidth));
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const endFilesPaneResize = (event?: TuiMouseEvent) => {
+    if (!isResizingFilesPane) {
+      return;
+    }
+
+    setResizeDragOriginX(null);
+    setResizeStartWidth(null);
+    event?.preventDefault();
+    event?.stopPropagation();
   };
 
   const openMenu = (menuId: MenuId) => {
@@ -709,7 +749,15 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
         </text>
       </box>
 
-      <box style={{ flexGrow: 1, flexDirection: "row", gap: 0, padding: 1 }} onMouseUp={() => closeMenu()}>
+      <box
+        style={{ flexGrow: 1, flexDirection: "row", gap: 0, padding: 1, position: "relative" }}
+        onMouseDrag={updateFilesPaneResize}
+        onMouseDragEnd={endFilesPaneResize}
+        onMouseUp={(event) => {
+          endFilesPaneResize(event);
+          closeMenu();
+        }}
+      >
         <box
           title="Files"
           style={{
@@ -756,8 +804,8 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
           style={{
             width: DIVIDER_WIDTH,
             border: ["top", "bottom", "left"],
-            borderColor: resizeDragOriginX !== null ? activeTheme.accent : activeTheme.border,
-            backgroundColor: resizeDragOriginX !== null ? activeTheme.accentMuted : activeTheme.panel,
+            borderColor: isResizingFilesPane ? activeTheme.accent : activeTheme.border,
+            backgroundColor: isResizingFilesPane ? activeTheme.accentMuted : activeTheme.panel,
           }}
           customBorderChars={{
             topLeft: "┬",
@@ -772,36 +820,21 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
             rightT: "┤",
             cross: "┼",
           }}
-          onMouseDown={(event) => {
-            if (event.button !== MouseButton.LEFT) {
-              return;
-            }
+        />
 
-            setResizeDragOriginX(event.x);
-            setResizeStartWidth(clampedFilesPaneWidth);
-            event.stopPropagation();
+        <box
+          style={{
+            position: "absolute",
+            top: 1,
+            bottom: 1,
+            left: dividerHitLeft,
+            width: DIVIDER_HIT_WIDTH,
+            zIndex: 30,
           }}
-          onMouseDrag={(event) => {
-            if (resizeDragOriginX === null || resizeStartWidth === null) {
-              return;
-            }
-
-            const nextWidth = resizeStartWidth + (event.x - resizeDragOriginX);
-            setFilesPaneWidth(clamp(nextWidth, FILES_MIN_WIDTH, maxFilesPaneWidth));
-            event.stopPropagation();
-          }}
-          onMouseUp={(event) => {
-            if (resizeDragOriginX !== null) {
-              setResizeDragOriginX(null);
-              setResizeStartWidth(null);
-              event.stopPropagation();
-            }
-          }}
-          onMouseDragEnd={(event) => {
-            setResizeDragOriginX(null);
-            setResizeStartWidth(null);
-            event.stopPropagation();
-          }}
+          onMouseDown={beginFilesPaneResize}
+          onMouseDrag={updateFilesPaneResize}
+          onMouseUp={endFilesPaneResize}
+          onMouseDragEnd={endFilesPaneResize}
         />
 
         <box
