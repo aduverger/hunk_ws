@@ -6,9 +6,7 @@ binary_path="${repo_root}/dist/otdiff"
 install_dir="${OTDIFF_INSTALL_DIR:-${HOME}/.local/bin}"
 install_path="${install_dir}/otdiff"
 
-if [[ ! -x "${binary_path}" ]]; then
-  bash "${repo_root}/scripts/build-bin.sh"
-fi
+bash "${repo_root}/scripts/build-bin.sh"
 
 mkdir -p "${install_dir}"
 install -m 0755 "${binary_path}" "${install_path}"
