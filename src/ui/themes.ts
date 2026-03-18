@@ -29,8 +29,7 @@ export interface AppTheme {
   syntaxStyle: SyntaxStyle;
 }
 
-/** Build the syntax palette OpenTUI should use for in-terminal code rendering. */
-function createSyntaxStyle(colors: {
+type SyntaxColors = {
   default: string;
   keyword: string;
   string: string;
@@ -40,7 +39,10 @@ function createSyntaxStyle(colors: {
   property: string;
   type: string;
   punctuation: string;
-}) {
+};
+
+/** Build the syntax palette OpenTUI should use for in-terminal code rendering. */
+function createSyntaxStyle(colors: SyntaxColors) {
   return SyntaxStyle.fromStyles({
     default: { fg: RGBA.fromHex(colors.default) },
     keyword: { fg: RGBA.fromHex(colors.keyword), bold: true },
@@ -58,8 +60,21 @@ function createSyntaxStyle(colors: {
   });
 }
 
+/** Lazily attach syntax colors so startup only pays for the active theme's token style. */
+function withLazySyntaxStyle(theme: Omit<AppTheme, "syntaxStyle">, syntaxColors: SyntaxColors): AppTheme {
+  let syntaxStyle: SyntaxStyle | null = null;
+
+  return {
+    ...theme,
+    get syntaxStyle() {
+      syntaxStyle ??= createSyntaxStyle(syntaxColors);
+      return syntaxStyle;
+    },
+  };
+}
+
 export const THEMES: AppTheme[] = [
-  {
+  withLazySyntaxStyle({
     id: "midnight",
     label: "Midnight",
     appearance: "dark",
@@ -85,7 +100,7 @@ export const THEMES: AppTheme[] = [
     badgeAdded: "#5ad188",
     badgeRemoved: "#ff8b8b",
     badgeNeutral: "#89a5d3",
-    syntaxStyle: createSyntaxStyle({
+  }, {
       default: "#e8f1ff",
       keyword: "#8ed4ff",
       string: "#8fe1aa",
@@ -96,8 +111,7 @@ export const THEMES: AppTheme[] = [
       type: "#a4b7ff",
       punctuation: "#6e85a7",
     }),
-  },
-  {
+  withLazySyntaxStyle({
     id: "graphite",
     label: "Graphite",
     appearance: "dark",
@@ -123,7 +137,7 @@ export const THEMES: AppTheme[] = [
     badgeAdded: "#88d39b",
     badgeRemoved: "#f0a0a0",
     badgeNeutral: "#a9b4bf",
-    syntaxStyle: createSyntaxStyle({
+  }, {
       default: "#f2f4f6",
       keyword: "#c4d0da",
       string: "#a4d39a",
@@ -134,8 +148,7 @@ export const THEMES: AppTheme[] = [
       type: "#d3d9e2",
       punctuation: "#7f8b97",
     }),
-  },
-  {
+  withLazySyntaxStyle({
     id: "paper",
     label: "Paper",
     appearance: "light",
@@ -161,7 +174,7 @@ export const THEMES: AppTheme[] = [
     badgeAdded: "#3f8d58",
     badgeRemoved: "#b4545b",
     badgeNeutral: "#8e7355",
-    syntaxStyle: createSyntaxStyle({
+  }, {
       default: "#2f2417",
       keyword: "#7b5a35",
       string: "#4e7d52",
@@ -172,8 +185,7 @@ export const THEMES: AppTheme[] = [
       type: "#5f5f9a",
       punctuation: "#8f7a65",
     }),
-  },
-  {
+  withLazySyntaxStyle({
     id: "ember",
     label: "Ember",
     appearance: "dark",
@@ -199,7 +211,7 @@ export const THEMES: AppTheme[] = [
     badgeAdded: "#83d99d",
     badgeRemoved: "#ff9d8f",
     badgeNeutral: "#f1be9d",
-    syntaxStyle: createSyntaxStyle({
+  }, {
       default: "#fff0e6",
       keyword: "#ffb47f",
       string: "#9be4a7",
@@ -210,7 +222,6 @@ export const THEMES: AppTheme[] = [
       type: "#f7c5b0",
       punctuation: "#a17d69",
     }),
-  },
 ];
 
 /** Resolve a named theme or fall back to a theme that matches the renderer mode. */

@@ -34,3 +34,6 @@
 {"run":15,"commit":"1c45daa","metric":0,"metrics":{},"status":"checks_failed","description":"perf: try parent-level selected-file highlighter prep before diff mount","timestamp":1773847868661,"segment":0}
 {"run":16,"commit":"1c45daa","metric":617,"metrics":{},"status":"checks_failed","description":"perf: retry parent-level selected-file highlighter prep before diff mount","timestamp":1773847947857,"segment":0}
 {"type":"config","name":"Optimize visible app startup syntax highlighting including module load","metricName":"selected_highlight_ms","metricUnit":"ms","bestDirection":"lower"}
+{"run":1,"commit":"2f3a091","metric":617.73,"metrics":{},"status":"keep","description":"benchmark: include app module load in startup syntax highlight timing","timestamp":1773848082496,"segment":0}
+{"run":2,"commit":"2f3a091","metric":619.87,"metrics":{},"status":"discard","description":"perf: warm the default dark text highlighter during module load","timestamp":1773848130385,"segment":0}
+{"run":3,"commit":"2f3a091","metric":625.72,"metrics":{},"status":"discard","description":"perf: lazy-load Pierre highlighting helpers after app import","timestamp":1773848298434,"segment":0}
