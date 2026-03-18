@@ -60,6 +60,8 @@ If you want a different install location, set `HUNK_INSTALL_DIR` before running 
 
 Use `--agent-context <file>` to load a JSON sidecar and show agent rationale next to the diff.
 
+The order of `files` in the sidecar is significant. Hunk uses that order for the sidebar and main review stream so an agent can tell a story instead of relying on raw patch order.
+
 ```json
 {
   "version": 1,
@@ -77,10 +79,41 @@ Use `--agent-context <file>` to load a JSON sidecar and show agent rationale nex
           "confidence": "high"
         }
       ]
+    },
+    {
+      "path": "src/ui/App.tsx",
+      "summary": "Presents the new workflow after the loader changes.",
+      "annotations": [
+        {
+          "newRange": [90, 136],
+          "summary": "Uses the normalized model in the review shell.",
+          "rationale": "The reader should inspect this after understanding the loader changes.",
+          "tags": ["ui"],
+          "confidence": "medium"
+        }
+      ]
     }
   ]
 }
 ```
+
+Files omitted from the sidecar keep their original diff order and appear after the explicitly ordered files.
+
+## Codex workflow
+
+For Codex-driven changes, keep a transient sidecar at `.hunk/latest.json` and load it during review:
+
+```bash
+hunk git --agent-context .hunk/latest.json
+```
+
+Suggested pattern:
+
+- Codex makes code changes.
+- Codex refreshes `.hunk/latest.json` with a concise changeset summary, file summaries, and hunk-level rationale.
+- You open `hunk` against the working tree, staged diff, or a commit range with that sidecar.
+
+Keep the sidecar concise. It should explain why a hunk exists, what risk to review, and how the files fit together. It should not narrate obvious syntax edits line by line.
 
 ## Git integration
 

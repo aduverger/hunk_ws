@@ -19,6 +19,7 @@ CLI input
 - Input modes: `git`, `diff`, `patch`, `difftool`.
 - All input sources normalize into one internal changeset model.
 - Agent rationale is optional sidecar JSON matched onto files/hunks.
+- The order of `files` in the sidecar is intentional. Hunk uses that order for the sidebar and main review stream.
 
 ## architectural rules
 
@@ -42,6 +43,8 @@ CLI input
 - Layout modes: `auto`, `split`, `stack`.
 - `auto` should choose split on wide terminals and stack on narrow ones.
 - Agent context belongs beside the code, not hidden in a separate mode or workflow.
+- When making code changes in this repo, also refresh `.hunk/latest.json` so the next review can load agent rationale with `hunk git --agent-context .hunk/latest.json`.
+- Keep `.hunk/latest.json` concise and review-oriented: one changeset summary, file summaries in narrative order, and a few hunk-level annotations with real rationale.
 
 ## commands
 
@@ -67,5 +70,6 @@ CLI input
 ## repo notes
 
 - There is an unrelated untracked file named `md` in the repo root. Leave it alone unless the user asks.
+- `.hunk/latest.json` is ignored on purpose. Update it when you change code, but do not commit it.
 - User asked for commits along the way. Prefer small milestone commits rather than one large final commit.
 - Keep this doc short and architectural. Fresh-context agents can discover file paths themselves.
