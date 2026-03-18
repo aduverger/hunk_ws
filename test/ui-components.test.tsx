@@ -9,7 +9,6 @@ const { App } = await import("../src/ui/App");
 const { HelpDialog } = await import("../src/ui/components/chrome/HelpDialog");
 const { FilesPane } = await import("../src/ui/components/panes/FilesPane");
 const { DiffPane } = await import("../src/ui/components/panes/DiffPane");
-const { AgentRail } = await import("../src/ui/components/panes/AgentRail");
 const { MenuDropdown } = await import("../src/ui/components/chrome/MenuDropdown");
 const { StatusBar } = await import("../src/ui/components/chrome/StatusBar");
 
@@ -54,7 +53,15 @@ function createDiffFile(id: string, path: string, before: string, after: string,
       ? {
           path,
           summary: `${path} note`,
-          annotations: [{ newRange: [2, 2], summary: `Annotation for ${path}` }],
+          annotations: [
+            {
+              newRange: [2, 2],
+              summary: `Annotation for ${path}`,
+              rationale: `Why ${path} changed`,
+              tags: ["review"],
+              confidence: "high",
+            },
+          ],
         }
       : null,
   };
@@ -135,7 +142,9 @@ describe("UI components", () => {
     const theme = resolveTheme("midnight", null);
     const frame = await captureFrame(
       <DiffPane
+        activeAnnotations={[]}
         diffContentWidth={72}
+        dismissedAgentNoteIds={[]}
         files={bootstrap.changeset.files}
         headerLabelWidth={40}
         headerStatsWidth={16}
@@ -144,8 +153,11 @@ describe("UI components", () => {
         selectedFileId="alpha"
         selectedHunkIndex={0}
         separatorWidth={68}
+        showAgentNotes={false}
         theme={theme}
         width={76}
+        onDismissAgentNote={() => {}}
+        onOpenAgentNotesAtHunk={() => {}}
         onSelectFile={() => {}}
       />,
       80,
@@ -156,51 +168,44 @@ describe("UI components", () => {
     expect(frame).toContain("beta.ts");
     expect(frame).toContain("@@ -1,1 +1,2 @@");
     expect(frame).toContain("@@ -1,1 +1,1 @@");
+    expect(frame).toContain("[AI]");
     expect(frame.indexOf("alpha.ts")).toBeLessThan(frame.indexOf("beta.ts"));
   });
 
-  test("AgentRail renders changeset, file, annotation, and patch summaries", async () => {
+  test("DiffPane renders hunk notes with file and line labels only", async () => {
     const bootstrap = createBootstrap();
     const theme = resolveTheme("midnight", null);
     const frame = await captureFrame(
-      <AgentRail
-        activeAnnotations={bootstrap.changeset.files[0]!.agent!.annotations}
-        changesetSummary={bootstrap.changeset.summary}
-        file={bootstrap.changeset.files[0]}
-        marginLeft={1}
-        summary={bootstrap.changeset.agentSummary}
+      <DiffPane
+        activeAnnotations={bootstrap.changeset.files[0]?.agent?.annotations ?? []}
+        diffContentWidth={88}
+        dismissedAgentNoteIds={[]}
+        files={bootstrap.changeset.files}
+        headerLabelWidth={48}
+        headerStatsWidth={16}
+        layout="split"
+        scrollRef={createRef()}
+        selectedFileId="alpha"
+        selectedHunkIndex={0}
+        separatorWidth={84}
+        showAgentNotes={true}
         theme={theme}
-        width={38}
+        width={92}
+        onDismissAgentNote={() => {}}
+        onOpenAgentNotesAtHunk={() => {}}
+        onSelectFile={() => {}}
       />,
-      42,
-      24,
+      96,
+      18,
     );
 
-    expect(frame).toContain("Changeset summary");
-    expect(frame).toContain("alpha.ts note");
+    expect(frame).toContain("alpha.ts +2");
     expect(frame).toContain("Annotation for alpha.ts");
-    expect(frame).toContain("Patch");
-  });
-
-  test("AgentRail renders empty-state copy when no file metadata is attached", async () => {
-    const bootstrap = createBootstrap();
-    const theme = resolveTheme("midnight", null);
-    const frame = await captureFrame(
-      <AgentRail
-        activeAnnotations={[]}
-        changesetSummary={undefined}
-        file={bootstrap.changeset.files[1]}
-        marginLeft={1}
-        summary={undefined}
-        theme={theme}
-        width={38}
-      />,
-      42,
-      16,
-    );
-
-    expect(frame).toContain("Selection");
-    expect(frame).toContain("No agent metadata");
+    expect(frame).toContain("Why alpha.ts changed");
+    expect(frame).not.toContain("alpha.ts note");
+    expect(frame).not.toContain("review");
+    expect(frame).not.toContain("confidence");
+    expect(frame).toContain("[x]");
   });
 
   test("MenuDropdown renders checked items and key hints", async () => {
@@ -262,7 +267,9 @@ describe("UI components", () => {
     const theme = resolveTheme("midnight", null);
     const frame = await captureFrame(
       <DiffPane
+        activeAnnotations={[]}
         diffContentWidth={72}
+        dismissedAgentNoteIds={[]}
         files={[]}
         headerLabelWidth={40}
         headerStatsWidth={16}
@@ -271,8 +278,11 @@ describe("UI components", () => {
         selectedFileId={undefined}
         selectedHunkIndex={0}
         separatorWidth={68}
+        showAgentNotes={false}
         theme={theme}
         width={76}
+        onDismissAgentNote={() => {}}
+        onOpenAgentNotesAtHunk={() => {}}
         onSelectFile={() => {}}
       />,
       80,
@@ -282,7 +292,7 @@ describe("UI components", () => {
     expect(frame).toContain("No files match the current filter.");
   });
 
-  test("App renders the menu bar, multi-file stream, and agent rail together", async () => {
+  test("App renders the menu bar, multi-file stream, and AI badges", async () => {
     const bootstrap = createBootstrap();
     const frame = await captureFrame(<App bootstrap={bootstrap} />, 280, 24);
 
@@ -291,6 +301,7 @@ describe("UI components", () => {
     expect(frame).toContain("beta.ts");
     expect(frame).toContain("@@ -1,1 +1,2 @@");
     expect(frame).toContain("@@ -1,1 +1,1 @@");
-    expect(frame).toContain("Changeset summary");
+    expect(frame).toContain("[AI]");
+    expect(frame).not.toContain("Changeset summary");
   });
 });

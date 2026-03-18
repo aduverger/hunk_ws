@@ -71,5 +71,5 @@ CLI input
 
 - There is an unrelated untracked file named `md` in the repo root. Leave it alone unless the user asks.
 - `.hunk/latest.json` is ignored on purpose. Update it when you change code, but do not commit it.
-- User asked for commits along the way. Prefer small milestone commits rather than one large final commit.
+- Do not auto-commit after making changes. Leave edits uncommitted so the user can review them in `hunk`, and only commit when the user explicitly asks.
 - Keep this doc short and architectural. Fresh-context agents can discover file paths themselves.

@@ -1,6 +1,8 @@
 import type { DiffFile, LayoutMode } from "../../../core/types";
 import { PierreDiffView } from "../../diff/PierreDiffView";
+import type { VisibleAgentNote } from "../../lib/agentAnnotations";
 import { diffSectionId } from "../../lib/ids";
+import { getAnnotatedHunkIndices } from "../../lib/agentAnnotations";
 import { fileLabel } from "../../lib/files";
 import { fitText } from "../../lib/text";
 import type { AppTheme } from "../../themes";
@@ -15,7 +17,10 @@ export function DiffSection({
   separatorWidth,
   showSeparator,
   theme,
+  visibleAgentNotes,
   viewWidth,
+  onDismissAgentNote,
+  onOpenAgentNotesAtHunk,
   onSelect,
 }: {
   file: DiffFile;
@@ -27,11 +32,15 @@ export function DiffSection({
   separatorWidth: number;
   showSeparator: boolean;
   theme: AppTheme;
+  visibleAgentNotes: VisibleAgentNote[];
   viewWidth: number;
+  onDismissAgentNote: (id: string) => void;
+  onOpenAgentNotesAtHunk: (hunkIndex: number) => void;
   onSelect: () => void;
 }) {
   const additionsText = `+${file.stats.additions}`;
   const deletionsText = `-${file.stats.deletions}`;
+  const annotatedHunkIndices = getAnnotatedHunkIndices(file);
 
   return (
     <box
@@ -81,6 +90,10 @@ export function DiffSection({
         layout={layout}
         theme={theme}
         width={viewWidth}
+        annotatedHunkIndices={annotatedHunkIndices}
+        visibleAgentNotes={visibleAgentNotes}
+        onDismissAgentNote={onDismissAgentNote}
+        onOpenAgentNotesAtHunk={onOpenAgentNotesAtHunk}
         selectedHunkIndex={selected ? selectedHunkIndex : -1}
         scrollable={false}
       />

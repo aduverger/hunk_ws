@@ -1,19 +1,25 @@
-import type { ReactNode } from "react";
 import type { AppTheme } from "../../themes";
+import { fitText } from "../../lib/text";
 
 export function AgentCard({
-  children,
+  locationLabel,
+  rationale,
+  onClose,
+  summary,
   theme,
-  title,
+  width,
 }: {
-  children: ReactNode;
+  locationLabel: string;
+  rationale?: string;
+  onClose?: () => void;
+  summary: string;
   theme: AppTheme;
-  title: string;
+  width: number;
 }) {
   return (
     <box
-      title={title}
       style={{
+        width,
         border: true,
         borderColor: theme.accentMuted,
         backgroundColor: theme.panelAlt,
@@ -22,7 +28,23 @@ export function AgentCard({
         gap: 1,
       }}
     >
-      {children}
+      <box
+        style={{
+          width: "100%",
+          height: 1,
+          flexDirection: "row",
+          justifyContent: "space-between",
+        }}
+      >
+        <text fg={theme.accent}>{fitText(locationLabel, Math.max(1, width - (onClose ? 6 : 2)))}</text>
+        {onClose ? (
+          <box onMouseUp={onClose}>
+            <text fg={theme.muted}>[x]</text>
+          </box>
+        ) : null}
+      </box>
+      <text fg={theme.text}>{summary}</text>
+      {rationale ? <text fg={theme.muted}>{rationale}</text> : null}
     </box>
   );
 }

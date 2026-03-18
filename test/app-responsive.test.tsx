@@ -134,7 +134,7 @@ describe("responsive shell", () => {
     const { ultraWide, full, medium, tight } = await captureResponsiveFrames();
 
     expect(ultraWide).toContain("M alpha.ts");
-    expect(ultraWide).toContain("Changeset summary");
+    expect(ultraWide).not.toContain("Changeset summary");
 
     expect(full).toContain("M alpha.ts");
     expect(full).not.toContain("Changeset summary");
@@ -162,6 +162,7 @@ describe("responsive shell", () => {
     expect(forcedSplit).not.toContain("drag divider resize");
 
     expect(forcedStack).not.toContain("Files");
+    expect(forcedStack).not.toContain("Changeset summary");
     expect(forcedStack).not.toContain("│");
     expect(forcedStack).not.toContain("drag divider resize");
   });
@@ -196,4 +197,5 @@ describe("responsive shell", () => {
       });
     }
   });
+
 });

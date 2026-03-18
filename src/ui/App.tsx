@@ -1,75 +1,33 @@
 import { MouseButton, type KeyEvent, type MouseEvent as TuiMouseEvent, type ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
-import type { Hunk } from "@pierre/diffs";
 import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
-import type { AppBootstrap, DiffFile, LayoutMode } from "../core/types";
+import type { AppBootstrap, LayoutMode } from "../core/types";
 import { HelpDialog } from "./components/chrome/HelpDialog";
 import { MenuBar } from "./components/chrome/MenuBar";
 import { MenuDropdown } from "./components/chrome/MenuDropdown";
 import { MENU_ORDER, buildMenuSpecs, menuWidth, nextMenuItemIndex, type MenuEntry, type MenuId } from "./components/chrome/menu";
 import { StatusBar } from "./components/chrome/StatusBar";
-import { AgentRail } from "./components/panes/AgentRail";
 import { DiffPane } from "./components/panes/DiffPane";
 import { FilesPane } from "./components/panes/FilesPane";
 import { PaneDivider } from "./components/panes/PaneDivider";
+import { getSelectedAnnotations } from "./lib/agentAnnotations";
 import { buildFileListEntry } from "./lib/files";
-import { diffSectionId, fileRowId } from "./lib/ids";
-import { FULL_VIEWPORT_MIN_WIDTH, resolveResponsiveLayout, resolveResponsiveViewport } from "./lib/responsive";
+import { buildHunkCursors, findNextHunkCursor } from "./lib/hunks";
+import { diffHunkId, diffSectionId, fileRowId } from "./lib/ids";
+import { resolveResponsiveLayout } from "./lib/responsive";
 import { resolveTheme, THEMES } from "./themes";
 
 type FocusArea = "files" | "filter";
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
-}
-
-function overlap(rangeA: [number, number], rangeB: [number, number]) {
-  return rangeA[0] <= rangeB[1] && rangeB[0] <= rangeA[1];
-}
-
-function hunkLineRange(hunk: Hunk) {
-  const newEnd = Math.max(hunk.additionStart, hunk.additionStart + Math.max(hunk.additionLines, 1) - 1);
-  const oldEnd = Math.max(hunk.deletionStart, hunk.deletionStart + Math.max(hunk.deletionLines, 1) - 1);
-
-  return {
-    oldRange: [hunk.deletionStart, oldEnd] as [number, number],
-    newRange: [hunk.additionStart, newEnd] as [number, number],
-  };
-}
-
-function getSelectedAnnotations(file: DiffFile | undefined, hunk: Hunk | undefined) {
-  if (!file?.agent) {
-    return [];
-  }
-
-  if (!hunk) {
-    return file.agent.annotations;
-  }
-
-  const hunkRange = hunkLineRange(hunk);
-
-  return file.agent.annotations.filter((annotation) => {
-    if (annotation.newRange && overlap(annotation.newRange, hunkRange.newRange)) {
-      return true;
-    }
-
-    if (annotation.oldRange && overlap(annotation.oldRange, hunkRange.oldRange)) {
-      return true;
-    }
-
-    return false;
-  });
 }
 
 export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
   const FILES_MIN_WIDTH = 22;
   const DIFF_MIN_WIDTH = 48;
-  const AGENT_WIDTH = 38;
-  const AGENT_GAP = 1;
   const BODY_PADDING = 2;
   const DIVIDER_WIDTH = 1;
   const DIVIDER_HIT_WIDTH = 5;
-  const AGENT_RAIL_MIN_VIEWPORT_WIDTH = FULL_VIEWPORT_MIN_WIDTH + AGENT_GAP + AGENT_WIDTH;
 
   const renderer = useRenderer();
   const terminal = useTerminalDimensions();
@@ -77,9 +35,7 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
   const diffScrollRef = useRef<ScrollBoxRenderable | null>(null);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(bootstrap.initialMode);
   const [themeId, setThemeId] = useState(() => resolveTheme(bootstrap.initialTheme, renderer.themeMode).id);
-  const [showAgentPanel, setShowAgentPanel] = useState(
-    () => Boolean(bootstrap.changeset.agentSummary) || bootstrap.changeset.files.some((file) => file.agent),
-  );
+  const [showAgentNotes, setShowAgentNotes] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [focusArea, setFocusArea] = useState<FocusArea>("files");
   const [activeMenuId, setActiveMenuId] = useState<MenuId | null>(null);
@@ -88,6 +44,7 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
   const [filesPaneWidth, setFilesPaneWidth] = useState(34);
   const [resizeDragOriginX, setResizeDragOriginX] = useState<number | null>(null);
   const [resizeStartWidth, setResizeStartWidth] = useState<number | null>(null);
+  const [dismissedAgentNoteIds, setDismissedAgentNoteIds] = useState<string[]>([]);
   const [selectedFileId, setSelectedFileId] = useState(bootstrap.changeset.files[0]?.id ?? "");
   const [selectedHunkIndex, setSelectedHunkIndex] = useState(0);
   const deferredFilter = useDeferredValue(filter);
@@ -107,14 +64,13 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     filteredFiles.find((file) => file.id === selectedFileId) ??
     bootstrap.changeset.files.find((file) => file.id === selectedFileId) ??
     filteredFiles[0];
+  const hunkCursors = buildHunkCursors(filteredFiles);
 
   const bodyWidth = Math.max(0, terminal.width - BODY_PADDING);
-  const shellViewport = resolveResponsiveViewport(terminal.width);
-  const effectiveShowAgentPanel = showAgentPanel && shellViewport === "full" && terminal.width >= AGENT_RAIL_MIN_VIEWPORT_WIDTH;
-  const centerWidth = Math.max(0, bodyWidth - (effectiveShowAgentPanel ? AGENT_WIDTH + AGENT_GAP : 0));
   const responsiveLayout = resolveResponsiveLayout(layoutMode, terminal.width);
-  const resolvedLayout = responsiveLayout.layout;
   const showFilesPane = responsiveLayout.showFilesPane;
+  const centerWidth = bodyWidth;
+  const resolvedLayout = responsiveLayout.layout;
   const currentHunk = selectedFile?.metadata.hunks[selectedHunkIndex];
   const activeAnnotations = getSelectedAnnotations(selectedFile, currentHunk);
   const availableCenterWidth = showFilesPane ? Math.max(0, centerWidth - DIVIDER_WIDTH) : Math.max(0, centerWidth);
@@ -141,7 +97,7 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
 
   useEffect(() => {
     renderer.intermediateRender();
-  }, [effectiveShowAgentPanel, renderer, resolvedLayout, showFilesPane, terminal.height, terminal.width]);
+  }, [renderer, resolvedLayout, showFilesPane, terminal.height, terminal.width]);
 
   useEffect(() => {
     if (!selectedFile && filteredFiles[0]) {
@@ -173,25 +129,43 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     }
 
     filesScrollRef.current?.scrollChildIntoView(fileRowId(selectedFile.id));
-    diffScrollRef.current?.scrollChildIntoView(diffSectionId(selectedFile.id));
-  }, [selectedFile]);
-
-  const moveHunk = (delta: number) => {
-    if (!selectedFile || selectedFile.metadata.hunks.length === 0) {
+    if (selectedFile.metadata.hunks[selectedHunkIndex]) {
+      diffScrollRef.current?.scrollChildIntoView(diffHunkId(selectedFile.id, selectedHunkIndex));
       return;
     }
 
-    setSelectedHunkIndex((current) => clamp(current + delta, 0, selectedFile.metadata.hunks.length - 1));
+    diffScrollRef.current?.scrollChildIntoView(diffSectionId(selectedFile.id));
+  }, [selectedFile, selectedHunkIndex]);
+
+  useEffect(() => {
+    setDismissedAgentNoteIds([]);
+  }, [selectedFile?.id, selectedHunkIndex]);
+
+  const moveHunk = (delta: number) => {
+    const nextCursor = findNextHunkCursor(hunkCursors, selectedFile?.id, selectedHunkIndex, delta);
+    if (!nextCursor) {
+      return;
+    }
+
+    filesScrollRef.current?.scrollChildIntoView(fileRowId(nextCursor.fileId));
+    diffScrollRef.current?.scrollChildIntoView(diffHunkId(nextCursor.fileId, nextCursor.hunkIndex));
+
+    setSelectedFileId(nextCursor.fileId);
+    setSelectedHunkIndex(nextCursor.hunkIndex);
   };
 
   const jumpToFile = (fileId: string, nextHunkIndex = 0) => {
     filesScrollRef.current?.scrollChildIntoView(fileRowId(fileId));
-    diffScrollRef.current?.scrollChildIntoView(diffSectionId(fileId));
+    const nextFile =
+      filteredFiles.find((file) => file.id === fileId) ?? bootstrap.changeset.files.find((file) => file.id === fileId);
+    if (nextFile?.metadata.hunks[nextHunkIndex]) {
+      diffScrollRef.current?.scrollChildIntoView(diffHunkId(fileId, nextHunkIndex));
+    } else {
+      diffScrollRef.current?.scrollChildIntoView(diffSectionId(fileId));
+    }
 
-    startTransition(() => {
-      setSelectedFileId(fileId);
-      setSelectedHunkIndex(nextHunkIndex);
-    });
+    setSelectedFileId(fileId);
+    setSelectedHunkIndex(nextHunkIndex);
   };
 
   const moveFile = (delta: number) => {
@@ -228,6 +202,30 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
 
   const closeMenu = () => {
     setActiveMenuId(null);
+  };
+
+  const openAgentNotes = () => {
+    setDismissedAgentNoteIds([]);
+    setShowAgentNotes(true);
+  };
+
+  const toggleAgentNotes = () => {
+    if (showAgentNotes) {
+      setShowAgentNotes(false);
+      setDismissedAgentNoteIds([]);
+      return;
+    }
+
+    openAgentNotes();
+  };
+
+  const dismissAgentNote = (noteId: string) => {
+    setDismissedAgentNoteIds((current) => [...current, noteId]);
+  };
+
+  const openAgentNotesAtHunk = (fileId: string, hunkIndex: number) => {
+    jumpToFile(fileId, hunkIndex);
+    openAgentNotes();
   };
 
   const beginFilesPaneResize = (event: TuiMouseEvent) => {
@@ -320,10 +318,10 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
       { kind: "separator" },
       {
         kind: "item",
-        label: "Agent rail",
+        label: "Agent notes",
         hint: "a",
-        checked: showAgentPanel,
-        action: () => setShowAgentPanel((current) => !current),
+        checked: showAgentNotes,
+        action: toggleAgentNotes,
       },
     ],
     navigate: [
@@ -339,18 +337,6 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
         hint: "]",
         action: () => moveHunk(1),
       },
-      {
-        kind: "item",
-        label: "Previous file",
-        hint: "k",
-        action: () => moveFile(-1),
-      },
-      {
-        kind: "item",
-        label: "Next file",
-        hint: "j",
-        action: () => moveFile(1),
-      },
       { kind: "separator" },
       {
         kind: "item",
@@ -363,10 +349,10 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     agent: [
       {
         kind: "item",
-        label: "Agent rail",
+        label: "Agent notes",
         hint: "a",
-        checked: showAgentPanel,
-        action: () => setShowAgentPanel((current) => !current),
+        checked: showAgentNotes,
+        action: toggleAgentNotes,
       },
       {
         kind: "item",
@@ -567,7 +553,7 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     }
 
     if (key.name === "a") {
-      setShowAgentPanel((current) => !current);
+      toggleAgentNotes();
       closeMenu();
       return;
     }
@@ -580,18 +566,6 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
 
     if (key.name === "]") {
       moveHunk(1);
-      closeMenu();
-      return;
-    }
-
-    if (key.name === "j") {
-      moveFile(1);
-      closeMenu();
-      return;
-    }
-
-    if (key.name === "k") {
-      moveFile(-1);
       closeMenu();
       return;
     }
@@ -668,7 +642,9 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
         ) : null}
 
         <DiffPane
+          activeAnnotations={activeAnnotations}
           diffContentWidth={diffContentWidth}
+          dismissedAgentNoteIds={dismissedAgentNoteIds}
           files={filteredFiles}
           headerLabelWidth={diffHeaderLabelWidth}
           headerStatsWidth={diffHeaderStatsWidth}
@@ -677,22 +653,13 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
           selectedFileId={selectedFile?.id}
           selectedHunkIndex={selectedHunkIndex}
           separatorWidth={diffSeparatorWidth}
+          showAgentNotes={showAgentNotes}
           theme={activeTheme}
           width={diffPaneWidth}
+          onDismissAgentNote={dismissAgentNote}
+          onOpenAgentNotesAtHunk={openAgentNotesAtHunk}
           onSelectFile={jumpToFile}
         />
-
-        {effectiveShowAgentPanel ? (
-          <AgentRail
-            activeAnnotations={activeAnnotations}
-            changesetSummary={bootstrap.changeset.summary}
-            file={selectedFile}
-            marginLeft={AGENT_GAP}
-            summary={bootstrap.changeset.agentSummary}
-            theme={activeTheme}
-            width={AGENT_WIDTH}
-          />
-        ) : null}
       </box>
 
       <StatusBar

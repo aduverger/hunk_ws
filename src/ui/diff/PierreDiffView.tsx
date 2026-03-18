@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
-import type { DiffFile, LayoutMode } from "../../core/types";
+import { useEffect, useState, type ReactNode } from "react";
+import type { AgentAnnotation, DiffFile, LayoutMode } from "../../core/types";
+import { AgentCard } from "../components/panes/AgentCard";
+import { annotationLocationLabel, type VisibleAgentNote } from "../lib/agentAnnotations";
+import { diffHunkId } from "../lib/ids";
 import type { AppTheme } from "../themes";
 import {
   buildSplitRows,
@@ -249,15 +252,25 @@ function findMaxLineNumber(file: DiffFile) {
   return Math.max(highest, 1);
 }
 
-function renderHeaderRow(row: Extract<DiffRow, { type: "collapsed" | "hunk-header" }>, width: number, theme: AppTheme, selected: boolean) {
+function renderHeaderRow(
+  row: Extract<DiffRow, { type: "collapsed" | "hunk-header" }>,
+  width: number,
+  theme: AppTheme,
+  selected: boolean,
+  annotated: boolean,
+  onOpenAgentNotesAtHunk?: (hunkIndex: number) => void,
+) {
+  const badgeText = annotated ? "[AI]" : "";
+  const badgeWidth = annotated ? badgeText.length + 1 : 0;
   const label =
     row.type === "collapsed"
-      ? fitText(`··· ${row.text} ···`, Math.max(0, width - 1))
-      : fitText(row.text, Math.max(0, width - 1));
+      ? fitText(`··· ${row.text} ···`, Math.max(0, width - 1 - badgeWidth))
+      : fitText(row.text, Math.max(0, width - 1 - badgeWidth));
 
   return (
     <box
       key={row.key}
+      id={row.type === "hunk-header" ? diffHunkId(row.fileId, row.hunkIndex) : undefined}
       style={{
         width: "100%",
         height: 1,
@@ -268,29 +281,149 @@ function renderHeaderRow(row: Extract<DiffRow, { type: "collapsed" | "hunk-heade
       <box style={{ width: 1, height: 1 }}>
         <text fg={selected ? theme.accent : theme.panelAlt}>{marker(selected)}</text>
       </box>
-      <box style={{ width: Math.max(0, width - 1), height: 1 }}>
+      <box style={{ width: Math.max(0, width - 1 - badgeWidth), height: 1 }}>
         <text fg={row.type === "collapsed" ? theme.muted : theme.badgeNeutral}>{label}</text>
       </box>
+      {annotated ? (
+        <box style={{ width: badgeWidth, height: 1 }} onMouseUp={() => onOpenAgentNotesAtHunk?.(row.hunkIndex)}>
+          <text fg={theme.accent}>{badgeText}</text>
+        </box>
+      ) : null}
     </box>
   );
 }
 
-function renderRow(row: DiffRow, layout: Exclude<LayoutMode, "auto">, width: number, lineNumberDigits: number, theme: AppTheme, selectedHunkIndex: number) {
-  const selected = row.hunkIndex === selectedHunkIndex;
-
-  if (row.type === "collapsed" || row.type === "hunk-header") {
-    return renderHeaderRow(row, width, theme, selected);
+function noteAnchor(annotation: AgentAnnotation) {
+  if (annotation.newRange) {
+    return {
+      side: "new" as const,
+      lineNumber: annotation.newRange[0],
+    };
   }
 
-  if (layout === "split" && row.type === "split-line") {
+  if (annotation.oldRange) {
+    return {
+      side: "old" as const,
+      lineNumber: annotation.oldRange[0],
+    };
+  }
+
+  return null;
+}
+
+function rowMatchesNote(row: Extract<DiffRow, { type: "split-line" | "stack-line" }>, note: VisibleAgentNote) {
+  const anchor = noteAnchor(note.annotation);
+  if (!anchor) {
+    return false;
+  }
+
+  if (row.type === "split-line") {
+    return anchor.side === "new" ? row.right.lineNumber === anchor.lineNumber : row.left.lineNumber === anchor.lineNumber;
+  }
+
+  return anchor.side === "new" ? row.cell.newLineNumber === anchor.lineNumber : row.cell.oldLineNumber === anchor.lineNumber;
+}
+
+function buildAnchoredNotes(rows: DiffRow[], visibleAgentNotes: VisibleAgentNote[], selectedHunkIndex: number) {
+  const anchoredNotes = new Map<string, VisibleAgentNote[]>();
+
+  if (visibleAgentNotes.length === 0 || selectedHunkIndex < 0) {
+    return anchoredNotes;
+  }
+
+  const selectedHunkRows = rows.filter((row) => row.hunkIndex === selectedHunkIndex);
+  const lineRows = selectedHunkRows.filter(
+    (row): row is Extract<DiffRow, { type: "split-line" | "stack-line" }> => row.type === "split-line" || row.type === "stack-line",
+  );
+  const headerRow = selectedHunkRows.find((row) => row.type === "hunk-header");
+
+  for (const note of visibleAgentNotes) {
+    const anchorRow = lineRows.find((row) => rowMatchesNote(row, note));
+    const targetKey = anchorRow?.key ?? headerRow?.key;
+    if (!targetKey) {
+      continue;
+    }
+
+    const current = anchoredNotes.get(targetKey) ?? [];
+    current.push(note);
+    anchoredNotes.set(targetKey, current);
+  }
+
+  return anchoredNotes;
+}
+
+function renderAnchoredNotes(
+  anchoredNotes: VisibleAgentNote[],
+  file: DiffFile,
+  width: number,
+  theme: AppTheme,
+  onDismissAgentNote?: (id: string) => void,
+) {
+  if (anchoredNotes.length === 0) {
+    return null;
+  }
+
+  const noteWidth = Math.min(Math.max(28, Math.floor(width * 0.46)), Math.max(28, width - 6));
+
+  return (
+    <box
+      style={{
+        width: "100%",
+        flexDirection: "column",
+        gap: 1,
+        paddingRight: 2,
+        alignItems: "flex-end",
+      }}
+    >
+      {anchoredNotes.map((note) => (
+        <AgentCard
+          key={note.id}
+          locationLabel={annotationLocationLabel(file, note.annotation)}
+          rationale={note.annotation.rationale}
+          summary={note.annotation.summary}
+          theme={theme}
+          width={noteWidth}
+          onClose={onDismissAgentNote ? () => onDismissAgentNote(note.id) : undefined}
+        />
+      ))}
+    </box>
+  );
+}
+
+function renderRow(
+  row: DiffRow,
+  file: DiffFile,
+  layout: Exclude<LayoutMode, "auto">,
+  width: number,
+  lineNumberDigits: number,
+  theme: AppTheme,
+  selectedHunkIndex: number,
+  annotatedHunkIndices: Set<number>,
+  anchoredNotes: VisibleAgentNote[],
+  onDismissAgentNote?: (id: string) => void,
+  onOpenAgentNotesAtHunk?: (hunkIndex: number) => void,
+) {
+  const selected = row.hunkIndex === selectedHunkIndex;
+  let baseRow: ReactNode;
+
+  if (row.type === "collapsed" || row.type === "hunk-header") {
+    baseRow = renderHeaderRow(
+      row,
+      width,
+      theme,
+      selected,
+      row.type === "hunk-header" && annotatedHunkIndices.has(row.hunkIndex),
+      onOpenAgentNotesAtHunk,
+    );
+  } else if (layout === "split" && row.type === "split-line") {
     const markerWidth = 1;
     const separatorWidth = 1;
     const usableWidth = Math.max(0, width - markerWidth - separatorWidth);
     const leftWidth = Math.max(0, Math.floor(usableWidth / 2));
     const rightWidth = Math.max(0, usableWidth - leftWidth);
 
-    return (
-      <box key={row.key} style={{ width: "100%", height: 1, flexDirection: "row" }}>
+    baseRow = (
+      <box style={{ width: "100%", height: 1, flexDirection: "row" }}>
         <box style={{ width: markerWidth, height: 1 }}>
           <text fg={selected ? theme.accent : theme.panel}>{marker(selected)}</text>
         </box>
@@ -307,37 +440,50 @@ function renderRow(row: DiffRow, layout: Exclude<LayoutMode, "auto">, width: num
         {renderSplitCell(row.right, rightWidth, lineNumberDigits, theme, `${row.key}:right`)}
       </box>
     );
-  }
-
-  if (row.type === "stack-line") {
-    return (
-      <box key={row.key} style={{ width: "100%", height: 1, flexDirection: "row" }}>
+  } else if (row.type === "stack-line") {
+    baseRow = (
+      <box style={{ width: "100%", height: 1, flexDirection: "row" }}>
         <box style={{ width: 1, height: 1 }}>
           <text fg={selected ? theme.accent : theme.panel}>{marker(selected)}</text>
         </box>
         {renderStackCell(row.cell, Math.max(0, width - 1), lineNumberDigits, theme, `${row.key}:stack`)}
       </box>
     );
+  } else {
+    baseRow = (
+      <box style={{ width: "100%", height: 1 }}>
+        <text fg={theme.muted}>Unsupported row.</text>
+      </box>
+    );
   }
 
   return (
-    <box key={row.key} style={{ width: "100%", height: 1 }}>
-      <text fg={theme.muted}>Unsupported row.</text>
+    <box key={`${row.key}:anchored`} style={{ width: "100%", flexDirection: "column" }}>
+      {baseRow}
+      {renderAnchoredNotes(anchoredNotes, file, width, theme, onDismissAgentNote)}
     </box>
   );
 }
 
 export function PierreDiffView({
+  annotatedHunkIndices = new Set<number>(),
   file,
   layout,
+  onDismissAgentNote,
+  onOpenAgentNotesAtHunk,
   theme,
+  visibleAgentNotes = [],
   width,
   selectedHunkIndex,
   scrollable = true,
 }: {
+  annotatedHunkIndices?: Set<number>;
   file: DiffFile | undefined;
   layout: Exclude<LayoutMode, "auto">;
+  onDismissAgentNote?: (id: string) => void;
+  onOpenAgentNotesAtHunk?: (hunkIndex: number) => void;
   theme: AppTheme;
+  visibleAgentNotes?: VisibleAgentNote[];
   width: number;
   selectedHunkIndex: number;
   scrollable?: boolean;
@@ -399,10 +545,25 @@ export function PierreDiffView({
 
   const highlighted = highlightedDiffs[file.id] ?? null;
   const rows = layout === "split" ? buildSplitRows(file, highlighted, theme) : buildStackRows(file, highlighted, theme);
+  const anchoredNotes = buildAnchoredNotes(rows, visibleAgentNotes, selectedHunkIndex);
   const lineNumberDigits = String(findMaxLineNumber(file)).length;
   const content = (
     <box style={{ width: "100%", flexDirection: "column" }}>
-      {rows.map((row) => renderRow(row, layout, width, lineNumberDigits, theme, selectedHunkIndex))}
+      {rows.map((row) =>
+        renderRow(
+          row,
+          file,
+          layout,
+          width,
+          lineNumberDigits,
+          theme,
+          selectedHunkIndex,
+          annotatedHunkIndices,
+          anchoredNotes.get(row.key) ?? [],
+          onDismissAgentNote,
+          onOpenAgentNotesAtHunk,
+        ),
+      )}
     </box>
   );
 

@@ -5,3 +5,7 @@ export function fileRowId(fileId: string) {
 export function diffSectionId(fileId: string) {
   return `diff-section:${fileId}`;
 }
+
+export function diffHunkId(fileId: string, hunkIndex: number) {
+  return `diff-hunk:${fileId}:${hunkIndex}`;
+}

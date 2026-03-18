@@ -64,12 +64,14 @@ export type DiffRow =
   | {
       type: "collapsed" | "hunk-header";
       key: string;
+      fileId: string;
       hunkIndex: number;
       text: string;
     }
   | {
       type: "split-line";
       key: string;
+      fileId: string;
       hunkIndex: number;
       left: SplitLineCell;
       right: SplitLineCell;
@@ -77,6 +79,7 @@ export type DiffRow =
   | {
       type: "stack-line";
       key: string;
+      fileId: string;
       hunkIndex: number;
       cell: StackLineCell;
     };
@@ -283,6 +286,7 @@ export function buildSplitRows(file: DiffFile, highlighted: HighlightedDiffCode 
       rows.push({
         type: "collapsed",
         key: `${file.id}:collapsed:${hunkIndex}`,
+        fileId: file.id,
         hunkIndex,
         text: collapsedRowText(hunk.collapsedBefore),
       });
@@ -291,6 +295,7 @@ export function buildSplitRows(file: DiffFile, highlighted: HighlightedDiffCode 
     rows.push({
       type: "hunk-header",
       key: `${file.id}:header:${hunkIndex}`,
+      fileId: file.id,
       hunkIndex,
       text: hunkHeader(hunk),
     });
@@ -306,6 +311,7 @@ export function buildSplitRows(file: DiffFile, highlighted: HighlightedDiffCode 
           rows.push({
             type: "split-line",
             key: `${file.id}:split:${hunkIndex}:context:${deletionLineIndex + offset}:${additionLineIndex + offset}`,
+            fileId: file.id,
             hunkIndex,
             left: makeSplitCell(
               "context",
@@ -339,6 +345,7 @@ export function buildSplitRows(file: DiffFile, highlighted: HighlightedDiffCode 
         rows.push({
           type: "split-line",
           key: `${file.id}:split:${hunkIndex}:change:${deletionLineIndex + offset}:${additionLineIndex + offset}`,
+          fileId: file.id,
           hunkIndex,
           left: hasDeletion
             ? makeSplitCell(
@@ -373,6 +380,7 @@ export function buildSplitRows(file: DiffFile, highlighted: HighlightedDiffCode 
     rows.push({
       type: "collapsed",
       key: `${file.id}:collapsed:trailing`,
+      fileId: file.id,
       hunkIndex: Math.max(file.metadata.hunks.length - 1, 0),
       text: collapsedRowText(trailingLines),
     });
@@ -391,6 +399,7 @@ export function buildStackRows(file: DiffFile, highlighted: HighlightedDiffCode 
       rows.push({
         type: "collapsed",
         key: `${file.id}:stack:collapsed:${hunkIndex}`,
+        fileId: file.id,
         hunkIndex,
         text: collapsedRowText(hunk.collapsedBefore),
       });
@@ -399,6 +408,7 @@ export function buildStackRows(file: DiffFile, highlighted: HighlightedDiffCode 
     rows.push({
       type: "hunk-header",
       key: `${file.id}:stack:header:${hunkIndex}`,
+      fileId: file.id,
       hunkIndex,
       text: hunkHeader(hunk),
     });
@@ -414,6 +424,7 @@ export function buildStackRows(file: DiffFile, highlighted: HighlightedDiffCode 
           rows.push({
             type: "stack-line",
             key: `${file.id}:stack:${hunkIndex}:context:${deletionLineIndex + offset}:${additionLineIndex + offset}`,
+            fileId: file.id,
             hunkIndex,
             cell: makeStackCell(
               "context",
@@ -437,6 +448,7 @@ export function buildStackRows(file: DiffFile, highlighted: HighlightedDiffCode 
         rows.push({
           type: "stack-line",
           key: `${file.id}:stack:${hunkIndex}:deletion:${deletionLineIndex + offset}`,
+          fileId: file.id,
           hunkIndex,
           cell: makeStackCell(
             "deletion",
@@ -453,6 +465,7 @@ export function buildStackRows(file: DiffFile, highlighted: HighlightedDiffCode 
         rows.push({
           type: "stack-line",
           key: `${file.id}:stack:${hunkIndex}:addition:${additionLineIndex + offset}`,
+          fileId: file.id,
           hunkIndex,
           cell: makeStackCell(
             "addition",
@@ -477,6 +490,7 @@ export function buildStackRows(file: DiffFile, highlighted: HighlightedDiffCode 
     rows.push({
       type: "collapsed",
       key: `${file.id}:stack:collapsed:trailing`,
+      fileId: file.id,
       hunkIndex: Math.max(file.metadata.hunks.length - 1, 0),
       text: collapsedRowText(trailingLines),
     });
