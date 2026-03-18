@@ -182,19 +182,17 @@ function renderSplitCell(
   const gutterText = `${cell.lineNumber ? String(cell.lineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits)} ${cell.sign}`.padEnd(gutterWidth);
 
   return (
-    <box key={keyPrefix} style={{ width, height: 1 }}>
-      <text>
-        {prefix ? (
-          <span fg={prefix.fg} bg={prefix.bg}>
-            {prefix.text}
-          </span>
-        ) : null}
-        <span fg={palette.numberColor} bg={palette.gutterBg}>
-          {gutterText}
+    <>
+      {prefix ? (
+        <span key={`${keyPrefix}:prefix`} fg={prefix.fg} bg={prefix.bg}>
+          {prefix.text}
         </span>
-        {renderInlineSpans(cell.spans, contentWidth, theme.text, palette.contentBg, `${keyPrefix}:content`)}
-      </text>
-    </box>
+      ) : null}
+      <span key={`${keyPrefix}:gutter`} fg={palette.numberColor} bg={palette.gutterBg}>
+        {gutterText}
+      </span>
+      {renderInlineSpans(cell.spans, contentWidth, theme.text, palette.contentBg, `${keyPrefix}:content`)}
+    </>
   );
 }
 
@@ -220,17 +218,15 @@ function renderStackCell(
   const newNumber = cell.newLineNumber ? String(cell.newLineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits);
 
   return (
-    <box key={keyPrefix} style={{ width, height: 1 }}>
-      <text>
-        {prefix ? (
-          <span fg={prefix.fg} bg={prefix.bg}>
-            {prefix.text}
-          </span>
-        ) : null}
-        <span fg={palette.numberColor} bg={palette.gutterBg}>{`${oldNumber} ${newNumber} ${cell.sign}`.padEnd(gutterWidth)}</span>
-        {renderInlineSpans(cell.spans, contentWidth, theme.text, palette.contentBg, `${keyPrefix}:content`)}
-      </text>
-    </box>
+    <>
+      {prefix ? (
+        <span key={`${keyPrefix}:prefix`} fg={prefix.fg} bg={prefix.bg}>
+          {prefix.text}
+        </span>
+      ) : null}
+      <span key={`${keyPrefix}:gutter`} fg={palette.numberColor} bg={palette.gutterBg}>{`${oldNumber} ${newNumber} ${cell.sign}`.padEnd(gutterWidth)}</span>
+      {renderInlineSpans(cell.spans, contentWidth, theme.text, palette.contentBg, `${keyPrefix}:content`)}
+    </>
   );
 }
 
@@ -423,27 +419,31 @@ function renderRow(
     const rightWidth = Math.max(0, separatorWidth + usableWidth - Math.floor(usableWidth / 2));
 
     baseRow = (
-      <box style={{ width: "100%", height: 1, flexDirection: "row" }}>
-        {renderSplitCell(row.left, leftWidth, lineNumberDigits, theme, `${row.key}:left`, {
-          text: marker(selected),
-          fg: selected ? theme.accent : theme.panel,
-          bg: theme.panel,
-        })}
-        {renderSplitCell(row.right, rightWidth, lineNumberDigits, theme, `${row.key}:right`, {
-          text: "│",
-          fg: theme.border,
-          bg: theme.panel,
-        })}
+      <box style={{ width: "100%", height: 1 }}>
+        <text>
+          {renderSplitCell(row.left, leftWidth, lineNumberDigits, theme, `${row.key}:left`, {
+            text: marker(selected),
+            fg: selected ? theme.accent : theme.panel,
+            bg: theme.panel,
+          })}
+          {renderSplitCell(row.right, rightWidth, lineNumberDigits, theme, `${row.key}:right`, {
+            text: "│",
+            fg: theme.border,
+            bg: theme.panel,
+          })}
+        </text>
       </box>
     );
   } else if (row.type === "stack-line") {
     baseRow = (
-      <box style={{ width: "100%", height: 1, flexDirection: "row" }}>
-        {renderStackCell(row.cell, width, lineNumberDigits, theme, `${row.key}:stack`, {
-          text: marker(selected),
-          fg: selected ? theme.accent : theme.panel,
-          bg: theme.panel,
-        })}
+      <box style={{ width: "100%", height: 1 }}>
+        <text>
+          {renderStackCell(row.cell, width, lineNumberDigits, theme, `${row.key}:stack`, {
+            text: marker(selected),
+            fg: selected ? theme.accent : theme.panel,
+            bg: theme.panel,
+          })}
+        </text>
       </box>
     );
   } else {
