@@ -33,10 +33,9 @@ export function DiffPane({
 }) {
   return (
     <box
-      title="Diff"
       style={{
         width,
-        border: ["top", "bottom"],
+        border: ["top"],
         borderColor: theme.border,
         backgroundColor: theme.panel,
         padding: 1,

@@ -612,7 +612,16 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
       />
 
       <box
-        style={{ flexGrow: 1, flexDirection: "row", gap: 0, padding: 1, position: "relative" }}
+        style={{
+          flexGrow: 1,
+          flexDirection: "row",
+          gap: 0,
+          paddingLeft: 1,
+          paddingRight: 1,
+          paddingTop: 0,
+          paddingBottom: 0,
+          position: "relative",
+        }}
         onMouseDrag={updateFilesPaneResize}
         onMouseDragEnd={endFilesPaneResize}
         onMouseUp={(event) => {

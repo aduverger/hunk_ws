@@ -21,10 +21,9 @@ export function AgentRail({
 }) {
   return (
     <box
-      title="Agent"
       style={{
         width,
-        border: ["top", "bottom", "left"],
+        border: ["top", "left"],
         borderColor: theme.border,
         backgroundColor: theme.panel,
         padding: 1,

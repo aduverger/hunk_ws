@@ -25,10 +25,9 @@ export function FilesPane({
 }) {
   return (
     <box
-      title="Files"
       style={{
         width,
-        border: ["top", "bottom"],
+        border: ["top"],
         borderColor: theme.border,
         backgroundColor: theme.panel,
         padding: 1,

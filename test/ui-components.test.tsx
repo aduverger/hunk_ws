@@ -124,7 +124,6 @@ describe("UI components", () => {
       12,
     );
 
-    expect(frame).toContain("Files");
     expect(frame).toContain("M alpha.ts");
     expect(frame).toContain("+2  -1  agent");
     expect(frame).toContain("M beta.ts");
@@ -177,7 +176,6 @@ describe("UI components", () => {
       24,
     );
 
-    expect(frame).toContain("Agent");
     expect(frame).toContain("Changeset summary");
     expect(frame).toContain("alpha.ts note");
     expect(frame).toContain("Annotation for alpha.ts");

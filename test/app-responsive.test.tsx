@@ -133,10 +133,10 @@ describe("responsive shell", () => {
   test("App adjusts the visible panes and diff layout on live resize", async () => {
     const { ultraWide, full, medium, tight } = await captureResponsiveFrames();
 
-    expect(ultraWide).toContain("Files");
+    expect(ultraWide).toContain("M alpha.ts");
     expect(ultraWide).toContain("Changeset summary");
 
-    expect(full).toContain("Files");
+    expect(full).toContain("M alpha.ts");
     expect(full).not.toContain("Changeset summary");
     expect(full).toContain("drag divider resize");
     expect(full).toContain("│");
