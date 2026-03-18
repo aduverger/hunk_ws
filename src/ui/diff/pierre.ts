@@ -6,8 +6,8 @@ import {
   type FileDiffMetadata,
   type Hunk,
 } from "@pierre/diffs";
-import type { DiffFile } from "../core/types";
-import type { AppTheme } from "./themes";
+import type { DiffFile } from "../../core/types";
+import type { AppTheme } from "../themes";
 
 const PIERRE_THEME = {
   light: "pierre-light",

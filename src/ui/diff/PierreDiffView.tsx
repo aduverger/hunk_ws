@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { DiffFile, LayoutMode } from "../core/types";
-import type { AppTheme } from "./themes";
+import type { DiffFile, LayoutMode } from "../../core/types";
+import type { AppTheme } from "../themes";
 import {
   buildSplitRows,
   buildStackRows,

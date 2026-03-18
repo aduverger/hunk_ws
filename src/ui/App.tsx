@@ -3,34 +3,20 @@ import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react"
 import type { Hunk } from "@pierre/diffs";
 import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
 import type { AppBootstrap, DiffFile, LayoutMode } from "../core/types";
-import { PierreDiffView } from "./PierreDiffView";
-import { resolveTheme, THEMES, type AppTheme } from "./themes";
+import { HelpDialog } from "./components/chrome/HelpDialog";
+import { MenuBar } from "./components/chrome/MenuBar";
+import { MenuDropdown } from "./components/chrome/MenuDropdown";
+import { MENU_ORDER, buildMenuSpecs, menuWidth, nextMenuItemIndex, type MenuEntry, type MenuId } from "./components/chrome/menu";
+import { StatusBar } from "./components/chrome/StatusBar";
+import { AgentRail } from "./components/panes/AgentRail";
+import { DiffPane } from "./components/panes/DiffPane";
+import { FilesPane } from "./components/panes/FilesPane";
+import { PaneDivider } from "./components/panes/PaneDivider";
+import { buildFileListEntry } from "./lib/files";
+import { diffSectionId, fileRowId } from "./lib/ids";
+import { resolveTheme, THEMES } from "./themes";
 
 type FocusArea = "files" | "filter";
-type MenuId = "file" | "view" | "navigate" | "theme" | "agent" | "help";
-
-type MenuEntry =
-  | {
-      kind: "item";
-      label: string;
-      hint?: string;
-      checked?: boolean;
-      action: () => void;
-    }
-  | {
-      kind: "separator";
-    };
-
-const MENU_LABELS: Record<MenuId, string> = {
-  file: "File",
-  view: "View",
-  navigate: "Navigate",
-  theme: "Theme",
-  agent: "Agent",
-  help: "Help",
-};
-
-const MENU_ORDER = Object.keys(MENU_LABELS) as MenuId[];
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -38,46 +24,6 @@ function clamp(value: number, min: number, max: number) {
 
 function overlap(rangeA: [number, number], rangeB: [number, number]) {
   return rangeA[0] <= rangeB[1] && rangeB[0] <= rangeA[1];
-}
-
-function fitText(text: string, width: number) {
-  if (width <= 0) {
-    return "";
-  }
-
-  if (text.length <= width) {
-    return text;
-  }
-
-  if (width === 1) {
-    return ".";
-  }
-
-  return `${text.slice(0, width - 1)}.`;
-}
-
-function padText(text: string, width: number) {
-  const trimmed = fitText(text, width);
-  return trimmed.padEnd(width, " ");
-}
-
-function buildFileListEntry(file: DiffFile) {
-  const prefix =
-    file.metadata.type === "new"
-      ? "A"
-      : file.metadata.type === "deleted"
-        ? "D"
-        : file.metadata.type.startsWith("rename")
-          ? "R"
-          : "M";
-
-  const pathLabel = file.previousPath && file.previousPath !== file.path ? `${file.previousPath} -> ${file.path}` : file.path;
-
-  return {
-    id: file.id,
-    label: `${prefix} ${pathLabel}`,
-    description: `+${file.stats.additions}  -${file.stats.deletions}${file.agent ? "  agent" : ""}`,
-  };
 }
 
 function hunkLineRange(hunk: Hunk) {
@@ -112,80 +58,6 @@ function getSelectedAnnotations(file: DiffFile | undefined, hunk: Hunk | undefin
 
     return false;
   });
-}
-
-function nextMenuItemIndex(entries: MenuEntry[], currentIndex: number, delta: number) {
-  if (entries.length === 0) {
-    return 0;
-  }
-
-  let candidate = currentIndex;
-  for (let remaining = entries.length; remaining > 0; remaining -= 1) {
-    candidate = (candidate + delta + entries.length) % entries.length;
-    const entry = entries[candidate];
-    if (entry?.kind === "item") {
-      return candidate;
-    }
-  }
-
-  return 0;
-}
-
-function menuEntryText(entry: Extract<MenuEntry, { kind: "item" }>) {
-  const check = entry.checked === undefined ? "    " : entry.checked ? "[x] " : "[ ] ";
-  const hint = entry.hint ? ` ${entry.hint}` : "";
-  return `${check}${entry.label}${hint}`;
-}
-
-function menuWidth(entries: MenuEntry[]) {
-  return Math.max(
-    18,
-    ...entries.map((entry) => (entry.kind === "separator" ? 6 : menuEntryText(entry).length)),
-  );
-}
-
-function menuBoxHeight(entries: MenuEntry[]) {
-  return entries.length + 2;
-}
-
-function fileLabel(file: DiffFile | undefined) {
-  if (!file) {
-    return "No file selected";
-  }
-
-  return file.previousPath && file.previousPath !== file.path ? `${file.previousPath} -> ${file.path}` : file.path;
-}
-
-function fileRowId(fileId: string) {
-  return `file-row:${fileId}`;
-}
-
-function diffSectionId(fileId: string) {
-  return `diff-section:${fileId}`;
-}
-
-function renderMenuLine(
-  entry: Extract<MenuEntry, { kind: "item" }>,
-  width: number,
-  theme: AppTheme,
-  selected: boolean,
-) {
-  const text = entry.checked === undefined ? `  ${entry.label}` : `${entry.checked ? "[x]" : "[ ]"} ${entry.label}`;
-  const hint = entry.hint ? entry.hint : "";
-  const leftWidth = Math.max(0, width - hint.length - (hint.length > 0 ? 1 : 0));
-
-  return (
-    <box style={{ width: "100%", height: 1, flexDirection: "row", justifyContent: "space-between" }}>
-      <box style={{ width: leftWidth, height: 1 }}>
-        <text fg={theme.text}>{padText(text, leftWidth)}</text>
-      </box>
-      {hint ? (
-        <box style={{ width: hint.length, height: 1 }}>
-          <text fg={selected ? theme.text : theme.muted}>{hint}</text>
-        </box>
-      ) : null}
-    </box>
-  );
 }
 
 export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
@@ -373,40 +245,6 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     event?.stopPropagation();
   };
 
-  const openMenu = (menuId: MenuId) => {
-    setActiveMenuId(menuId);
-    setActiveMenuItemIndex(nextMenuItemIndex(menus[menuId], -1, 1));
-  };
-
-  const toggleMenu = (menuId: MenuId) => {
-    if (activeMenuId === menuId) {
-      closeMenu();
-      return;
-    }
-
-    openMenu(menuId);
-  };
-
-  const switchMenu = (delta: number) => {
-    const currentIndex = Math.max(0, activeMenuId ? MENU_ORDER.indexOf(activeMenuId) : 0);
-    const nextIndex = (currentIndex + delta + MENU_ORDER.length) % MENU_ORDER.length;
-    openMenu(MENU_ORDER[nextIndex]!);
-  };
-
-  const activateCurrentMenuItem = () => {
-    if (!activeMenuId) {
-      return;
-    }
-
-    const entry = menus[activeMenuId][activeMenuItemIndex];
-    if (!entry || entry.kind !== "item") {
-      return;
-    }
-
-    entry.action();
-    closeMenu();
-  };
-
   const themeMenuEntries: MenuEntry[] = THEMES.map((theme) => ({
     kind: "item",
     label: theme.label,
@@ -533,18 +371,41 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     ],
   };
 
-  const menuSpecs = MENU_ORDER.reduce<{ id: MenuId; left: number; width: number; label: string }[]>((items, id) => {
-    const previous = items.at(-1);
-    const left = previous ? previous.left + previous.width + 1 : 1;
-    items.push({
-      id,
-      left,
-      width: MENU_LABELS[id].length + 2,
-      label: MENU_LABELS[id],
-    });
-    return items;
-  }, []);
+  const openMenu = (menuId: MenuId) => {
+    setActiveMenuId(menuId);
+    setActiveMenuItemIndex(nextMenuItemIndex(menus[menuId], -1, 1));
+  };
 
+  const toggleMenu = (menuId: MenuId) => {
+    if (activeMenuId === menuId) {
+      closeMenu();
+      return;
+    }
+
+    openMenu(menuId);
+  };
+
+  const switchMenu = (delta: number) => {
+    const currentIndex = Math.max(0, activeMenuId ? MENU_ORDER.indexOf(activeMenuId) : 0);
+    const nextIndex = (currentIndex + delta + MENU_ORDER.length) % MENU_ORDER.length;
+    openMenu(MENU_ORDER[nextIndex]!);
+  };
+
+  const activateCurrentMenuItem = () => {
+    if (!activeMenuId) {
+      return;
+    }
+
+    const entry = menus[activeMenuId][activeMenuItemIndex];
+    if (!entry || entry.kind !== "item") {
+      return;
+    }
+
+    entry.action();
+    closeMenu();
+  };
+
+  const menuSpecs = buildMenuSpecs();
   const fileEntries = filteredFiles.map(buildFileListEntry);
   const totalAdditions = bootstrap.changeset.files.reduce((sum, file) => sum + file.stats.additions, 0);
   const totalDeletions = bootstrap.changeset.files.reduce((sum, file) => sum + file.stats.deletions, 0);
@@ -717,42 +578,19 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
         backgroundColor: activeTheme.background,
       }}
     >
-      <box
-        style={{
-          height: 1,
-          backgroundColor: activeTheme.panelAlt,
-          flexDirection: "row",
-          alignItems: "center",
-          paddingLeft: 1,
-          paddingRight: 1,
+      <MenuBar
+        activeMenuId={activeMenuId}
+        menuSpecs={menuSpecs}
+        terminalWidth={terminal.width}
+        theme={activeTheme}
+        topTitle={topTitle}
+        onHoverMenu={(menuId) => {
+          if (activeMenuId) {
+            openMenu(menuId);
+          }
         }}
-      >
-        {menuSpecs.map((menu) => {
-          const active = activeMenuId === menu.id;
-          return (
-            <box
-              key={menu.id}
-              style={{
-                width: menu.width,
-                height: 1,
-                backgroundColor: active ? activeTheme.accentMuted : activeTheme.panelAlt,
-              }}
-              onMouseUp={() => toggleMenu(menu.id)}
-              onMouseOver={() => {
-                if (activeMenuId) {
-                  openMenu(menu.id);
-                }
-              }}
-            >
-              <text fg={active ? activeTheme.text : activeTheme.muted}>{` ${menu.label} `}</text>
-            </box>
-          );
-        })}
-
-        <box style={{ flexGrow: 1, height: 1, alignItems: "center", justifyContent: "flex-end" }}>
-          <text fg={activeTheme.muted}>{` ${fitText(topTitle, Math.max(0, terminal.width - 41))}`}</text>
-        </box>
-      </box>
+        onToggleMenu={toggleMenu}
+      />
 
       <box
         style={{ flexGrow: 1, flexDirection: "row", gap: 0, padding: 1, position: "relative" }}
@@ -763,425 +601,86 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
           closeMenu();
         }}
       >
-        <box
-          title="Files"
-          style={{
-            width: clampedFilesPaneWidth,
-            border: ["top", "bottom"],
-            borderColor: activeTheme.border,
-            backgroundColor: activeTheme.panel,
-            padding: 1,
-            flexDirection: "column",
-          }}
-        >
-          <scrollbox
-            ref={filesScrollRef}
-            width="100%"
-            height="100%"
-            focused={focusArea === "files"}
-            scrollY={true}
-            viewportCulling={true}
-            rootOptions={{ backgroundColor: activeTheme.panel }}
-            wrapperOptions={{ backgroundColor: activeTheme.panel }}
-            viewportOptions={{ backgroundColor: activeTheme.panel }}
-            contentOptions={{ backgroundColor: activeTheme.panel }}
-            verticalScrollbarOptions={{ visible: false }}
-            horizontalScrollbarOptions={{ visible: false }}
-          >
-            <box style={{ width: "100%", flexDirection: "column" }}>
-              {fileEntries.map((entry) => {
-                const isSelected = entry.id === selectedFile?.id;
-
-                return (
-                  <box
-                    key={entry.id}
-                    id={fileRowId(entry.id)}
-                    style={{
-                      width: "100%",
-                      height: 2,
-                      backgroundColor: activeTheme.panel,
-                      flexDirection: "row",
-                    }}
-                    onMouseUp={() => {
-                      setFocusArea("files");
-                      jumpToFile(entry.id);
-                    }}
-                  >
-                    <box
-                      style={{
-                        width: 1,
-                        height: 2,
-                        backgroundColor: isSelected ? activeTheme.accent : activeTheme.panel,
-                      }}
-                    />
-                    <box
-                      style={{
-                        flexGrow: 1,
-                        height: 2,
-                        paddingLeft: 1,
-                        paddingRight: 1,
-                        flexDirection: "column",
-                        backgroundColor: activeTheme.panel,
-                      }}
-                    >
-                      <text fg={activeTheme.text}>{fitText(entry.label, filesTextWidth)}</text>
-                      <text fg={activeTheme.muted}>{fitText(entry.description, filesTextWidth)}</text>
-                    </box>
-                  </box>
-                );
-              })}
-            </box>
-          </scrollbox>
-        </box>
-
-        <box
-          style={{
-            width: DIVIDER_WIDTH,
-            border: ["top", "bottom", "left"],
-            borderColor: isResizingFilesPane ? activeTheme.accent : activeTheme.border,
-            backgroundColor: isResizingFilesPane ? activeTheme.accentMuted : activeTheme.panel,
-          }}
-          customBorderChars={{
-            topLeft: "┬",
-            topRight: "┬",
-            bottomLeft: "┴",
-            bottomRight: "┴",
-            horizontal: "─",
-            vertical: "│",
-            topT: "┬",
-            bottomT: "┴",
-            leftT: "├",
-            rightT: "┤",
-            cross: "┼",
+        <FilesPane
+          entries={fileEntries}
+          focused={focusArea === "files"}
+          scrollRef={filesScrollRef}
+          selectedFileId={selectedFile?.id}
+          textWidth={filesTextWidth}
+          theme={activeTheme}
+          width={clampedFilesPaneWidth}
+          onSelectFile={(fileId) => {
+            setFocusArea("files");
+            jumpToFile(fileId);
           }}
         />
 
-        <box
-          style={{
-            position: "absolute",
-            top: 1,
-            bottom: 1,
-            left: dividerHitLeft,
-            width: DIVIDER_HIT_WIDTH,
-            zIndex: 30,
-          }}
+        <PaneDivider
+          dividerHitLeft={dividerHitLeft}
+          dividerHitWidth={DIVIDER_HIT_WIDTH}
+          isResizing={isResizingFilesPane}
+          theme={activeTheme}
           onMouseDown={beginFilesPaneResize}
           onMouseDrag={updateFilesPaneResize}
-          onMouseUp={endFilesPaneResize}
           onMouseDragEnd={endFilesPaneResize}
+          onMouseUp={endFilesPaneResize}
         />
 
-        <box
-          title="Diff"
-          style={{
-            width: diffPaneWidth,
-            border: ["top", "bottom"],
-            borderColor: activeTheme.border,
-            backgroundColor: activeTheme.panel,
-            padding: 1,
-            flexDirection: "column",
-          }}
-        >
-          {filteredFiles.length > 0 ? (
-            <scrollbox
-              ref={diffScrollRef}
-              width="100%"
-              height="100%"
-              scrollY={true}
-              viewportCulling={true}
-              focused={false}
-              rootOptions={{ backgroundColor: activeTheme.panel }}
-              wrapperOptions={{ backgroundColor: activeTheme.panel }}
-              viewportOptions={{ backgroundColor: activeTheme.panel }}
-              contentOptions={{ backgroundColor: activeTheme.panel }}
-              verticalScrollbarOptions={{ visible: false }}
-              horizontalScrollbarOptions={{ visible: false }}
-            >
-              <box style={{ width: "100%", flexDirection: "column" }}>
-                {filteredFiles.map((file, index) => {
-                  const isSelected = file.id === selectedFile?.id;
-                  const additionsText = `+${file.stats.additions}`;
-                  const deletionsText = `-${file.stats.deletions}`;
-
-                  return (
-                    <box
-                      key={file.id}
-                      id={diffSectionId(file.id)}
-                      style={{
-                        width: "100%",
-                        flexDirection: "column",
-                        backgroundColor: activeTheme.panel,
-                      }}
-                    >
-                      {index > 0 ? (
-                        <box
-                          style={{
-                            width: "100%",
-                            height: 1,
-                            paddingLeft: 1,
-                            paddingRight: 1,
-                            backgroundColor: activeTheme.panel,
-                          }}
-                        >
-                          <text fg={activeTheme.border}>
-                            {fitText("─".repeat(diffSeparatorWidth), diffSeparatorWidth)}
-                          </text>
-                        </box>
-                      ) : null}
-
-                      <box
-                        style={{
-                          width: "100%",
-                          height: 1,
-                          flexDirection: "row",
-                          justifyContent: "space-between",
-                          paddingLeft: 1,
-                          paddingRight: 1,
-                          backgroundColor: activeTheme.panel,
-                        }}
-                        onMouseUp={() => {
-                          jumpToFile(file.id);
-                        }}
-                      >
-                        <text fg={activeTheme.text}>
-                          {fitText(fileLabel(file), diffHeaderLabelWidth)}
-                        </text>
-                        <box style={{ width: diffHeaderStatsWidth, height: 1, flexDirection: "row", justifyContent: "flex-end" }}>
-                          <text fg={activeTheme.badgeAdded}>{additionsText}</text>
-                          <text fg={activeTheme.muted}> </text>
-                          <text fg={activeTheme.badgeRemoved}>{deletionsText}</text>
-                        </box>
-                      </box>
-
-                      <PierreDiffView
-                        file={file}
-                        layout={resolvedLayout}
-                        theme={activeTheme}
-                        width={diffContentWidth}
-                        selectedHunkIndex={isSelected ? selectedHunkIndex : -1}
-                        scrollable={false}
-                      />
-                    </box>
-                  );
-                })}
-              </box>
-            </scrollbox>
-          ) : (
-            <box style={{ flexGrow: 1, alignItems: "center", justifyContent: "center" }}>
-              <text fg={activeTheme.muted}>No files match the current filter.</text>
-            </box>
-          )}
-        </box>
+        <DiffPane
+          diffContentWidth={diffContentWidth}
+          files={filteredFiles}
+          headerLabelWidth={diffHeaderLabelWidth}
+          headerStatsWidth={diffHeaderStatsWidth}
+          layout={resolvedLayout}
+          scrollRef={diffScrollRef}
+          selectedFileId={selectedFile?.id}
+          selectedHunkIndex={selectedHunkIndex}
+          separatorWidth={diffSeparatorWidth}
+          theme={activeTheme}
+          width={diffPaneWidth}
+          onSelectFile={jumpToFile}
+        />
 
         {showAgentPanel ? (
-          <box
-            title="Agent"
-            style={{
-              width: AGENT_WIDTH,
-              border: ["top", "bottom", "left"],
-              borderColor: activeTheme.border,
-              backgroundColor: activeTheme.panel,
-              padding: 1,
-              marginLeft: AGENT_GAP,
-            }}
-          >
-            <scrollbox width="100%" height="100%" scrollY={true} viewportCulling={true} focused={false}>
-              <box style={{ width: "100%", flexDirection: "column", gap: 1, paddingRight: 1 }}>
-                {bootstrap.changeset.agentSummary ? (
-                  <box
-                    title="Changeset"
-                    style={{
-                      border: true,
-                      borderColor: activeTheme.accentMuted,
-                      backgroundColor: activeTheme.panelAlt,
-                      padding: 1,
-                    }}
-                  >
-                    <text fg={activeTheme.text}>{bootstrap.changeset.agentSummary}</text>
-                  </box>
-                ) : null}
-
-                {selectedFile?.agent?.summary ? (
-                  <box
-                    title="File"
-                    style={{
-                      border: true,
-                      borderColor: activeTheme.accentMuted,
-                      backgroundColor: activeTheme.panelAlt,
-                      padding: 1,
-                    }}
-                  >
-                    <text fg={activeTheme.text}>{selectedFile.agent.summary}</text>
-                  </box>
-                ) : null}
-
-                {activeAnnotations.length > 0 ? (
-                  activeAnnotations.map((annotation, index) => (
-                    <box
-                      key={`${selectedFile?.id ?? "annotation"}:${index}`}
-                      title={`Annotation ${index + 1}`}
-                      style={{
-                        border: true,
-                        borderColor: activeTheme.accentMuted,
-                        backgroundColor: activeTheme.panelAlt,
-                        padding: 1,
-                        flexDirection: "column",
-                        gap: 1,
-                      }}
-                    >
-                      <text fg={activeTheme.text}>{annotation.summary}</text>
-                      {annotation.rationale ? <text fg={activeTheme.muted}>{annotation.rationale}</text> : null}
-                      {annotation.tags && annotation.tags.length > 0 ? (
-                        <text fg={activeTheme.badgeNeutral}>tags: {annotation.tags.join(", ")}</text>
-                      ) : null}
-                      {annotation.confidence ? (
-                        <text fg={activeTheme.badgeNeutral}>confidence: {annotation.confidence}</text>
-                      ) : null}
-                    </box>
-                  ))
-                ) : (
-                  <box
-                    title="Selection"
-                    style={{
-                      border: true,
-                      borderColor: activeTheme.accentMuted,
-                      backgroundColor: activeTheme.panelAlt,
-                      padding: 1,
-                    }}
-                  >
-                    <text fg={activeTheme.muted}>
-                      {selectedFile?.agent
-                        ? "No annotation is attached to the current hunk."
-                        : "No agent metadata is attached to the current file."}
-                    </text>
-                  </box>
-                )}
-
-                {bootstrap.changeset.summary ? (
-                  <box
-                    title="Patch"
-                    style={{
-                      border: true,
-                      borderColor: activeTheme.accentMuted,
-                      backgroundColor: activeTheme.panelAlt,
-                      padding: 1,
-                    }}
-                  >
-                    <text fg={activeTheme.muted}>{bootstrap.changeset.summary}</text>
-                  </box>
-                ) : null}
-              </box>
-            </scrollbox>
-          </box>
+          <AgentRail
+            activeAnnotations={activeAnnotations}
+            changesetSummary={bootstrap.changeset.summary}
+            file={selectedFile}
+            marginLeft={AGENT_GAP}
+            summary={bootstrap.changeset.agentSummary}
+            theme={activeTheme}
+            width={AGENT_WIDTH}
+          />
         ) : null}
       </box>
 
-      <box
-        style={{
-          height: 1,
-          backgroundColor: activeTheme.panelAlt,
-          paddingLeft: 1,
-          paddingRight: 1,
-          alignItems: "center",
-          flexDirection: "row",
-        }}
-        onMouseUp={() => closeMenu()}
-      >
-        {focusArea === "filter" ? (
-          <>
-            <text fg={activeTheme.badgeNeutral}>filter:</text>
-            <box style={{ width: 1, height: 1 }}>
-              <text fg={activeTheme.muted}> </text>
-            </box>
-            <input
-              width={Math.max(12, terminal.width - 11)}
-              value={filter}
-              placeholder="type to filter files"
-              focused={true}
-              onInput={setFilter}
-              onSubmit={() => setFocusArea("files")}
-            />
-          </>
-        ) : (
-          <text fg={activeTheme.muted}>
-            {fitText(
-              `F10 menu  drag divider resize  / filter  [ ] hunks  j k files  1 2 0 layout  t theme  a agent  q quit${filter ? `  filter=${filter}` : ""}`,
-              terminal.width - 2,
-            )}
-          </text>
-        )}
-      </box>
+      <StatusBar
+        filter={filter}
+        filterFocused={focusArea === "filter"}
+        terminalWidth={terminal.width}
+        theme={activeTheme}
+        onCloseMenu={closeMenu}
+        onFilterInput={setFilter}
+        onFilterSubmit={() => setFocusArea("files")}
+      />
 
       {activeMenuId && activeMenuSpec ? (
-        <box
-          style={{
-            position: "absolute",
-            top: 1,
-            left: activeMenuSpec.left,
-            width: activeMenuWidth,
-            height: menuBoxHeight(activeMenuEntries),
-            zIndex: 40,
-            border: true,
-            borderColor: activeTheme.border,
-            backgroundColor: activeTheme.panel,
-            flexDirection: "column",
+        <MenuDropdown
+          activeMenuId={activeMenuId}
+          activeMenuEntries={activeMenuEntries}
+          activeMenuItemIndex={activeMenuItemIndex}
+          activeMenuSpec={activeMenuSpec}
+          activeMenuWidth={activeMenuWidth}
+          theme={activeTheme}
+          onHoverItem={setActiveMenuItemIndex}
+          onSelectItem={(entry) => {
+            entry.action();
+            closeMenu();
           }}
-        >
-          {activeMenuEntries.map((entry, index) =>
-            entry.kind === "separator" ? (
-              <box key={`${activeMenuId}:separator:${index}`} style={{ height: 1, paddingLeft: 1, paddingRight: 1 }}>
-                <text fg={activeTheme.border}>{padText("-".repeat(activeMenuWidth - 4), activeMenuWidth - 2)}</text>
-              </box>
-            ) : (
-              <box
-                key={`${activeMenuId}:${entry.label}`}
-                style={{
-                  height: 1,
-                  paddingLeft: 1,
-                  paddingRight: 1,
-                  flexDirection: "row",
-                  backgroundColor: activeMenuItemIndex === index ? activeTheme.accentMuted : activeTheme.panel,
-                }}
-                onMouseOver={() => setActiveMenuItemIndex(index)}
-                onMouseUp={() => {
-                  entry.action();
-                  closeMenu();
-                }}
-              >
-                {renderMenuLine(entry, activeMenuWidth - 2, activeTheme, activeMenuItemIndex === index)}
-              </box>
-            ),
-          )}
-        </box>
+        />
       ) : null}
 
-      {showHelp ? (
-        <box
-          style={{
-            position: "absolute",
-            top: 3,
-            left: helpLeft,
-            width: helpWidth,
-            height: 9,
-            zIndex: 60,
-            border: true,
-            borderColor: activeTheme.accent,
-            backgroundColor: activeTheme.panel,
-            padding: 1,
-            flexDirection: "column",
-            gap: 1,
-          }}
-          onMouseUp={() => setShowHelp(false)}
-        >
-          <text fg={activeTheme.text}>Keyboard</text>
-          <text fg={activeTheme.muted}>F10 menus  arrows navigate menus  Enter select  Esc close menu</text>
-          <text fg={activeTheme.muted}>1 split  2 stack  0 auto  t cycle theme  a toggle agent rail</text>
-          <text fg={activeTheme.muted}>[ previous hunk  ] next hunk  j next file  k previous file</text>
-          <text fg={activeTheme.muted}>drag the Files/Diff divider with the mouse to resize the columns</text>
-          <text fg={activeTheme.muted}>/ focus filter  Tab swap files/filter  q quit</text>
-          <text fg={activeTheme.badgeNeutral}>click anywhere on this panel to close</text>
-        </box>
-      ) : null}
+      {showHelp ? <HelpDialog left={helpLeft} theme={activeTheme} width={helpWidth} onClose={() => setShowHelp(false)} /> : null}
     </box>
   );
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseDiffFromFile } from "@pierre/diffs";
 import type { DiffFile } from "../src/core/types";
-import { buildSplitRows, buildStackRows, loadHighlightedDiff } from "../src/ui/pierre";
+import { buildSplitRows, buildStackRows, loadHighlightedDiff } from "../src/ui/diff/pierre";
 import { resolveTheme } from "../src/ui/themes";
 
 function createDiffFile(): DiffFile {
