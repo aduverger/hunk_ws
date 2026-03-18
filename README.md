@@ -115,6 +115,47 @@ Suggested pattern:
 
 Keep the sidecar concise. It should explain why a hunk exists, what risk to review, and how the files fit together. It should not narrate obvious syntax edits line by line.
 
+## Comparison
+
+### Feature comparison
+
+| Capability | hunk | difftastic | delta | diff |
+| --- | --- | --- | --- | --- |
+| Dedicated interactive review UI | Yes | No | No | No |
+| Multi-file review stream with navigation sidebar | Yes | No | No | No |
+| Agent / AI rationale sidecar | Yes | No | No | No |
+| Split and stacked review layouts | Yes | Yes (`side-by-side` / `inline`) | Yes (`side-by-side` / unified-style) | Yes (`-y` / unified) |
+| Syntax highlighting | Yes | Yes | Yes | No |
+| Syntax-aware / structural diffing | No | Yes | No | No |
+| Mouse support inside the diff viewer | Yes | No | No | No |
+| Runtime toggles for wrapping / line numbers / hunk metadata | Yes | No | No | No |
+| Pager-compatible mode | Yes | Yes | Yes | Yes |
+
+### Local timing snapshot
+
+These numbers are **not a universal benchmark**. They are a quick local comparison from one Linux machine using tmux panes, measuring **time until a changed marker first became visible** on the same 120-line TypeScript file pair.
+
+Commands used:
+
+- `hunk diff before.ts after.ts`
+- `difft --display side-by-side before.ts after.ts`
+- `delta --paging=never before.ts after.ts`
+- `diff -u before.ts after.ts`
+
+| Tool | Avg first-visible changed output |
+| --- | ---: |
+| `diff` | ~37 ms |
+| `delta --paging=never` | ~35 ms |
+| `hunk diff` | ~219 ms |
+| `difft --display side-by-side` | ~266 ms |
+
+Interpretation:
+
+- `diff` and `delta` are fastest here because they emit plain diff text and exit.
+- `hunk` pays extra startup cost for an interactive terminal UI, syntax highlighting, navigation state, and optional agent context.
+- `difftastic` pays extra cost for syntax-aware / structural diffing.
+- For larger review sessions, Hunk is optimized for **navigating and understanding** a changeset, not just dumping the quickest possible patch text.
+
 ## Git integration
 
 Use Hunk as the viewer for `git diff` and `git show`:
