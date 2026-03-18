@@ -7,10 +7,10 @@ The target is the startup path that mounts many `PierreDiffView` instances and a
 
 ## Metrics
 - **Primary**: `selected_highlight_ms` (ms, lower is better)
-- **Secondary**: `all_highlights_ms`, `files`, `lines_per_file`
+- **Secondary**: `all_highlights_ms`, `samples`, `files`, `lines_per_file`
 
 ## How to Run
-`./autoresearch.sh` — runs a cold-process benchmark and prints `METRIC name=value` lines.
+`./autoresearch.sh` — runs three cold-process benchmark samples and prints averaged `METRIC name=value` lines.
 
 ## Files in Scope
 - `src/ui/diff/PierreDiffView.tsx` — per-file highlight loading, caching, and render behavior.
@@ -32,4 +32,8 @@ The target is the startup path that mounts many `PierreDiffView` instances and a
 - Preserve the current diff model and renderer architecture.
 
 ## What's Been Tried
-- Baseline pending.
+- Initial single-sample baseline: `selected_highlight_ms=2381.47`.
+- Keeping a per-language in-flight highlighter-preparation promise improved the single-sample benchmark slightly to `2349.96ms`.
+- Queueing startup highlight rendering in arrival order was the first meaningful win, cutting the single-sample selected-file metric to `1065.82ms` while keeping total completion time roughly flat.
+- Increasing highlight-render concurrency from 1 to 2 regressed the selected-file metric to `1437.34ms`, so the current best keeps a single queued startup highlight job.
+- The benchmark now averages three cold-process runs to reduce startup noise before continuing optimization.
