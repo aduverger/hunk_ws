@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { parseDiffFromFile } from "@pierre/diffs";
 import { act } from "react";
@@ -164,5 +164,36 @@ describe("responsive shell", () => {
     expect(forcedStack).not.toContain("Files");
     expect(forcedStack).not.toContain("│");
     expect(forcedStack).not.toContain("drag divider resize");
+  });
+
+  test("filter focus suppresses global shortcut keys like quit", async () => {
+    const originalExit = process.exit;
+    const exitMock = mock(() => undefined as never);
+    (process as typeof process & { exit: typeof exitMock }).exit = exitMock;
+
+    const setup = await testRender(<App bootstrap={createBootstrap()} />, { width: 240, height: 24 });
+
+    try {
+      await act(async () => {
+        await setup.renderOnce();
+        await setup.mockInput.pressTab();
+        await setup.renderOnce();
+      });
+
+      await act(async () => {
+        await setup.mockInput.typeText("q");
+        await setup.renderOnce();
+      });
+
+      const frame = setup.captureCharFrame();
+      expect(exitMock).not.toHaveBeenCalled();
+      expect(frame).toContain("filter:");
+      expect(frame).toContain("q");
+    } finally {
+      (process as typeof process & { exit: typeof originalExit }).exit = originalExit;
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
   });
 });

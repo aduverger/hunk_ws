@@ -487,6 +487,25 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
       }
     }
 
+    if (focusArea === "filter") {
+      if (key.name === "escape") {
+        if (filter.length > 0) {
+          setFilter("");
+          return;
+        }
+
+        setFocusArea("files");
+        return;
+      }
+
+      if (key.name === "tab") {
+        setFocusArea("files");
+        return;
+      }
+
+      return;
+    }
+
     if (key.name === "q") {
       process.exit(0);
     }
@@ -498,16 +517,6 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     }
 
     if (key.name === "escape") {
-      if (focusArea === "filter" && filter.length > 0) {
-        setFilter("");
-        return;
-      }
-
-      if (focusArea === "filter") {
-        setFocusArea("files");
-        return;
-      }
-
       process.exit(0);
     }
 
