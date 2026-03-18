@@ -1,10 +1,8 @@
 import { MouseButton, type KeyEvent, type MouseEvent as TuiMouseEvent, type ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
-import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
 import type { AppBootstrap, LayoutMode } from "../core/types";
-import { HelpDialog } from "./components/chrome/HelpDialog";
 import { MenuBar } from "./components/chrome/MenuBar";
-import { MenuDropdown } from "./components/chrome/MenuDropdown";
 import { MENU_ORDER, buildMenuSpecs, menuWidth, nextMenuItemIndex, type MenuEntry, type MenuId } from "./components/chrome/menu";
 import { StatusBar } from "./components/chrome/StatusBar";
 import { DiffPane } from "./components/panes/DiffPane";
@@ -18,6 +16,9 @@ import { resolveResponsiveLayout } from "./lib/responsive";
 import { resolveTheme, THEMES } from "./themes";
 
 type FocusArea = "files" | "filter";
+
+const LazyHelpDialog = lazy(async () => ({ default: (await import("./components/chrome/HelpDialog")).HelpDialog }));
+const LazyMenuDropdown = lazy(async () => ({ default: (await import("./components/chrome/MenuDropdown")).MenuDropdown }));
 
 /** Clamp a value into an inclusive range. */
 function clamp(value: number, min: number, max: number) {
@@ -843,22 +844,28 @@ export function App({ bootstrap, onQuit = () => process.exit(0) }: { bootstrap: 
       ) : null}
 
       {!pagerMode && activeMenuId && activeMenuSpec ? (
-        <MenuDropdown
-          activeMenuId={activeMenuId}
-          activeMenuEntries={activeMenuEntries}
-          activeMenuItemIndex={activeMenuItemIndex}
-          activeMenuSpec={activeMenuSpec}
-          activeMenuWidth={activeMenuWidth}
-          theme={activeTheme}
-          onHoverItem={setActiveMenuItemIndex}
-          onSelectItem={(entry) => {
-            entry.action();
-            closeMenu();
-          }}
-        />
+        <Suspense fallback={null}>
+          <LazyMenuDropdown
+            activeMenuId={activeMenuId}
+            activeMenuEntries={activeMenuEntries}
+            activeMenuItemIndex={activeMenuItemIndex}
+            activeMenuSpec={activeMenuSpec}
+            activeMenuWidth={activeMenuWidth}
+            theme={activeTheme}
+            onHoverItem={setActiveMenuItemIndex}
+            onSelectItem={(entry) => {
+              entry.action();
+              closeMenu();
+            }}
+          />
+        </Suspense>
       ) : null}
 
-      {!pagerMode && showHelp ? <HelpDialog left={helpLeft} theme={activeTheme} width={helpWidth} onClose={() => setShowHelp(false)} /> : null}
+      {!pagerMode && showHelp ? (
+        <Suspense fallback={null}>
+          <LazyHelpDialog left={helpLeft} theme={activeTheme} width={helpWidth} onClose={() => setShowHelp(false)} />
+        </Suspense>
+      ) : null}
     </box>
   );
 }

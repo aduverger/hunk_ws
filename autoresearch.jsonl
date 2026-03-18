@@ -37,3 +37,4 @@
 {"run":1,"commit":"2f3a091","metric":617.73,"metrics":{},"status":"keep","description":"benchmark: include app module load in startup syntax highlight timing","timestamp":1773848082496,"segment":0}
 {"run":2,"commit":"2f3a091","metric":619.87,"metrics":{},"status":"discard","description":"perf: warm the default dark text highlighter during module load","timestamp":1773848130385,"segment":0}
 {"run":3,"commit":"2f3a091","metric":625.72,"metrics":{},"status":"discard","description":"perf: lazy-load Pierre highlighting helpers after app import","timestamp":1773848298434,"segment":0}
+{"run":4,"commit":"cb11c92","metric":615.37,"metrics":{},"status":"keep","description":"perf: lazily create syntax styles for inactive themes","timestamp":1773848454879,"segment":0}
