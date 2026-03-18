@@ -153,7 +153,15 @@ function renderInlineSpans(
   keyPrefix: string,
 ) {
   const { spans: trimmed, usedWidth } = trimSpans(spans, width);
-  const padding = Math.max(0, width - usedWidth);
+  let padding = Math.max(0, width - usedWidth);
+
+  if (padding > 0) {
+    const lastSpan = trimmed.at(-1);
+    if (lastSpan && (lastSpan.fg ?? fallbackColor) === fallbackColor && (lastSpan.bg ?? fallbackBg) === fallbackBg) {
+      lastSpan.text += " ".repeat(padding);
+      padding = 0;
+    }
+  }
 
   return (
     <>
@@ -162,9 +170,7 @@ function renderInlineSpans(
           {span.text}
         </span>
       ))}
-      {padding > 0 ? (
-        <span key={`${keyPrefix}:padding`} fg={fallbackColor} bg={fallbackBg}>{`${" ".repeat(padding)}`}</span>
-      ) : null}
+      {padding > 0 ? <span key={`${keyPrefix}:padding`} fg={fallbackColor} bg={fallbackBg}>{`${" ".repeat(padding)}`}</span> : null}
     </>
   );
 }
