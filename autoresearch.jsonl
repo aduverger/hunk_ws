@@ -19,3 +19,4 @@
 {"type":"config","name":"Optimize visible app startup syntax highlighting (3-run average)","metricName":"selected_highlight_ms","metricUnit":"ms","bestDirection":"lower"}
 {"run":1,"commit":"687a7f7","metric":605.13,"metrics":{},"status":"keep","description":"benchmark: measure visible app startup syntax highlighting","timestamp":1773846484355,"segment":0}
 {"run":2,"commit":"687a7f7","metric":611.56,"metrics":{},"status":"discard","description":"perf: start selected-file highlight loading during render setup","timestamp":1773846575263,"segment":0}
+{"run":3,"commit":"c9483d7","metric":604.71,"metrics":{},"status":"keep","description":"perf: fast-path plain diff spans before highlighted HAST arrives","timestamp":1773846636860,"segment":0}

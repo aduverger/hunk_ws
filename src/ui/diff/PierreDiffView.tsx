@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentAnnotation, DiffFile, LayoutMode } from "../../core/types";
 import { AgentCard } from "../components/panes/AgentCard";
 import { annotationLocationLabel, type VisibleAgentNote } from "../lib/agentAnnotations";
@@ -911,7 +911,7 @@ export function PierreDiffView({
     return pending;
   }, [appearanceCacheKey, file, theme.appearance]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!file || !appearanceCacheKey) {
       setHighlighted(null);
       setHighlightedCacheKey(null);
