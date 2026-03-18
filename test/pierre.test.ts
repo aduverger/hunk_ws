@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseDiffFromFile } from "@pierre/diffs";
 import type { DiffFile } from "../src/core/types";
-import { buildSplitRows, buildStackRows, loadHighlightedDiff } from "../src/ui/diff/pierre";
+import { buildSplitRows, buildStackRows, loadHighlightedDiff, type DiffRow } from "../src/ui/diff/pierre";
 import { resolveTheme } from "../src/ui/themes";
 
 function createDiffFile(): DiffFile {
@@ -28,6 +28,36 @@ function createDiffFile(): DiffFile {
     stats: {
       additions: 2,
       deletions: 1,
+    },
+    metadata,
+    agent: null,
+  };
+}
+
+function createMarkdownDiffFile(): DiffFile {
+  const metadata = parseDiffFromFile(
+    {
+      name: "notes.md",
+      contents: "plain\n",
+      cacheKey: "before-md",
+    },
+    {
+      name: "notes.md",
+      contents: "# Heading\n`inline code`\nplain\n",
+      cacheKey: "after-md",
+    },
+    { context: 3 },
+    true,
+  );
+
+  return {
+    id: "notes-md",
+    path: "notes.md",
+    patch: "",
+    language: "markdown",
+    stats: {
+      additions: 2,
+      deletions: 0,
     },
     metadata,
     agent: null,
@@ -83,5 +113,32 @@ describe("Pierre diff rows", () => {
     expect(deletionRow.cell.newLineNumber).toBeUndefined();
     expect(additionRow.cell.oldLineNumber).toBeUndefined();
     expect(additionRow.cell.newLineNumber).toBe(1);
+  });
+
+  test("remaps Pierre markdown reds and greens away from diff-semantic hues", async () => {
+    const file = createMarkdownDiffFile();
+
+    for (const themeId of ["midnight", "paper"] as const) {
+      const theme = resolveTheme(themeId, null);
+      const highlighted = await loadHighlightedDiff(file, theme.appearance);
+      const rows = buildStackRows(file, highlighted, theme).filter(
+        (row): row is Extract<DiffRow, { type: "stack-line" }> => row.type === "stack-line" && row.cell.kind === "addition",
+      );
+
+      const headingRow = rows.find((row) => row.cell.spans.some((span) => span.text.includes("Heading")));
+      const inlineCodeRow = rows.find((row) => row.cell.spans.some((span) => span.text.includes("inline code")));
+
+      expect(headingRow).toBeDefined();
+      expect(inlineCodeRow).toBeDefined();
+
+      if (!headingRow || !inlineCodeRow) {
+        throw new Error("Expected highlighted markdown rows");
+      }
+
+      expect(headingRow.cell.spans.some((span) => span.text.includes("Heading") && span.fg === theme.syntaxColors.keyword)).toBe(true);
+      expect(inlineCodeRow.cell.spans.some((span) => span.text.includes("inline code") && span.fg === theme.syntaxColors.string)).toBe(true);
+      expect(headingRow.cell.spans.some((span) => span.fg === "#ff6762" || span.fg === "#d52c36")).toBe(false);
+      expect(inlineCodeRow.cell.spans.some((span) => span.fg === "#5ecc71" || span.fg === "#199f43")).toBe(false);
+    }
   });
 });

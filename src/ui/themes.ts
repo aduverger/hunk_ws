@@ -26,6 +26,7 @@ export interface AppTheme {
   badgeAdded: string;
   badgeRemoved: string;
   badgeNeutral: string;
+  syntaxColors: SyntaxColors;
   syntaxStyle: SyntaxStyle;
 }
 
@@ -61,11 +62,12 @@ function createSyntaxStyle(colors: SyntaxColors) {
 }
 
 /** Lazily attach syntax colors so startup only pays for the active theme's token style. */
-function withLazySyntaxStyle(theme: Omit<AppTheme, "syntaxStyle">, syntaxColors: SyntaxColors): AppTheme {
+function withLazySyntaxStyle(theme: Omit<AppTheme, "syntaxColors" | "syntaxStyle">, syntaxColors: SyntaxColors): AppTheme {
   let syntaxStyle: SyntaxStyle | null = null;
 
   return {
     ...theme,
+    syntaxColors,
     get syntaxStyle() {
       syntaxStyle ??= createSyntaxStyle(syntaxColors);
       return syntaxStyle;
@@ -103,7 +105,7 @@ export const THEMES: AppTheme[] = [
   }, {
       default: "#e8f1ff",
       keyword: "#8ed4ff",
-      string: "#8fe1aa",
+      string: "#c7b4ff",
       comment: "#6e85a7",
       number: "#ffd883",
       function: "#b6c9ff",
@@ -140,7 +142,7 @@ export const THEMES: AppTheme[] = [
   }, {
       default: "#f2f4f6",
       keyword: "#c4d0da",
-      string: "#a4d39a",
+      string: "#d8c6ef",
       comment: "#7f8b97",
       number: "#e6cf98",
       function: "#dfe6ed",
@@ -177,7 +179,7 @@ export const THEMES: AppTheme[] = [
   }, {
       default: "#2f2417",
       keyword: "#7b5a35",
-      string: "#4e7d52",
+      string: "#4a6890",
       comment: "#8f7a65",
       number: "#9f6c1f",
       function: "#5a4a8e",
@@ -214,7 +216,7 @@ export const THEMES: AppTheme[] = [
   }, {
       default: "#fff0e6",
       keyword: "#ffb47f",
-      string: "#9be4a7",
+      string: "#ffd3a8",
       comment: "#a17d69",
       number: "#ffd08f",
       function: "#ffd9b3",

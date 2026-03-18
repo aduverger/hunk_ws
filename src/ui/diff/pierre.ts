@@ -135,6 +135,32 @@ function parseStyleValue(styleValue: unknown) {
   return styles;
 }
 
+const RESERVED_PIERRE_TOKEN_COLORS = {
+  dark: {
+    "#ff6762": "keyword",
+    "#5ecc71": "string",
+  },
+  light: {
+    "#d52c36": "keyword",
+    "#199f43": "string",
+  },
+} as const;
+
+/** Remap Pierre token hues that collide with diff add/remove semantics into theme-safe syntax colors. */
+function normalizeHighlightedColor(color: string | undefined, theme: AppTheme) {
+  if (!color) {
+    return color;
+  }
+
+  const normalized = color.trim().toLowerCase();
+  const reserved = RESERVED_PIERRE_TOKEN_COLORS[theme.appearance][normalized as keyof (typeof RESERVED_PIERRE_TOKEN_COLORS)[typeof theme.appearance]];
+  if (!reserved) {
+    return color;
+  }
+
+  return theme.syntaxColors[reserved];
+}
+
 /** Append a span while coalescing adjacent runs with identical colors. */
 function mergeSpan(target: RenderSpan[], next: RenderSpan) {
   if (next.text.length === 0) {
@@ -153,12 +179,12 @@ function mergeSpan(target: RenderSpan[], next: RenderSpan) {
 /** Flatten one highlighted HAST line into terminal-friendly styled text spans. */
 function flattenHighlightedLine(
   node: HastNode | undefined,
-  appearance: AppTheme["appearance"],
+  theme: AppTheme,
   emphasisBg: string,
   fallbackText: string,
 ) {
   const spans: RenderSpan[] = [];
-  const colorVariable = appearance === "light" ? "--diffs-token-light" : "--diffs-token-dark";
+  const colorVariable = theme.appearance === "light" ? "--diffs-token-light" : "--diffs-token-dark";
 
   const visit = (current: HastNode | undefined, inherited: Pick<RenderSpan, "fg" | "bg">) => {
     if (!current) {
@@ -178,7 +204,7 @@ function flattenHighlightedLine(
     const styles = parseStyleValue(properties.style);
     const nextStyle: Pick<RenderSpan, "fg" | "bg"> = {
       // Newer Pierre output can emit direct `color:#...` styles instead of theme CSS variables.
-      fg: styles.get(colorVariable) ?? styles.get("color") ?? inherited.fg,
+      fg: normalizeHighlightedColor(styles.get(colorVariable) ?? styles.get("color") ?? inherited.fg, theme),
       // Pierre marks inline word-diff emphasis spans with a data attribute rather than a separate row kind.
       bg: Object.hasOwn(properties, "data-diff-span") ? emphasisBg : inherited.bg,
     };
@@ -226,7 +252,7 @@ function makeSplitCell(
       ? (fallbackText.length > 0 ? [{ text: fallbackText }] : [])
       : flattenHighlightedLine(
           highlightedLine,
-          theme.appearance,
+          theme,
           kind === "addition" ? theme.addedContentBg : kind === "deletion" ? theme.removedContentBg : theme.contextContentBg,
           fallbackText,
         );
@@ -256,7 +282,7 @@ function makeStackCell(
       ? (fallbackText.length > 0 ? [{ text: fallbackText }] : [])
       : flattenHighlightedLine(
           highlightedLine,
-          theme.appearance,
+          theme,
           kind === "addition" ? theme.addedContentBg : kind === "deletion" ? theme.removedContentBg : theme.contextContentBg,
           fallbackText,
         );
