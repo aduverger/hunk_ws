@@ -37,6 +37,7 @@ function pierreRenderOptions(appearance: AppTheme["appearance"]) {
   return PIERRE_RENDER_OPTIONS_BY_APPEARANCE[appearance];
 }
 
+const highlighterOptionsByKey = new Map<string, ReturnType<typeof getHighlighterOptions>>();
 let queuedHighlightWork = Promise.resolve();
 
 type HastNode = HastTextNode | HastElementNode;
@@ -281,10 +282,19 @@ function trailingCollapsedLines(metadata: FileDiffMetadata) {
 /** Prepare syntax highlighting for one language/appearance pair using Pierre's shared highlighter. */
 async function prepareHighlighter(language: string | undefined, appearance: AppTheme["appearance"]) {
   const resolvedLanguage = language ?? "text";
-  return getSharedHighlighter({
-    ...getHighlighterOptions(resolvedLanguage, {
+  const cacheKey = `${appearance}:${resolvedLanguage}`;
+  const options =
+    highlighterOptionsByKey.get(cacheKey) ??
+    getHighlighterOptions(resolvedLanguage, {
       theme: pierreThemeName(appearance),
-    }),
+    });
+
+  if (!highlighterOptionsByKey.has(cacheKey)) {
+    highlighterOptionsByKey.set(cacheKey, options);
+  }
+
+  return getSharedHighlighter({
+    ...options,
     preferredHighlighter: "shiki-wasm",
   });
 }
