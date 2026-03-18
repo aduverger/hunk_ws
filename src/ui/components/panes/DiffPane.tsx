@@ -1,9 +1,11 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
-import type { RefObject } from "react";
+import { useMemo, type RefObject } from "react";
 import type { AgentAnnotation, DiffFile, LayoutMode } from "../../../core/types";
 import type { VisibleAgentNote } from "../../lib/agentAnnotations";
 import type { AppTheme } from "../../themes";
 import { DiffSection } from "./DiffSection";
+
+const EMPTY_VISIBLE_AGENT_NOTES: VisibleAgentNote[] = [];
 
 export function DiffPane({
   activeAnnotations,
@@ -42,18 +44,27 @@ export function DiffPane({
   onOpenAgentNotesAtHunk: (fileId: string, hunkIndex: number) => void;
   onSelectFile: (fileId: string) => void;
 }) {
-  const visibleAgentNotesByFile = new Map<string, VisibleAgentNote[]>();
+  const visibleAgentNotesByFile = useMemo(() => {
+    const next = new Map<string, VisibleAgentNote[]>();
 
-  if (showAgentNotes && selectedFileId) {
+    if (!showAgentNotes || !selectedFileId) {
+      return next;
+    }
+
+    const dismissedIdSet = new Set(dismissedAgentNoteIds);
     const visibleNotes = activeAnnotations
       .map((annotation, index) => ({
         id: `annotation:${selectedFileId}:${selectedHunkIndex}:${index}`,
         annotation,
       }))
-      .filter((note) => !dismissedAgentNoteIds.includes(note.id));
+      .filter((note) => !dismissedIdSet.has(note.id));
 
-    visibleAgentNotesByFile.set(selectedFileId, visibleNotes);
-  }
+    if (visibleNotes.length > 0) {
+      next.set(selectedFileId, visibleNotes);
+    }
+
+    return next;
+  }, [activeAnnotations, dismissedAgentNoteIds, selectedFileId, selectedHunkIndex, showAgentNotes]);
 
   return (
     <box
@@ -90,12 +101,12 @@ export function DiffPane({
                 headerStatsWidth={headerStatsWidth}
                 layout={layout}
                 selected={file.id === selectedFileId}
-                selectedHunkIndex={selectedHunkIndex}
+                selectedHunkIndex={file.id === selectedFileId ? selectedHunkIndex : -1}
                 separatorWidth={separatorWidth}
                 showSeparator={index > 0}
                 theme={theme}
                 viewWidth={diffContentWidth}
-                visibleAgentNotes={visibleAgentNotesByFile.get(file.id) ?? []}
+                visibleAgentNotes={visibleAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES}
                 onDismissAgentNote={onDismissAgentNote}
                 onOpenAgentNotesAtHunk={(hunkIndex) => onOpenAgentNotesAtHunk(file.id, hunkIndex)}
                 onSelect={() => onSelectFile(file.id)}

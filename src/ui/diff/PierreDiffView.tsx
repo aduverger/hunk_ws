@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AgentAnnotation, DiffFile, LayoutMode } from "../../core/types";
 import { AgentCard } from "../components/panes/AgentCard";
 import { annotationLocationLabel, type VisibleAgentNote } from "../lib/agentAnnotations";
@@ -14,6 +14,9 @@ import {
   type SplitLineCell,
   type StackLineCell,
 } from "./pierre";
+
+const EMPTY_ANNOTATED_HUNK_INDICES = new Set<number>();
+const EMPTY_VISIBLE_AGENT_NOTES: VisibleAgentNote[] = [];
 
 function fitText(text: string, width: number) {
   if (width <= 0) {
@@ -397,24 +400,16 @@ function renderRow(
   width: number,
   lineNumberDigits: number,
   theme: AppTheme,
-  selectedHunkIndex: number,
-  annotatedHunkIndices: Set<number>,
+  selected: boolean,
+  annotated: boolean,
   anchoredNotes: VisibleAgentNote[],
   onDismissAgentNote?: (id: string) => void,
   onOpenAgentNotesAtHunk?: (hunkIndex: number) => void,
 ) {
-  const selected = row.hunkIndex === selectedHunkIndex;
   let baseRow: ReactNode;
 
   if (row.type === "collapsed" || row.type === "hunk-header") {
-    baseRow = renderHeaderRow(
-      row,
-      width,
-      theme,
-      selected,
-      row.type === "hunk-header" && annotatedHunkIndices.has(row.hunkIndex),
-      onOpenAgentNotesAtHunk,
-    );
+    baseRow = renderHeaderRow(row, width, theme, selected, annotated, onOpenAgentNotesAtHunk);
   } else if (layout === "split" && row.type === "split-line") {
     const markerWidth = 1;
     const separatorWidth = 1;
@@ -458,21 +453,78 @@ function renderRow(
   }
 
   return (
-    <box key={`${row.key}:anchored`} style={{ width: "100%", flexDirection: "column" }}>
+    <box style={{ width: "100%", flexDirection: "column" }}>
       {baseRow}
       {renderAnchoredNotes(anchoredNotes, file, width, theme, onDismissAgentNote)}
     </box>
   );
 }
 
+interface DiffRowViewProps {
+  row: DiffRow;
+  file: DiffFile;
+  layout: Exclude<LayoutMode, "auto">;
+  width: number;
+  lineNumberDigits: number;
+  theme: AppTheme;
+  selected: boolean;
+  annotated: boolean;
+  anchoredNotes: VisibleAgentNote[];
+  onDismissAgentNote?: (id: string) => void;
+  onOpenAgentNotesAtHunk?: (hunkIndex: number) => void;
+}
+
+const DiffRowView = memo(
+  function DiffRowViewComponent({
+    row,
+    file,
+    layout,
+    width,
+    lineNumberDigits,
+    theme,
+    selected,
+    annotated,
+    anchoredNotes,
+    onDismissAgentNote,
+    onOpenAgentNotesAtHunk,
+  }: DiffRowViewProps) {
+    return renderRow(
+      row,
+      file,
+      layout,
+      width,
+      lineNumberDigits,
+      theme,
+      selected,
+      annotated,
+      anchoredNotes,
+      onDismissAgentNote,
+      onOpenAgentNotesAtHunk,
+    );
+  },
+  (previous, next) => {
+    return (
+      previous.row === next.row &&
+      previous.file === next.file &&
+      previous.layout === next.layout &&
+      previous.width === next.width &&
+      previous.lineNumberDigits === next.lineNumberDigits &&
+      previous.theme === next.theme &&
+      previous.selected === next.selected &&
+      previous.annotated === next.annotated &&
+      previous.anchoredNotes === next.anchoredNotes
+    );
+  },
+);
+
 export function PierreDiffView({
-  annotatedHunkIndices = new Set<number>(),
+  annotatedHunkIndices = EMPTY_ANNOTATED_HUNK_INDICES,
   file,
   layout,
   onDismissAgentNote,
   onOpenAgentNotesAtHunk,
   theme,
-  visibleAgentNotes = [],
+  visibleAgentNotes = EMPTY_VISIBLE_AGENT_NOTES,
   width,
   selectedHunkIndex,
   scrollable = true,
@@ -488,44 +540,48 @@ export function PierreDiffView({
   selectedHunkIndex: number;
   scrollable?: boolean;
 }) {
-  const [highlightedDiffs, setHighlightedDiffs] = useState<Record<string, HighlightedDiffCode | undefined>>({});
+  const [highlighted, setHighlighted] = useState<HighlightedDiffCode | null>(null);
+  const [highlightedFileId, setHighlightedFileId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!file || highlightedDiffs[file.id]) {
+    if (!file) {
+      setHighlighted(null);
+      setHighlightedFileId(null);
+      return;
+    }
+
+    if (highlightedFileId === file.id) {
       return;
     }
 
     let cancelled = false;
+    setHighlighted(null);
 
     loadHighlightedDiff(file)
-      .then((highlighted) => {
+      .then((nextHighlighted) => {
         if (cancelled) {
           return;
         }
 
-        setHighlightedDiffs((current) => ({
-          ...current,
-          [file.id]: highlighted,
-        }));
+        setHighlighted(nextHighlighted);
+        setHighlightedFileId(file.id);
       })
       .catch(() => {
         if (cancelled) {
           return;
         }
 
-        setHighlightedDiffs((current) => ({
-          ...current,
-          [file.id]: {
-            deletionLines: [],
-            additionLines: [],
-          },
-        }));
+        setHighlighted({
+          deletionLines: [],
+          additionLines: [],
+        });
+        setHighlightedFileId(file.id);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [file, highlightedDiffs]);
+  }, [file, highlightedFileId]);
 
   if (!file) {
     return (
@@ -543,27 +599,33 @@ export function PierreDiffView({
     );
   }
 
-  const highlighted = highlightedDiffs[file.id] ?? null;
-  const rows = layout === "split" ? buildSplitRows(file, highlighted, theme) : buildStackRows(file, highlighted, theme);
-  const anchoredNotes = buildAnchoredNotes(rows, visibleAgentNotes, selectedHunkIndex);
-  const lineNumberDigits = String(findMaxLineNumber(file)).length;
+  const rows = useMemo(
+    () => (layout === "split" ? buildSplitRows(file, highlighted, theme) : buildStackRows(file, highlighted, theme)),
+    [file, highlighted, layout, theme],
+  );
+  const anchoredNotes = useMemo(
+    () => buildAnchoredNotes(rows, visibleAgentNotes, selectedHunkIndex),
+    [rows, selectedHunkIndex, visibleAgentNotes],
+  );
+  const lineNumberDigits = useMemo(() => String(findMaxLineNumber(file)).length, [file]);
   const content = (
     <box style={{ width: "100%", flexDirection: "column" }}>
-      {rows.map((row) =>
-        renderRow(
-          row,
-          file,
-          layout,
-          width,
-          lineNumberDigits,
-          theme,
-          selectedHunkIndex,
-          annotatedHunkIndices,
-          anchoredNotes.get(row.key) ?? [],
-          onDismissAgentNote,
-          onOpenAgentNotesAtHunk,
-        ),
-      )}
+      {rows.map((row) => (
+        <DiffRowView
+          key={row.key}
+          row={row}
+          file={file}
+          layout={layout}
+          width={width}
+          lineNumberDigits={lineNumberDigits}
+          theme={theme}
+          selected={row.hunkIndex === selectedHunkIndex}
+          annotated={row.type === "hunk-header" && annotatedHunkIndices.has(row.hunkIndex)}
+          anchoredNotes={anchoredNotes.get(row.key) ?? EMPTY_VISIBLE_AGENT_NOTES}
+          onDismissAgentNote={onDismissAgentNote}
+          onOpenAgentNotesAtHunk={onOpenAgentNotesAtHunk}
+        />
+      ))}
     </box>
   );
 

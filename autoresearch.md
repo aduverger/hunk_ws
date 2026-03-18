@@ -45,3 +45,4 @@ The primary fps is the harmonic mean of those four scenario fps values so a sing
 
 ## What's Been Tried
 - Session initialized with a new fps benchmark covering scroll and hunk navigation in both split and stack layouts.
+- Memoized selected-file note derivation in `DiffPane`, memoized `DiffSection`, and memoized row work inside `PierreDiffView`. This sharply improved hunk-navigation throughput by avoiding whole-stream rerenders when only the selected hunk changes.

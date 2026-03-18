@@ -1,1 +1,2 @@
 {"type":"config","name":"Improve hunk rendering and scroll performance","metricName":"fps","metricUnit":"","bestDirection":"higher"}
+{"run":1,"commit":"7b99b9e","metric":4.64,"metrics":{},"status":"keep","description":"Baseline: add representative render/scroll fps benchmark plus correctness checks for split/stack scrolling and hunk navigation","timestamp":1773808753918,"segment":0}

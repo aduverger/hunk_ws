@@ -1,28 +1,13 @@
+import { memo } from "react";
 import type { DiffFile, LayoutMode } from "../../../core/types";
 import { PierreDiffView } from "../../diff/PierreDiffView";
-import type { VisibleAgentNote } from "../../lib/agentAnnotations";
+import { getAnnotatedHunkIndices, type VisibleAgentNote } from "../../lib/agentAnnotations";
 import { diffSectionId } from "../../lib/ids";
-import { getAnnotatedHunkIndices } from "../../lib/agentAnnotations";
 import { fileLabel } from "../../lib/files";
 import { fitText } from "../../lib/text";
 import type { AppTheme } from "../../themes";
 
-export function DiffSection({
-  file,
-  headerLabelWidth,
-  headerStatsWidth,
-  layout,
-  selected,
-  selectedHunkIndex,
-  separatorWidth,
-  showSeparator,
-  theme,
-  visibleAgentNotes,
-  viewWidth,
-  onDismissAgentNote,
-  onOpenAgentNotesAtHunk,
-  onSelect,
-}: {
+interface DiffSectionProps {
   file: DiffFile;
   headerLabelWidth: number;
   headerStatsWidth: number;
@@ -37,7 +22,24 @@ export function DiffSection({
   onDismissAgentNote: (id: string) => void;
   onOpenAgentNotesAtHunk: (hunkIndex: number) => void;
   onSelect: () => void;
-}) {
+}
+
+function DiffSectionComponent({
+  file,
+  headerLabelWidth,
+  headerStatsWidth,
+  layout,
+  selected,
+  selectedHunkIndex,
+  separatorWidth,
+  showSeparator,
+  theme,
+  visibleAgentNotes,
+  viewWidth,
+  onDismissAgentNote,
+  onOpenAgentNotesAtHunk,
+  onSelect,
+}: DiffSectionProps) {
   const additionsText = `+${file.stats.additions}`;
   const deletionsText = `-${file.stats.deletions}`;
   const annotatedHunkIndices = getAnnotatedHunkIndices(file);
@@ -94,9 +96,25 @@ export function DiffSection({
         visibleAgentNotes={visibleAgentNotes}
         onDismissAgentNote={onDismissAgentNote}
         onOpenAgentNotesAtHunk={onOpenAgentNotesAtHunk}
-        selectedHunkIndex={selected ? selectedHunkIndex : -1}
+        selectedHunkIndex={selectedHunkIndex}
         scrollable={false}
       />
     </box>
   );
 }
+
+export const DiffSection = memo(DiffSectionComponent, (previous, next) => {
+  return (
+    previous.file === next.file &&
+    previous.headerLabelWidth === next.headerLabelWidth &&
+    previous.headerStatsWidth === next.headerStatsWidth &&
+    previous.layout === next.layout &&
+    previous.selected === next.selected &&
+    previous.selectedHunkIndex === next.selectedHunkIndex &&
+    previous.separatorWidth === next.separatorWidth &&
+    previous.showSeparator === next.showSeparator &&
+    previous.theme === next.theme &&
+    previous.visibleAgentNotes === next.visibleAgentNotes &&
+    previous.viewWidth === next.viewWidth
+  );
+});
