@@ -133,16 +133,19 @@ function stackCellPalette(kind: StackLineCell["kind"], theme: AppTheme) {
 
 function renderSpans(spans: RenderSpan[], width: number, fallbackColor: string, keyPrefix: string) {
   const trimmed = trimSpans(spans, width);
+  const usedWidth = trimmed.reduce((sum, span) => sum + span.text.length, 0);
+  const padding = Math.max(0, width - usedWidth);
 
-  if (trimmed.length === 0) {
-    return <text fg={fallbackColor}>{""}</text>;
-  }
-
-  return trimmed.map((span, index) => (
-    <text key={`${keyPrefix}:${index}`} fg={span.fg ?? fallbackColor} bg={span.bg}>
-      {span.text}
+  return (
+    <text fg={fallbackColor}>
+      {trimmed.map((span, index) => (
+        <span key={`${keyPrefix}:${index}`} fg={span.fg ?? fallbackColor} bg={span.bg}>
+          {span.text}
+        </span>
+      ))}
+      {padding > 0 ? <span>{`${" ".repeat(padding)}`}</span> : null}
     </text>
-  ));
+  );
 }
 
 function renderSplitCell(

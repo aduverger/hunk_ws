@@ -1,17 +1,9 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { parseDiffFromFile } from "@pierre/diffs";
 import { act, createRef, type ReactNode } from "react";
 import type { AppBootstrap, DiffFile } from "../src/core/types";
 import { resolveTheme } from "../src/ui/themes";
-
-mock.module("../src/ui/diff/PierreDiffView", () => ({
-  PierreDiffView: ({ file }: { file: DiffFile | undefined }) => (
-    <box>
-      <text>{`mock diff: ${file?.path ?? "none"}`}</text>
-    </box>
-  ),
-}));
 
 const { App } = await import("../src/ui/App");
 const { HelpDialog } = await import("../src/ui/components/chrome/HelpDialog");
@@ -163,8 +155,8 @@ describe("UI components", () => {
 
     expect(frame).toContain("alpha.ts");
     expect(frame).toContain("beta.ts");
-    expect(frame).toContain("mock diff: alpha.ts");
-    expect(frame).toContain("mock diff: beta.ts");
+    expect(frame).toContain("@@ -1,1 +1,2 @@");
+    expect(frame).toContain("@@ -1,1 +1,1 @@");
     expect(frame.indexOf("alpha.ts")).toBeLessThan(frame.indexOf("beta.ts"));
   });
 
@@ -299,8 +291,8 @@ describe("UI components", () => {
     expect(frame).toContain("File  View  Navigate  Theme  Agent  Help");
     expect(frame).toContain("alpha.ts");
     expect(frame).toContain("beta.ts");
-    expect(frame).toContain("mock diff: alpha.ts");
-    expect(frame).toContain("mock diff: beta.ts");
+    expect(frame).toContain("@@ -1,1 +1,2 @@");
+    expect(frame).toContain("@@ -1,1 +1,1 @@");
     expect(frame).toContain("Changeset summary");
   });
 });
