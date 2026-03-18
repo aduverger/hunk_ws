@@ -14,6 +14,8 @@ interface DiffSectionProps {
   layout: Exclude<LayoutMode, "auto">;
   selected: boolean;
   selectedHunkIndex: number;
+  shouldLoadHighlight: boolean;
+  onHighlightReady?: () => void;
   separatorWidth: number;
   showLineNumbers: boolean;
   showHunkHeaders: boolean;
@@ -35,6 +37,8 @@ function DiffSectionComponent({
   layout,
   selected,
   selectedHunkIndex,
+  shouldLoadHighlight,
+  onHighlightReady,
   separatorWidth,
   showLineNumbers,
   showHunkHeaders,
@@ -107,7 +111,9 @@ function DiffSectionComponent({
         visibleAgentNotes={visibleAgentNotes}
         onDismissAgentNote={onDismissAgentNote}
         onOpenAgentNotesAtHunk={onOpenAgentNotesAtHunk}
+        onHighlightReady={onHighlightReady}
         selectedHunkIndex={selectedHunkIndex}
+        shouldLoadHighlight={shouldLoadHighlight}
         // The parent review stream owns scrolling across files.
         scrollable={false}
       />
@@ -125,6 +131,7 @@ export const DiffSection = memo(DiffSectionComponent, (previous, next) => {
     previous.layout === next.layout &&
     previous.selected === next.selected &&
     previous.selectedHunkIndex === next.selectedHunkIndex &&
+    previous.shouldLoadHighlight === next.shouldLoadHighlight &&
     previous.separatorWidth === next.separatorWidth &&
     previous.showLineNumbers === next.showLineNumbers &&
     previous.showHunkHeaders === next.showHunkHeaders &&

@@ -1,5 +1,5 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { useMemo, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
 import type { AgentAnnotation, DiffFile, LayoutMode } from "../../../core/types";
 import type { VisibleAgentNote } from "../../lib/agentAnnotations";
 import type { AppTheme } from "../../themes";
@@ -53,6 +53,47 @@ export function DiffPane({
   onOpenAgentNotesAtHunk: (fileId: string, hunkIndex: number) => void;
   onSelectFile: (fileId: string) => void;
 }) {
+  const [prefetchAnchorKey, setPrefetchAnchorKey] = useState<string | null>(null);
+  const selectedHighlightKey = selectedFileId ? `${theme.appearance}:${selectedFileId}` : null;
+
+  useEffect(() => {
+    setPrefetchAnchorKey(null);
+  }, [selectedHighlightKey]);
+
+  // Hold background prefetches until the currently selected file has painted once.
+  const adjacentPrefetchFileIds = useMemo(() => {
+    if (!selectedHighlightKey || prefetchAnchorKey !== selectedHighlightKey || !selectedFileId) {
+      return new Set<string>();
+    }
+
+    const selectedIndex = files.findIndex((file) => file.id === selectedFileId);
+    if (selectedIndex < 0) {
+      return new Set<string>();
+    }
+
+    const next = new Set<string>();
+    const previousFile = files[selectedIndex - 1];
+    const nextFile = files[selectedIndex + 1];
+
+    if (previousFile) {
+      next.add(previousFile.id);
+    }
+
+    if (nextFile) {
+      next.add(nextFile.id);
+    }
+
+    return next;
+  }, [files, prefetchAnchorKey, selectedFileId, selectedHighlightKey]);
+
+  const handleSelectedHighlightReady = useCallback(() => {
+    if (!selectedHighlightKey) {
+      return;
+    }
+
+    setPrefetchAnchorKey((current) => current ?? selectedHighlightKey);
+  }, [selectedHighlightKey]);
+
   const visibleAgentNotesByFile = useMemo(() => {
     const next = new Map<string, VisibleAgentNote[]>();
 
@@ -112,6 +153,8 @@ export function DiffPane({
                 layout={layout}
                 selected={file.id === selectedFileId}
                 selectedHunkIndex={file.id === selectedFileId ? selectedHunkIndex : -1}
+                shouldLoadHighlight={file.id === selectedFileId || adjacentPrefetchFileIds.has(file.id)}
+                onHighlightReady={file.id === selectedFileId ? handleSelectedHighlightReady : undefined}
                 separatorWidth={separatorWidth}
                 showSeparator={index > 0}
                 showLineNumbers={showLineNumbers}

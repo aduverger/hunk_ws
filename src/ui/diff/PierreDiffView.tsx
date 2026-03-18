@@ -866,6 +866,7 @@ export function PierreDiffView({
   layout,
   onDismissAgentNote,
   onOpenAgentNotesAtHunk,
+  onHighlightReady,
   showLineNumbers = true,
   showHunkHeaders = true,
   wrapLines = false,
@@ -873,6 +874,7 @@ export function PierreDiffView({
   visibleAgentNotes = EMPTY_VISIBLE_AGENT_NOTES,
   width,
   selectedHunkIndex,
+  shouldLoadHighlight = true,
   scrollable = true,
 }: {
   annotatedHunkIndices?: Set<number>;
@@ -880,6 +882,7 @@ export function PierreDiffView({
   layout: Exclude<LayoutMode, "auto">;
   onDismissAgentNote?: (id: string) => void;
   onOpenAgentNotesAtHunk?: (hunkIndex: number) => void;
+  onHighlightReady?: () => void;
   showLineNumbers?: boolean;
   showHunkHeaders?: boolean;
   wrapLines?: boolean;
@@ -887,6 +890,7 @@ export function PierreDiffView({
   visibleAgentNotes?: VisibleAgentNote[];
   width: number;
   selectedHunkIndex: number;
+  shouldLoadHighlight?: boolean;
   scrollable?: boolean;
 }) {
   const [highlighted, setHighlighted] = useState<HighlightedDiffCode | null>(null);
@@ -895,9 +899,9 @@ export function PierreDiffView({
   const highlightPromiseRef = useRef(new Map<string, Promise<HighlightedDiffCode>>());
   const appearanceCacheKey = file ? `${theme.appearance}:${file.id}` : null;
 
-  // Start the async highlight request as soon as render knows which file/appearance is needed.
+  // Selected files load immediately; background prefetch can opt neighboring files in later.
   const pendingHighlight = useMemo(() => {
-    if (!file || !appearanceCacheKey || highlightedCacheRef.current.has(appearanceCacheKey)) {
+    if (!shouldLoadHighlight || !file || !appearanceCacheKey || highlightedCacheRef.current.has(appearanceCacheKey)) {
       return null;
     }
 
@@ -909,7 +913,7 @@ export function PierreDiffView({
     const pending = loadHighlightedDiff(file, theme.appearance);
     highlightPromiseRef.current.set(appearanceCacheKey, pending);
     return pending;
-  }, [appearanceCacheKey, file, theme.appearance]);
+  }, [appearanceCacheKey, file, shouldLoadHighlight, theme.appearance]);
 
   useLayoutEffect(() => {
     if (!file || !appearanceCacheKey) {
@@ -926,6 +930,10 @@ export function PierreDiffView({
     if (cached) {
       setHighlighted(cached);
       setHighlightedCacheKey(appearanceCacheKey);
+      return;
+    }
+
+    if (!shouldLoadHighlight) {
       return;
     }
 
@@ -961,7 +969,29 @@ export function PierreDiffView({
     return () => {
       cancelled = true;
     };
-  }, [appearanceCacheKey, file, highlightedCacheKey, pendingHighlight]);
+  }, [appearanceCacheKey, file, highlightedCacheKey, pendingHighlight, shouldLoadHighlight]);
+
+  // Prefer cached highlights during render so revisiting a file can paint immediately.
+  const resolvedHighlighted =
+    appearanceCacheKey && highlightedCacheKey === appearanceCacheKey
+      ? highlighted
+      : appearanceCacheKey
+        ? (highlightedCacheRef.current.get(appearanceCacheKey) ?? null)
+        : null;
+  const notifiedHighlightKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!onHighlightReady || !appearanceCacheKey || !resolvedHighlighted) {
+      return;
+    }
+
+    if (notifiedHighlightKeyRef.current === appearanceCacheKey) {
+      return;
+    }
+
+    notifiedHighlightKeyRef.current = appearanceCacheKey;
+    onHighlightReady();
+  }, [appearanceCacheKey, onHighlightReady, resolvedHighlighted]);
 
   if (!file) {
     return (
@@ -979,13 +1009,6 @@ export function PierreDiffView({
     );
   }
 
-  // Prefer cached highlights during render so revisiting a file can paint immediately.
-  const resolvedHighlighted =
-    appearanceCacheKey && highlightedCacheKey === appearanceCacheKey
-      ? highlighted
-      : appearanceCacheKey
-        ? (highlightedCacheRef.current.get(appearanceCacheKey) ?? null)
-        : null;
   const rows = useMemo(
     () => (layout === "split" ? buildSplitRows(file, resolvedHighlighted, theme) : buildStackRows(file, resolvedHighlighted, theme)),
     [file, layout, resolvedHighlighted, theme],
