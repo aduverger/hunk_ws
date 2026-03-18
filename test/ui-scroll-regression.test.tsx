@@ -65,7 +65,7 @@ function createScrollBootstrap(): AppBootstrap {
 
 describe("UI scroll regression", () => {
   test("keeps split diff lines intact after a wheel scroll repaint", async () => {
-    const setup = await testRender(<App bootstrap={createScrollBootstrap()} />, { width: 120, height: 20 });
+    const setup = await testRender(<App bootstrap={createScrollBootstrap()} />, { width: 160, height: 20 });
 
     try {
       await act(async () => {
