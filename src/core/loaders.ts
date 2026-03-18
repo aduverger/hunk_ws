@@ -136,6 +136,42 @@ function buildDiffFile(
   };
 }
 
+function orderDiffFiles(files: DiffFile[], agentContext: AgentContext | null) {
+  if (!agentContext || agentContext.files.length === 0) {
+    return files;
+  }
+
+  const ranks = new Map<string, number>();
+
+  agentContext.files.forEach((file, index) => {
+    if (!ranks.has(file.path)) {
+      ranks.set(file.path, index);
+    }
+  });
+
+  return files
+    .map((file, index) => {
+      const rankCandidates = [file.path, file.previousPath]
+        .filter((path): path is string => Boolean(path))
+        .map((path) => ranks.get(path))
+        .filter((rank): rank is number => rank !== undefined);
+
+      return {
+        file,
+        index,
+        rank: rankCandidates.length > 0 ? Math.min(...rankCandidates) : Number.POSITIVE_INFINITY,
+      };
+    })
+    .sort((left, right) => {
+      if (left.rank !== right.rank) {
+        return left.rank - right.rank;
+      }
+
+      return left.index - right.index;
+    })
+    .map((entry) => entry.file);
+}
+
 function normalizePatchChangeset(
   patchText: string,
   title: string,
@@ -242,6 +278,11 @@ export async function loadAppBootstrap(input: CliInput): Promise<AppBootstrap> {
       changeset = await loadFileDiffChangeset(input, agentContext);
       break;
   }
+
+  changeset = {
+    ...changeset,
+    files: orderDiffFiles(changeset.files, agentContext),
+  };
 
   return {
     input,

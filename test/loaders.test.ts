@@ -105,4 +105,60 @@ describe("loadAppBootstrap", () => {
       process.chdir(previousCwd);
     }
   });
+
+  test("uses agent sidecar file order for the review stream", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hunk-git-"));
+    tempDirs.push(dir);
+
+    git(dir, "init");
+    git(dir, "config", "user.name", "Test User");
+    git(dir, "config", "user.email", "test@example.com");
+
+    writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
+    writeFileSync(join(dir, "beta.ts"), "export const beta = 1;\n");
+    git(dir, "add", "alpha.ts", "beta.ts");
+    git(dir, "commit", "-m", "initial");
+
+    writeFileSync(join(dir, "alpha.ts"), "export const alpha = 2;\n");
+    writeFileSync(join(dir, "beta.ts"), "export const beta = 2;\n");
+
+    const agent = join(dir, "agent.json");
+    writeFileSync(
+      agent,
+      JSON.stringify({
+        version: 1,
+        summary: "Tell the story in beta-first order.",
+        files: [
+          {
+            path: "beta.ts",
+            summary: "Explains the behavioral change first.",
+            annotations: [{ newRange: [1, 1], summary: "Updates beta." }],
+          },
+          {
+            path: "alpha.ts",
+            summary: "Covers the supporting change second.",
+            annotations: [{ newRange: [1, 1], summary: "Updates alpha." }],
+          },
+        ],
+      }),
+    );
+
+    const previousCwd = process.cwd();
+    process.chdir(dir);
+
+    try {
+      const bootstrap = await loadAppBootstrap({
+        kind: "git",
+        staged: false,
+        options: {
+          mode: "auto",
+          agentContext: agent,
+        },
+      });
+
+      expect(bootstrap.changeset.files.map((file) => file.path)).toEqual(["beta.ts", "alpha.ts"]);
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
 });
