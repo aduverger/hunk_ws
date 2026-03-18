@@ -17,7 +17,8 @@
     "test": "bun test",
     "test:tty-smoke": "bun test test/tty-render-smoke.test.ts",
     "bench:bootstrap-load": "bun run test/bootstrap-load-benchmark.ts",
-    "bench:highlight-prefetch": "bun run test/adjacent-highlight-prefetch-benchmark.ts"
+    "bench:highlight-prefetch": "bun run test/adjacent-highlight-prefetch-benchmark.ts",
+    "bench:large-stream": "bun run test/large-stream-windowing-benchmark.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

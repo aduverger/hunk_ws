@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useState, type RefObject } from "react
 import type { AgentAnnotation, DiffFile, LayoutMode } from "../../../core/types";
 import type { VisibleAgentNote } from "../../lib/agentAnnotations";
 import type { AppTheme } from "../../themes";
+import { estimateDiffBodyRows } from "../../lib/sectionHeights";
 import { DiffSection } from "./DiffSection";
+import { DiffSectionPlaceholder } from "./DiffSectionPlaceholder";
 
 const EMPTY_VISIBLE_AGENT_NOTES: VisibleAgentNote[] = [];
 
@@ -116,6 +118,60 @@ export function DiffPane({
 
     return next;
   }, [activeAnnotations, dismissedAgentNoteIds, selectedFileId, selectedHunkIndex, showAgentNotes]);
+  // Keep exact row rendering for wrapped lines and visible notes; otherwise reserve
+  // offscreen section height and only materialize rows near the viewport.
+  const windowingEnabled = !wrapLines && visibleAgentNotesByFile.size === 0;
+  const [scrollViewport, setScrollViewport] = useState({ top: 0, height: 0 });
+
+  useEffect(() => {
+    if (!windowingEnabled) {
+      setScrollViewport({ top: 0, height: 0 });
+      return;
+    }
+
+    const updateViewport = () => {
+      const nextTop = scrollRef.current?.scrollTop ?? 0;
+      const nextHeight = scrollRef.current?.viewport.height ?? 0;
+
+      setScrollViewport((current) =>
+        current.top === nextTop && current.height === nextHeight ? current : { top: nextTop, height: nextHeight },
+      );
+    };
+
+    updateViewport();
+    const interval = setInterval(updateViewport, 50);
+    return () => clearInterval(interval);
+  }, [scrollRef, windowingEnabled]);
+
+  const estimatedBodyHeights = useMemo(
+    () => files.map((file) => estimateDiffBodyRows(file, layout, showHunkHeaders)),
+    [files, layout, showHunkHeaders],
+  );
+  const visibleWindowedFileIds = useMemo(() => {
+    if (!windowingEnabled) {
+      return null;
+    }
+
+    const overscanRows = 40;
+    const minVisibleY = Math.max(0, scrollViewport.top - overscanRows);
+    const maxVisibleY = scrollViewport.top + scrollViewport.height + overscanRows;
+    let offsetY = 0;
+    const next = new Set<string>();
+
+    files.forEach((file, index) => {
+      const sectionHeight = (index > 0 ? 1 : 0) + 1 + (estimatedBodyHeights[index] ?? 0);
+      const sectionStart = offsetY;
+      const sectionEnd = sectionStart + sectionHeight;
+
+      if (file.id === selectedFileId || (sectionEnd >= minVisibleY && sectionStart <= maxVisibleY)) {
+        next.add(file.id);
+      }
+
+      offsetY = sectionEnd;
+    });
+
+    return next;
+  }, [estimatedBodyHeights, files, scrollViewport.height, scrollViewport.top, selectedFileId, windowingEnabled]);
 
   return (
     <box
@@ -144,30 +200,46 @@ export function DiffPane({
           horizontalScrollbarOptions={{ visible: false }}
         >
           <box style={{ width: "100%", flexDirection: "column" }}>
-            {files.map((file, index) => (
-              <DiffSection
-                key={file.id}
-                file={file}
-                headerLabelWidth={headerLabelWidth}
-                headerStatsWidth={headerStatsWidth}
-                layout={layout}
-                selected={file.id === selectedFileId}
-                selectedHunkIndex={file.id === selectedFileId ? selectedHunkIndex : -1}
-                shouldLoadHighlight={file.id === selectedFileId || adjacentPrefetchFileIds.has(file.id)}
-                onHighlightReady={file.id === selectedFileId ? handleSelectedHighlightReady : undefined}
-                separatorWidth={separatorWidth}
-                showSeparator={index > 0}
-                showLineNumbers={showLineNumbers}
-                showHunkHeaders={showHunkHeaders}
-                wrapLines={wrapLines}
-                theme={theme}
-                viewWidth={diffContentWidth}
-                visibleAgentNotes={visibleAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES}
-                onDismissAgentNote={onDismissAgentNote}
-                onOpenAgentNotesAtHunk={(hunkIndex) => onOpenAgentNotesAtHunk(file.id, hunkIndex)}
-                onSelect={() => onSelectFile(file.id)}
-              />
-            ))}
+            {files.map((file, index) => {
+              const shouldRenderSection = visibleWindowedFileIds?.has(file.id) ?? true;
+
+              return shouldRenderSection ? (
+                <DiffSection
+                  key={file.id}
+                  file={file}
+                  headerLabelWidth={headerLabelWidth}
+                  headerStatsWidth={headerStatsWidth}
+                  layout={layout}
+                  selected={file.id === selectedFileId}
+                  selectedHunkIndex={file.id === selectedFileId ? selectedHunkIndex : -1}
+                  shouldLoadHighlight={file.id === selectedFileId || adjacentPrefetchFileIds.has(file.id)}
+                  onHighlightReady={file.id === selectedFileId ? handleSelectedHighlightReady : undefined}
+                  separatorWidth={separatorWidth}
+                  showSeparator={index > 0}
+                  showLineNumbers={showLineNumbers}
+                  showHunkHeaders={showHunkHeaders}
+                  wrapLines={wrapLines}
+                  theme={theme}
+                  viewWidth={diffContentWidth}
+                  visibleAgentNotes={visibleAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES}
+                  onDismissAgentNote={onDismissAgentNote}
+                  onOpenAgentNotesAtHunk={(hunkIndex) => onOpenAgentNotesAtHunk(file.id, hunkIndex)}
+                  onSelect={() => onSelectFile(file.id)}
+                />
+              ) : (
+                <DiffSectionPlaceholder
+                  key={file.id}
+                  bodyHeight={estimatedBodyHeights[index] ?? 0}
+                  file={file}
+                  headerLabelWidth={headerLabelWidth}
+                  headerStatsWidth={headerStatsWidth}
+                  separatorWidth={separatorWidth}
+                  showSeparator={index > 0}
+                  theme={theme}
+                  onSelect={() => onSelectFile(file.id)}
+                />
+              );
+            })}
           </box>
         </scrollbox>
       ) : (
