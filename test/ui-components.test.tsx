@@ -11,6 +11,7 @@ const { FilesPane } = await import("../src/ui/components/panes/FilesPane");
 const { DiffPane } = await import("../src/ui/components/panes/DiffPane");
 const { MenuDropdown } = await import("../src/ui/components/chrome/MenuDropdown");
 const { StatusBar } = await import("../src/ui/components/chrome/StatusBar");
+const { DiffSectionPlaceholder } = await import("../src/ui/components/panes/DiffSectionPlaceholder");
 
 function createDiffFile(id: string, path: string, before: string, after: string, withAgent = false): DiffFile {
   const metadata = parseDiffFromFile(
@@ -303,6 +304,30 @@ describe("UI components", () => {
     expect(frame).toContain("Keyboard");
     expect(frame).toContain("F10 menus");
     expect(frame).toContain("drag the Files/Diff divider");
+  });
+
+  test("DiffSectionPlaceholder preserves offscreen section chrome without mounting rows", async () => {
+    const bootstrap = createBootstrap();
+    const theme = resolveTheme("midnight", null);
+    const frame = await captureFrame(
+      <DiffSectionPlaceholder
+        bodyHeight={6}
+        file={bootstrap.changeset.files[0]!}
+        headerLabelWidth={40}
+        headerStatsWidth={16}
+        separatorWidth={68}
+        showSeparator={true}
+        theme={theme}
+        onSelect={() => {}}
+      />,
+      80,
+      10,
+    );
+
+    expect(frame).toContain("alpha.ts");
+    expect(frame).toContain("+2");
+    expect(frame).toContain("-1");
+    expect(frame).not.toContain("export const alpha = 2;");
   });
 
   test("DiffPane renders an empty-state message when no files are visible", async () => {
