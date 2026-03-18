@@ -168,15 +168,27 @@ function renderSplitCell(
   lineNumberDigits: number,
   theme: AppTheme,
   keyPrefix: string,
+  prefix?: {
+    text: string;
+    fg: string;
+    bg: string;
+  },
 ) {
   const palette = splitCellPalette(cell.kind, theme);
-  const gutterWidth = Math.min(width, lineNumberDigits + 3);
-  const contentWidth = Math.max(0, width - gutterWidth);
+  const prefixWidth = prefix?.text.length ?? 0;
+  const availableWidth = Math.max(0, width - prefixWidth);
+  const gutterWidth = Math.min(availableWidth, lineNumberDigits + 3);
+  const contentWidth = Math.max(0, availableWidth - gutterWidth);
   const gutterText = `${cell.lineNumber ? String(cell.lineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits)} ${cell.sign}`.padEnd(gutterWidth);
 
   return (
     <box key={keyPrefix} style={{ width, height: 1 }}>
       <text>
+        {prefix ? (
+          <span fg={prefix.fg} bg={prefix.bg}>
+            {prefix.text}
+          </span>
+        ) : null}
         <span fg={palette.numberColor} bg={palette.gutterBg}>
           {gutterText}
         </span>
@@ -192,10 +204,17 @@ function renderStackCell(
   lineNumberDigits: number,
   theme: AppTheme,
   keyPrefix: string,
+  prefix?: {
+    text: string;
+    fg: string;
+    bg: string;
+  },
 ) {
   const palette = stackCellPalette(cell.kind, theme);
-  const gutterWidth = Math.min(width, lineNumberDigits * 2 + 5);
-  const contentWidth = Math.max(0, width - gutterWidth);
+  const prefixWidth = prefix?.text.length ?? 0;
+  const availableWidth = Math.max(0, width - prefixWidth);
+  const gutterWidth = Math.min(availableWidth, lineNumberDigits * 2 + 5);
+  const contentWidth = Math.max(0, availableWidth - gutterWidth);
 
   const oldNumber = cell.oldLineNumber ? String(cell.oldLineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits);
   const newNumber = cell.newLineNumber ? String(cell.newLineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits);
@@ -203,6 +222,11 @@ function renderStackCell(
   return (
     <box key={keyPrefix} style={{ width, height: 1 }}>
       <text>
+        {prefix ? (
+          <span fg={prefix.fg} bg={prefix.bg}>
+            {prefix.text}
+          </span>
+        ) : null}
         <span fg={palette.numberColor} bg={palette.gutterBg}>{`${oldNumber} ${newNumber} ${cell.sign}`.padEnd(gutterWidth)}</span>
         {renderInlineSpans(cell.spans, contentWidth, theme.text, palette.contentBg, `${keyPrefix}:content`)}
       </text>
@@ -395,15 +419,16 @@ function renderRow(
     const markerWidth = 1;
     const separatorWidth = 1;
     const usableWidth = Math.max(0, width - markerWidth - separatorWidth);
-    const leftWidth = Math.max(0, Math.floor(usableWidth / 2));
-    const rightWidth = Math.max(0, usableWidth - leftWidth);
+    const leftWidth = Math.max(0, markerWidth + Math.floor(usableWidth / 2));
+    const rightWidth = Math.max(0, usableWidth - Math.floor(usableWidth / 2));
 
     baseRow = (
       <box style={{ width: "100%", height: 1, flexDirection: "row" }}>
-        <box style={{ width: markerWidth, height: 1 }}>
-          <text fg={selected ? theme.accent : theme.panel}>{marker(selected)}</text>
-        </box>
-        {renderSplitCell(row.left, leftWidth, lineNumberDigits, theme, `${row.key}:left`)}
+        {renderSplitCell(row.left, leftWidth, lineNumberDigits, theme, `${row.key}:left`, {
+          text: marker(selected),
+          fg: selected ? theme.accent : theme.panel,
+          bg: theme.panel,
+        })}
         <box
           style={{
             width: separatorWidth,
@@ -419,10 +444,11 @@ function renderRow(
   } else if (row.type === "stack-line") {
     baseRow = (
       <box style={{ width: "100%", height: 1, flexDirection: "row" }}>
-        <box style={{ width: 1, height: 1 }}>
-          <text fg={selected ? theme.accent : theme.panel}>{marker(selected)}</text>
-        </box>
-        {renderStackCell(row.cell, Math.max(0, width - 1), lineNumberDigits, theme, `${row.key}:stack`)}
+        {renderStackCell(row.cell, width, lineNumberDigits, theme, `${row.key}:stack`, {
+          text: marker(selected),
+          fg: selected ? theme.accent : theme.panel,
+          bg: theme.panel,
+        })}
       </box>
     );
   } else {
