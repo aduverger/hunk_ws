@@ -127,6 +127,7 @@ Keep the sidecar concise. It should explain why a hunk exists, what risk to revi
 | Split diffs | ✅ | ✅ | ✅ | ✅ |
 | Stacked diffs | ✅ | ✅ | ✅ | ✅ |
 | Auto responsive layouts | ✅ | ❌ | ❌ | ❌ |
+| Themes | ✅ | ❌ | ✅ | ❌ |
 | Syntax highlighting | ✅ | ✅ | ✅ | ❌ |
 | Syntax-aware / structural diffing | ❌ | ✅ | ❌ | ❌ |
 | Mouse support inside the diff viewer | ✅ | ❌ | ❌ | ❌ |
