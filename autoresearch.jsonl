@@ -20,3 +20,10 @@
 {"run":1,"commit":"687a7f7","metric":605.13,"metrics":{},"status":"keep","description":"benchmark: measure visible app startup syntax highlighting","timestamp":1773846484355,"segment":0}
 {"run":2,"commit":"687a7f7","metric":611.56,"metrics":{},"status":"discard","description":"perf: start selected-file highlight loading during render setup","timestamp":1773846575263,"segment":0}
 {"run":3,"commit":"c9483d7","metric":604.71,"metrics":{},"status":"keep","description":"perf: fast-path plain diff spans before highlighted HAST arrives","timestamp":1773846636860,"segment":0}
+{"run":4,"commit":"1697f4a","metric":603.36,"metrics":{},"status":"keep","description":"perf: start syntax highlight loading in a layout effect","timestamp":1773846688546,"segment":0}
+{"run":5,"commit":"1697f4a","metric":611.36,"metrics":{},"status":"discard","description":"perf: start syntax highlight loading only from the layout effect","timestamp":1773846781407,"segment":0}
+{"run":6,"commit":"1697f4a","metric":609.83,"metrics":{},"status":"discard","description":"perf: reserve render-start highlight kickoff for the selected file only","timestamp":1773846867514,"segment":0}
+{"run":7,"commit":"1697f4a","metric":612.27,"metrics":{},"status":"discard","description":"perf: add a cheaper common-case diff line normalization path","timestamp":1773846919777,"segment":0}
+{"run":8,"commit":"1697f4a","metric":611.82,"metrics":{},"status":"discard","description":"perf: transition non-selected highlight state updates","timestamp":1773847114482,"segment":0}
+{"run":9,"commit":"1697f4a","metric":603.59,"metrics":{},"status":"discard","description":"perf: memoize app startup derived data","timestamp":1773847248132,"segment":0}
+{"run":10,"commit":"1697f4a","metric":610.13,"metrics":{},"status":"discard","description":"perf: skip redundant clear-state updates before the first highlight arrives","timestamp":1773847339041,"segment":0}
