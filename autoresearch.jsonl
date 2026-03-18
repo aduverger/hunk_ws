@@ -27,3 +27,5 @@
 {"run":8,"commit":"1697f4a","metric":611.82,"metrics":{},"status":"discard","description":"perf: transition non-selected highlight state updates","timestamp":1773847114482,"segment":0}
 {"run":9,"commit":"1697f4a","metric":603.59,"metrics":{},"status":"discard","description":"perf: memoize app startup derived data","timestamp":1773847248132,"segment":0}
 {"run":10,"commit":"1697f4a","metric":610.13,"metrics":{},"status":"discard","description":"perf: skip redundant clear-state updates before the first highlight arrives","timestamp":1773847339041,"segment":0}
+{"run":11,"commit":"2b73efd","metric":597.42,"metrics":{},"status":"keep","description":"perf: warm the default dark text highlighter during module load","timestamp":1773847474363,"segment":0}
+{"run":12,"commit":"2b73efd","metric":610.43,"metrics":{},"status":"discard","description":"perf: overlap selected-file highlighter prep with the first render","timestamp":1773847585373,"segment":0}

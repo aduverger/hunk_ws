@@ -315,10 +315,6 @@ async function prepareHighlighter(language: string | undefined, appearance: AppT
   });
 }
 
-// Start the default dark-text highlighter setup early so the first app mount can overlap it.
-const defaultStartupHighlighterWarmup = prepareHighlighter("text", "dark");
-void defaultStartupHighlighterWarmup;
-
 /** Queue highlight rendering so startup work stays serialized in request order. */
 function queueHighlightedDiff(run: () => HighlightedDiffCode) {
   const queued = queuedHighlightWork.then(
