@@ -7,3 +7,4 @@
 {"run":6,"commit":"ad8e634","metric":32.58,"metrics":{},"status":"keep","description":"Skip the extra wrapper box for note-free diff rows so steady-state scrolling traverses a smaller tree","timestamp":1773809776040,"segment":0}
 {"run":7,"commit":"11f5327","metric":58.26,"metrics":{},"status":"keep","description":"Fold the hunk-selection marker into split and stack cell text to remove another per-row box","timestamp":1773809933654,"segment":0}
 {"run":8,"commit":"c7b2898","metric":77.23,"metrics":{},"status":"keep","description":"Inline the split separator inside the right cell so split rows render with one less box per line","timestamp":1773810029157,"segment":0}
+{"run":9,"commit":"90aed3f","metric":129,"metrics":{},"status":"keep","description":"Render split and stack lines as single text rows so marker, gutters, separator, and content share one row box","timestamp":1773810166788,"segment":0}

@@ -282,11 +282,15 @@ function renderHeaderRow(
         backgroundColor: theme.panelAlt,
       }}
     >
-      <box style={{ width: 1, height: 1 }}>
-        <text fg={selected ? theme.accent : theme.panelAlt}>{marker(selected)}</text>
-      </box>
-      <box style={{ width: Math.max(0, width - 1 - badgeWidth), height: 1 }}>
-        <text fg={row.type === "collapsed" ? theme.muted : theme.badgeNeutral}>{label}</text>
+      <box style={{ width: Math.max(0, width - badgeWidth), height: 1 }}>
+        <text>
+          <span fg={selected ? theme.accent : theme.panelAlt} bg={theme.panelAlt}>
+            {marker(selected)}
+          </span>
+          <span fg={row.type === "collapsed" ? theme.muted : theme.badgeNeutral} bg={theme.panelAlt}>
+            {label}
+          </span>
+        </text>
       </box>
       {annotated ? (
         <box style={{ width: badgeWidth, height: 1 }} onMouseUp={() => onOpenAgentNotesAtHunk?.(row.hunkIndex)}>
