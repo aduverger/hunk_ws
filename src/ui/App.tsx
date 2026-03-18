@@ -25,7 +25,7 @@ function clamp(value: number, min: number, max: number) {
 }
 
 /** Orchestrate global app state, layout, navigation, and pane coordination. */
-export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
+export function App({ bootstrap, onQuit = () => process.exit(0) }: { bootstrap: AppBootstrap; onQuit?: () => void }) {
   const FILES_MIN_WIDTH = 22;
   const DIFF_MIN_WIDTH = 48;
   const BODY_PADDING = 2;
@@ -260,6 +260,11 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     openAgentNotes();
   };
 
+  /** Leave the app through the shell-owned shutdown path. */
+  const requestQuit = () => {
+    onQuit();
+  };
+
   /** Start a mouse drag resize for the optional files pane. */
   const beginFilesPaneResize = (event: TuiMouseEvent) => {
     if (event.button !== MouseButton.LEFT) {
@@ -325,7 +330,7 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
         kind: "item",
         label: "Quit",
         hint: "q",
-        action: () => process.exit(0),
+        action: requestQuit,
       },
     ],
     view: [
@@ -554,7 +559,8 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     }
 
     if (key.name === "q") {
-      process.exit(0);
+      requestQuit();
+      return;
     }
 
     if (key.name === "?") {
@@ -564,7 +570,8 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     }
 
     if (key.name === "escape") {
-      process.exit(0);
+      requestQuit();
+      return;
     }
 
     if (key.name === "tab") {
