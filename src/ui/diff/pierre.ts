@@ -28,13 +28,7 @@ function pierreRenderOptions(appearance: AppTheme["appearance"]) {
   };
 }
 
-const queuedHighlightJobs: Array<{
-  run: () => HighlightedDiffCode;
-  resolve: (value: HighlightedDiffCode) => void;
-  reject: (error: unknown) => void;
-}> = [];
-let activeHighlightJobs = 0;
-const MAX_CONCURRENT_HIGHLIGHTS = 1;
+let queuedHighlightWork = Promise.resolve();
 
 type HastNode = HastTextNode | HastElementNode;
 
@@ -286,35 +280,27 @@ async function prepareHighlighter(language: string | undefined, appearance: AppT
   });
 }
 
-/** Drain the queued diff-highlight jobs while preserving arrival order. */
-function pumpHighlightQueue() {
-  while (activeHighlightJobs < MAX_CONCURRENT_HIGHLIGHTS) {
-    const nextJob = queuedHighlightJobs.shift();
-    if (!nextJob) {
-      return;
-    }
-
-    activeHighlightJobs += 1;
-
-    queueMicrotask(() => {
-      try {
-        nextJob.resolve(nextJob.run());
-      } catch (error) {
-        nextJob.reject(error);
-      } finally {
-        activeHighlightJobs -= 1;
-        pumpHighlightQueue();
-      }
-    });
-  }
-}
-
-/** Queue highlight rendering so the earliest startup requests can finish before later files compete. */
+/** Queue highlight rendering so startup work stays serialized in request order. */
 function queueHighlightedDiff(run: () => HighlightedDiffCode) {
-  return new Promise<HighlightedDiffCode>((resolve, reject) => {
-    queuedHighlightJobs.push({ run, resolve, reject });
-    pumpHighlightQueue();
-  });
+  const queued = queuedHighlightWork.then(
+    () =>
+      new Promise<HighlightedDiffCode>((resolve, reject) => {
+        queueMicrotask(() => {
+          try {
+            resolve(run());
+          } catch (error) {
+            reject(error);
+          }
+        });
+      }),
+  );
+
+  queuedHighlightWork = queued.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  return queued;
 }
 
 /** Highlight a diff file and return just the rendered line trees the UI needs. */

@@ -4,3 +4,8 @@
 {"run":3,"commit":"39e3284","metric":316.28,"metrics":{},"status":"discard","description":"perf: try two concurrent highlight renders with the wasm backend","timestamp":1773845178461,"segment":0}
 {"run":4,"commit":"39e3284","metric":525.65,"metrics":{},"status":"discard","description":"perf: remove startup highlight queue with the wasm backend","timestamp":1773845216374,"segment":0}
 {"run":5,"commit":"ab3f443","metric":153.37,"metrics":{},"status":"keep","description":"perf: prepare and render only the active syntax theme appearance","timestamp":1773845437833,"segment":0}
+{"run":6,"commit":"3443377","metric":153.36,"metrics":{},"status":"keep","description":"perf: rely on Pierre shared highlighter state instead of a local prep cache","timestamp":1773845485578,"segment":0}
+{"run":7,"commit":"3443377","metric":203.65,"metrics":{},"status":"discard","description":"perf: try two concurrent startup highlight renders after the appearance-specific change","timestamp":1773845516429,"segment":0}
+{"run":8,"commit":"3443377","metric":305.71,"metrics":{},"status":"discard","description":"perf: remove startup highlight queue after the appearance-specific change","timestamp":1773845552726,"segment":0}
+{"run":9,"commit":"3443377","metric":761.56,"metrics":{},"status":"discard","description":"perf: try the JavaScript Shiki engine after the appearance-specific change","timestamp":1773845592735,"segment":0}
+{"run":10,"commit":"3443377","metric":299.8,"metrics":{},"status":"discard","description":"perf: run only the very first startup highlight immediately","timestamp":1773845636382,"segment":0}

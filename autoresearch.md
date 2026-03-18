@@ -35,6 +35,13 @@ The target is the startup path that mounts many `PierreDiffView` instances and a
 - Initial single-sample baseline: `selected_highlight_ms=2381.47`.
 - Reusing a per-language in-flight highlighter-preparation promise improved the single-sample startup metric slightly to `2349.96ms`.
 - Queueing startup highlight rendering in arrival order produced the first large win, cutting the single-sample selected-file metric to `1065.82ms` while keeping total completion time roughly flat.
-- Raising highlight-render concurrency from 1 to 2 regressed the selected-file metric to `1437.34ms`, so the current best keeps a single queued startup highlight job.
-- The benchmark now averages three cold-process runs. Current 3-run baseline on the kept queueing strategy: `selected_highlight_ms=1054.11`.
-- Removing the extra microtask hop from the queued highlight job regressed badly (`2349.21ms` average), so the current best keeps the queued async handoff.
+- The benchmark now averages three cold-process runs. Re-baselined 3-run average on the queued startup strategy: `1050.10ms`.
+- Switching the shared syntax startup path from Shiki JS to the Shiki wasm engine cut the 3-run average selected-file metric to `231.56ms` and total completion to `527.68ms`.
+- Preparing and rendering only the active appearance theme instead of both light and dark at startup cut the 3-run average selected-file metric further to `153.37ms` and total completion to `300.62ms`.
+- Removing the local per-language/theme prep cache was effectively neutral on the primary metric and slightly simpler; current best is `153.36ms` with `all_highlights_ms=303.68ms`.
+- Discarded on top of the new best:
+  - two concurrent startup highlight renders (`203.65ms`)
+  - no startup queue (`305.71ms`)
+  - first-highlight immediate fast path (`299.80ms`)
+  - JavaScript Shiki engine after the active-appearance change (`761.56ms`)
+  - earlier experiments also discarded warmup-at-import and synchronous queue execution because they regressed badly.
