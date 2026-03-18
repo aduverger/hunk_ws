@@ -433,6 +433,10 @@ function renderRow(
     );
   }
 
+  if (anchoredNotes.length === 0) {
+    return baseRow;
+  }
+
   return (
     <box style={{ width: "100%", flexDirection: "column" }}>
       {baseRow}

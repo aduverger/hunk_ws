@@ -48,3 +48,4 @@ The primary fps is the harmonic mean of those four scenario fps values so a sing
 - Memoized selected-file note derivation in `DiffPane`, memoized `DiffSection`, and memoized row work inside `PierreDiffView`. This sharply improved hunk-navigation throughput by avoiding whole-stream rerenders when only the selected hunk changes.
 - A first attempt to memoize row bodies without changing row structure was effectively noise and did not beat the current best result.
 - Reworked split/stack line cells to render gutter + content as inline text spans inside one box instead of separate gutter/content boxes. After restoring the original gutter spacing, this delivered a large win in both scroll and navigation fps while keeping tests green.
+- Most rows do not render note cards. Returning the line node directly for note-free rows instead of always wrapping it in a column box produced another clear win by shrinking the steady-state diff tree.
