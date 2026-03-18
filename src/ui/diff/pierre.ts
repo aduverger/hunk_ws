@@ -14,11 +14,19 @@ const PIERRE_THEME = {
   dark: "pierre-dark",
 } as const;
 
-const PIERRE_RENDER_OPTIONS = {
-  theme: PIERRE_THEME,
-  tokenizeMaxLineLength: 1_000,
-  lineDiffType: "word-alt" as const,
-};
+/** Resolve the single Pierre theme name needed for the current appearance. */
+function pierreThemeName(appearance: AppTheme["appearance"]) {
+  return PIERRE_THEME[appearance];
+}
+
+/** Build render options for one appearance so startup work only prepares the visible theme. */
+function pierreRenderOptions(appearance: AppTheme["appearance"]) {
+  return {
+    theme: pierreThemeName(appearance),
+    tokenizeMaxLineLength: 1_000,
+    lineDiffType: "word-alt" as const,
+  };
+}
 
 const preparedHighlighterPromises = new Map<string, Promise<Awaited<ReturnType<typeof getSharedHighlighter>>>>();
 const queuedHighlightJobs: Array<{
@@ -269,24 +277,25 @@ function trailingCollapsedLines(metadata: FileDiffMetadata) {
 }
 
 /** Reuse in-flight highlighter preparation so startup does not duplicate the same async setup work. */
-async function prepareHighlighter(language: string | undefined) {
+async function prepareHighlighter(language: string | undefined, appearance: AppTheme["appearance"]) {
   const resolvedLanguage = language ?? "text";
-  const cached = preparedHighlighterPromises.get(resolvedLanguage);
+  const cacheKey = `${appearance}:${resolvedLanguage}`;
+  const cached = preparedHighlighterPromises.get(cacheKey);
   if (cached) {
     return cached;
   }
 
   const prepared = getSharedHighlighter({
     ...getHighlighterOptions(resolvedLanguage, {
-      theme: PIERRE_THEME,
+      theme: pierreThemeName(appearance),
     }),
     preferredHighlighter: "shiki-wasm",
   }).catch((error) => {
-    preparedHighlighterPromises.delete(resolvedLanguage);
+    preparedHighlighterPromises.delete(cacheKey);
     throw error;
   });
 
-  preparedHighlighterPromises.set(resolvedLanguage, prepared);
+  preparedHighlighterPromises.set(cacheKey, prepared);
   return prepared;
 }
 
@@ -322,20 +331,27 @@ function queueHighlightedDiff(run: () => HighlightedDiffCode) {
 }
 
 /** Highlight a diff file and return just the rendered line trees the UI needs. */
-export async function loadHighlightedDiff(file: DiffFile): Promise<HighlightedDiffCode> {
+export async function loadHighlightedDiff(
+  file: DiffFile,
+  appearance: AppTheme["appearance"] = "dark",
+): Promise<HighlightedDiffCode> {
   try {
-    const highlighter = await prepareHighlighter(file.language);
+    const highlighter = await prepareHighlighter(file.language, appearance);
     return queueHighlightedDiff(() => {
-      const highlighted = renderDiffWithHighlighter(file.metadata, highlighter, PIERRE_RENDER_OPTIONS);
+      const highlighted = renderDiffWithHighlighter(file.metadata, highlighter, pierreRenderOptions(appearance));
       return {
         deletionLines: highlighted.code.deletionLines as Array<HastNode | undefined>,
         additionLines: highlighted.code.additionLines as Array<HastNode | undefined>,
       };
     });
   } catch {
-    const highlighter = await prepareHighlighter("text");
+    const highlighter = await prepareHighlighter("text", appearance);
     return queueHighlightedDiff(() => {
-      const highlighted = renderDiffWithHighlighter({ ...file.metadata, lang: "text" }, highlighter, PIERRE_RENDER_OPTIONS);
+      const highlighted = renderDiffWithHighlighter(
+        { ...file.metadata, lang: "text" },
+        highlighter,
+        pierreRenderOptions(appearance),
+      );
       return {
         deletionLines: highlighted.code.deletionLines as Array<HastNode | undefined>,
         additionLines: highlighted.code.additionLines as Array<HastNode | undefined>,

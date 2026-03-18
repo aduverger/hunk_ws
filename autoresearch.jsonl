@@ -1,2 +1,5 @@
 {"type":"config","name":"Optimize syntax highlighting startup latency (3-run average)","metricName":"selected_highlight_ms","metricUnit":"ms","bestDirection":"lower"}
 {"run":1,"commit":"0aa6ade","metric":1050.1,"metrics":{},"status":"keep","description":"benchmark: restore syntax startup autoresearch harness","timestamp":1773845062470,"segment":0}
+{"run":2,"commit":"39e3284","metric":231.56,"metrics":{},"status":"keep","description":"perf: switch shared syntax startup to the Shiki wasm engine","timestamp":1773845153236,"segment":0}
+{"run":3,"commit":"39e3284","metric":316.28,"metrics":{},"status":"discard","description":"perf: try two concurrent highlight renders with the wasm backend","timestamp":1773845178461,"segment":0}
+{"run":4,"commit":"39e3284","metric":525.65,"metrics":{},"status":"discard","description":"perf: remove startup highlight queue with the wasm backend","timestamp":1773845216374,"segment":0}
