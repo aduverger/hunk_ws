@@ -1,1 +1,2 @@
 {"type":"config","name":"Optimize syntax highlighting startup latency","metricName":"selected_highlight_ms","metricUnit":"ms","bestDirection":"lower"}
+{"run":1,"commit":"5dbcdf0","metric":2381.47,"metrics":{},"status":"keep","description":"benchmark: add syntax highlight startup benchmark","timestamp":1773844093954,"segment":0}

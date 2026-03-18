@@ -20,6 +20,8 @@ const PIERRE_RENDER_OPTIONS = {
   lineDiffType: "word-alt" as const,
 };
 
+const preparedHighlighterPromises = new Map<string, Promise<Awaited<ReturnType<typeof getSharedHighlighter>>>>();
+
 type HastNode = HastTextNode | HastElementNode;
 
 interface HastTextNode {
@@ -259,27 +261,38 @@ function trailingCollapsedLines(metadata: FileDiffMetadata) {
   return Math.max(additionRemaining, 0);
 }
 
+/** Reuse in-flight highlighter preparation so startup does not duplicate the same async setup work. */
+async function prepareHighlighter(language: string | undefined) {
+  const resolvedLanguage = language ?? "text";
+  const cached = preparedHighlighterPromises.get(resolvedLanguage);
+  if (cached) {
+    return cached;
+  }
+
+  const prepared = getSharedHighlighter(
+    getHighlighterOptions(resolvedLanguage, {
+      theme: PIERRE_THEME,
+    }),
+  ).catch((error) => {
+    preparedHighlighterPromises.delete(resolvedLanguage);
+    throw error;
+  });
+
+  preparedHighlighterPromises.set(resolvedLanguage, prepared);
+  return prepared;
+}
+
 /** Highlight a diff file and return just the rendered line trees the UI needs. */
 export async function loadHighlightedDiff(file: DiffFile): Promise<HighlightedDiffCode> {
   try {
-    const highlighter = await getSharedHighlighter(
-      getHighlighterOptions(file.language, {
-        theme: PIERRE_THEME,
-      }),
-    );
-
+    const highlighter = await prepareHighlighter(file.language);
     const highlighted = renderDiffWithHighlighter(file.metadata, highlighter, PIERRE_RENDER_OPTIONS);
     return {
       deletionLines: highlighted.code.deletionLines as Array<HastNode | undefined>,
       additionLines: highlighted.code.additionLines as Array<HastNode | undefined>,
     };
   } catch {
-    const highlighter = await getSharedHighlighter(
-      getHighlighterOptions("text", {
-        theme: PIERRE_THEME,
-      }),
-    );
-
+    const highlighter = await prepareHighlighter("text");
     const highlighted = renderDiffWithHighlighter({ ...file.metadata, lang: "text" }, highlighter, PIERRE_RENDER_OPTIONS);
     return {
       deletionLines: highlighted.code.deletionLines as Array<HastNode | undefined>,
