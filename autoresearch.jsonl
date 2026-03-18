@@ -10,3 +10,4 @@
 {"run":9,"commit":"90aed3f","metric":129,"metrics":{},"status":"keep","description":"Render split and stack lines as single text rows so marker, gutters, separator, and content share one row box","timestamp":1773810166788,"segment":0}
 {"run":10,"commit":"704ae26","metric":137.49,"metrics":{},"status":"keep","description":"Inline the selected marker in header and collapsed rows to remove another hot-path wrapper box","timestamp":1773833422886,"segment":0}
 {"run":11,"commit":"5564f18","metric":138.27,"metrics":{},"status":"keep","description":"Use a cheaper single-box path for non-annotated header rows while preserving the badge path for annotated hunks","timestamp":1773833550117,"segment":0}
+{"run":12,"commit":"b0a0b82","metric":139.12,"metrics":{},"status":"keep","description":"Cache highlighted diffs per file so revisiting files avoids repeat highlighting work","timestamp":1773833658205,"segment":0}

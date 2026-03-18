@@ -641,9 +641,10 @@ export function PierreDiffView({
     );
   }
 
+  const resolvedHighlighted = highlightedFileId === file.id ? highlighted : (highlightedCacheRef.current.get(file.id) ?? null);
   const rows = useMemo(
-    () => (layout === "split" ? buildSplitRows(file, highlighted, theme) : buildStackRows(file, highlighted, theme)),
-    [file, highlighted, layout, theme],
+    () => (layout === "split" ? buildSplitRows(file, resolvedHighlighted, theme) : buildStackRows(file, resolvedHighlighted, theme)),
+    [file, layout, resolvedHighlighted, theme],
   );
   const anchoredNotes = useMemo(
     () => buildAnchoredNotes(rows, visibleAgentNotes, selectedHunkIndex),
