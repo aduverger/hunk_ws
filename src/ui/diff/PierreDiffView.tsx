@@ -85,6 +85,34 @@ function marker(selected: boolean) {
   return selected ? "▌" : " ";
 }
 
+/** Return the neutral active-hunk rail color for the current theme. */
+function neutralRailColor(theme: AppTheme) {
+  return theme.lineNumberFg;
+}
+
+/** Pick the stack-view rail color for one rendered row. */
+function stackRailColor(kind: StackLineCell["kind"], theme: AppTheme) {
+  if (kind === "addition") {
+    return theme.addedSignColor;
+  }
+
+  if (kind === "deletion") {
+    return theme.removedSignColor;
+  }
+
+  return neutralRailColor(theme);
+}
+
+/** Pick the left split-view rail color from the old-side cell state. */
+function splitLeftRailColor(kind: SplitLineCell["kind"], theme: AppTheme) {
+  return kind === "deletion" ? theme.removedSignColor : neutralRailColor(theme);
+}
+
+/** Pick the right split-view rail color from the new-side cell state. */
+function splitRightRailColor(kind: SplitLineCell["kind"], theme: AppTheme) {
+  return kind === "addition" ? theme.addedSignColor : neutralRailColor(theme);
+}
+
 /** Pick split-view colors from the semantic diff cell kind. */
 function splitCellPalette(kind: SplitLineCell["kind"], theme: AppTheme) {
   if (kind === "addition") {
@@ -310,7 +338,7 @@ function renderHeaderRow(
         }}
       >
         <text>
-          <span fg={selected ? theme.accent : theme.panelAlt} bg={theme.panelAlt}>
+          <span fg={selected ? neutralRailColor(theme) : theme.panelAlt} bg={theme.panelAlt}>
             {marker(selected)}
           </span>
           <span fg={row.type === "collapsed" ? theme.muted : theme.badgeNeutral} bg={theme.panelAlt}>
@@ -334,7 +362,7 @@ function renderHeaderRow(
     >
       <box style={{ width: Math.max(0, width - badgeWidth), height: 1 }}>
         <text>
-          <span fg={selected ? theme.accent : theme.panelAlt} bg={theme.panelAlt}>
+          <span fg={selected ? neutralRailColor(theme) : theme.panelAlt} bg={theme.panelAlt}>
             {marker(selected)}
           </span>
           <span fg={row.type === "collapsed" ? theme.muted : theme.badgeNeutral} bg={theme.panelAlt}>
@@ -471,8 +499,8 @@ function renderRow(
     const markerWidth = 1;
     const separatorWidth = 1;
 
-    // Reserve fixed columns for the selection marker and split separator
-    // so both sides stay aligned across all rows.
+    // Reserve fixed columns for the left rail and center separator slot.
+    // Active-hunk rows recolor that separator slot as the right-side rail without changing width.
     const usableWidth = Math.max(0, width - markerWidth - separatorWidth);
     const leftWidth = Math.max(0, markerWidth + Math.floor(usableWidth / 2));
     const rightWidth = Math.max(0, separatorWidth + usableWidth - Math.floor(usableWidth / 2));
@@ -482,12 +510,12 @@ function renderRow(
         <text>
           {renderSplitCell(row.left, leftWidth, lineNumberDigits, theme, `${row.key}:left`, {
             text: marker(selected),
-            fg: selected ? theme.accent : theme.panel,
+            fg: selected ? splitLeftRailColor(row.left.kind, theme) : theme.panel,
             bg: theme.panel,
           })}
           {renderSplitCell(row.right, rightWidth, lineNumberDigits, theme, `${row.key}:right`, {
-            text: "│",
-            fg: theme.border,
+            text: selected ? "▌" : "│",
+            fg: selected ? splitRightRailColor(row.right.kind, theme) : theme.border,
             bg: theme.panel,
           })}
         </text>
@@ -499,7 +527,7 @@ function renderRow(
         <text>
           {renderStackCell(row.cell, width, lineNumberDigits, theme, `${row.key}:stack`, {
             text: marker(selected),
-            fg: selected ? theme.accent : theme.panel,
+            fg: selected ? stackRailColor(row.cell.kind, theme) : theme.panel,
             bg: theme.panel,
           })}
         </text>
