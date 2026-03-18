@@ -822,20 +822,34 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
                     style={{
                       width: "100%",
                       height: 2,
-                      paddingLeft: 1,
-                      paddingRight: 1,
-                      backgroundColor: isSelected ? activeTheme.accentMuted : activeTheme.panel,
-                      flexDirection: "column",
+                      backgroundColor: activeTheme.panel,
+                      flexDirection: "row",
                     }}
                     onMouseUp={() => {
                       setFocusArea("files");
                       jumpToFile(entry.id);
                     }}
                   >
-                    <text fg={activeTheme.text}>{fitText(entry.label, filesTextWidth)}</text>
-                    <text fg={isSelected ? activeTheme.text : activeTheme.muted}>
-                      {fitText(entry.description, filesTextWidth)}
-                    </text>
+                    <box
+                      style={{
+                        width: 1,
+                        height: 2,
+                        backgroundColor: isSelected ? activeTheme.accent : activeTheme.panel,
+                      }}
+                    />
+                    <box
+                      style={{
+                        flexGrow: 1,
+                        height: 2,
+                        paddingLeft: 1,
+                        paddingRight: 1,
+                        flexDirection: "column",
+                        backgroundColor: activeTheme.panel,
+                      }}
+                    >
+                      <text fg={activeTheme.text}>{fitText(entry.label, filesTextWidth)}</text>
+                      <text fg={activeTheme.muted}>{fitText(entry.description, filesTextWidth)}</text>
+                    </box>
                   </box>
                 );
               })}
