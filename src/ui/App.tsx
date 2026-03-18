@@ -956,13 +956,13 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
                           justifyContent: "space-between",
                           paddingLeft: 1,
                           paddingRight: 1,
-                          backgroundColor: isSelected ? activeTheme.panelAlt : activeTheme.panel,
+                          backgroundColor: activeTheme.panel,
                         }}
                         onMouseUp={() => {
                           jumpToFile(file.id);
                         }}
                       >
-                        <text fg={isSelected ? activeTheme.text : activeTheme.badgeNeutral}>
+                        <text fg={activeTheme.text}>
                           {fitText(fileLabel(file), diffHeaderLabelWidth)}
                         </text>
                         <box style={{ width: diffHeaderStatsWidth, height: 1, flexDirection: "row", justifyContent: "flex-end" }}>
