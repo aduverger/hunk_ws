@@ -150,7 +150,6 @@ function renderSplitCell(
   width: number,
   lineNumberDigits: number,
   theme: AppTheme,
-  selected: boolean,
   keyPrefix: string,
 ) {
   const palette = splitCellPalette(cell.kind, theme);
@@ -163,7 +162,7 @@ function renderSplitCell(
         style={{
           width: gutterWidth,
           height: 1,
-          backgroundColor: selected ? theme.selectedHunk : palette.gutterBg,
+          backgroundColor: palette.gutterBg,
         }}
       >
         <text fg={palette.numberColor}>
@@ -188,7 +187,6 @@ function renderStackCell(
   width: number,
   lineNumberDigits: number,
   theme: AppTheme,
-  selected: boolean,
   keyPrefix: string,
 ) {
   const palette = stackCellPalette(cell.kind, theme);
@@ -204,7 +202,7 @@ function renderStackCell(
         style={{
           width: gutterWidth,
           height: 1,
-          backgroundColor: selected ? theme.selectedHunk : palette.gutterBg,
+          backgroundColor: palette.gutterBg,
         }}
       >
         <text fg={palette.numberColor}>{`${oldNumber} ${newNumber} ${cell.sign}`}</text>
@@ -261,7 +259,7 @@ function renderHeaderRow(row: Extract<DiffRow, { type: "collapsed" | "hunk-heade
         width: "100%",
         height: 1,
         flexDirection: "row",
-        backgroundColor: selected ? theme.selectedHunk : theme.panelAlt,
+        backgroundColor: theme.panelAlt,
       }}
     >
       <box style={{ width: 1, height: 1 }}>
@@ -293,7 +291,7 @@ function renderRow(row: DiffRow, layout: Exclude<LayoutMode, "auto">, width: num
         <box style={{ width: markerWidth, height: 1 }}>
           <text fg={selected ? theme.accent : theme.panel}>{marker(selected)}</text>
         </box>
-        {renderSplitCell(row.left, leftWidth, lineNumberDigits, theme, selected, `${row.key}:left`)}
+        {renderSplitCell(row.left, leftWidth, lineNumberDigits, theme, `${row.key}:left`)}
         <box
           style={{
             width: separatorWidth,
@@ -303,7 +301,7 @@ function renderRow(row: DiffRow, layout: Exclude<LayoutMode, "auto">, width: num
         >
           <text fg={theme.border}>│</text>
         </box>
-        {renderSplitCell(row.right, rightWidth, lineNumberDigits, theme, selected, `${row.key}:right`)}
+        {renderSplitCell(row.right, rightWidth, lineNumberDigits, theme, `${row.key}:right`)}
       </box>
     );
   }
@@ -314,7 +312,7 @@ function renderRow(row: DiffRow, layout: Exclude<LayoutMode, "auto">, width: num
         <box style={{ width: 1, height: 1 }}>
           <text fg={selected ? theme.accent : theme.panel}>{marker(selected)}</text>
         </box>
-        {renderStackCell(row.cell, Math.max(0, width - 1), lineNumberDigits, theme, selected, `${row.key}:stack`)}
+        {renderStackCell(row.cell, Math.max(0, width - 1), lineNumberDigits, theme, `${row.key}:stack`)}
       </box>
     );
   }
