@@ -121,15 +121,17 @@ Keep the sidecar concise. It should explain why a hunk exists, what risk to revi
 
 | Capability | hunk | difftastic | delta | diff |
 | --- | --- | --- | --- | --- |
-| Dedicated interactive review UI | Yes | No | No | No |
-| Multi-file review stream with navigation sidebar | Yes | No | No | No |
-| Agent / AI rationale sidecar | Yes | No | No | No |
-| Split and stacked review layouts | Yes | Yes (`side-by-side` / `inline`) | Yes (`side-by-side` / unified-style) | Yes (`-y` / unified) |
-| Syntax highlighting | Yes | Yes | Yes | No |
-| Syntax-aware / structural diffing | No | Yes | No | No |
-| Mouse support inside the diff viewer | Yes | No | No | No |
-| Runtime toggles for wrapping / line numbers / hunk metadata | Yes | No | No | No |
-| Pager-compatible mode | Yes | Yes | Yes | Yes |
+| Dedicated interactive review UI | ✅ | ❌ | ❌ | ❌ |
+| Multi-file review stream with navigation sidebar | ✅ | ❌ | ❌ | ❌ |
+| Agent / AI rationale sidecar | ✅ | ❌ | ❌ | ❌ |
+| Split diffs | ✅ | ✅ | ✅ | ✅ |
+| Stacked diffs | ✅ | ✅ | ✅ | ✅ |
+| Auto responsive layouts | ✅ | ❌ | ❌ | ❌ |
+| Syntax highlighting | ✅ | ✅ | ✅ | ❌ |
+| Syntax-aware / structural diffing | ❌ | ✅ | ❌ | ❌ |
+| Mouse support inside the diff viewer | ✅ | ❌ | ❌ | ❌ |
+| Runtime toggles for wrapping / line numbers / hunk metadata | ✅ | ❌ | ❌ | ❌ |
+| Pager-compatible mode | ✅ | ✅ | ✅ | ✅ |
 
 ### Local timing snapshot
 
