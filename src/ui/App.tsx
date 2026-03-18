@@ -14,7 +14,7 @@ import { FilesPane } from "./components/panes/FilesPane";
 import { PaneDivider } from "./components/panes/PaneDivider";
 import { buildFileListEntry } from "./lib/files";
 import { diffSectionId, fileRowId } from "./lib/ids";
-import { resolveResponsiveLayout, resolveResponsiveViewport } from "./lib/responsive";
+import { FULL_VIEWPORT_MIN_WIDTH, resolveResponsiveLayout, resolveResponsiveViewport } from "./lib/responsive";
 import { resolveTheme, THEMES } from "./themes";
 
 type FocusArea = "files" | "filter";
@@ -69,6 +69,7 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
   const BODY_PADDING = 2;
   const DIVIDER_WIDTH = 1;
   const DIVIDER_HIT_WIDTH = 5;
+  const AGENT_RAIL_MIN_VIEWPORT_WIDTH = FULL_VIEWPORT_MIN_WIDTH + AGENT_GAP + AGENT_WIDTH;
 
   const renderer = useRenderer();
   const terminal = useTerminalDimensions();
@@ -108,13 +109,10 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     filteredFiles[0];
 
   const bodyWidth = Math.max(0, terminal.width - BODY_PADDING);
-  const shellViewport = resolveResponsiveViewport(bodyWidth, FILES_MIN_WIDTH, DIFF_MIN_WIDTH, DIVIDER_WIDTH);
-  const effectiveShowAgentPanel =
-    showAgentPanel &&
-    shellViewport === "full" &&
-    bodyWidth >= FILES_MIN_WIDTH + DIVIDER_WIDTH + DIFF_MIN_WIDTH + AGENT_GAP + AGENT_WIDTH;
+  const shellViewport = resolveResponsiveViewport(terminal.width);
+  const effectiveShowAgentPanel = showAgentPanel && shellViewport === "full" && terminal.width >= AGENT_RAIL_MIN_VIEWPORT_WIDTH;
   const centerWidth = Math.max(0, bodyWidth - (effectiveShowAgentPanel ? AGENT_WIDTH + AGENT_GAP : 0));
-  const responsiveLayout = resolveResponsiveLayout(layoutMode, centerWidth, FILES_MIN_WIDTH, DIFF_MIN_WIDTH, DIVIDER_WIDTH);
+  const responsiveLayout = resolveResponsiveLayout(layoutMode, terminal.width);
   const resolvedLayout = responsiveLayout.layout;
   const showFilesPane = responsiveLayout.showFilesPane;
   const currentHunk = selectedFile?.metadata.hunks[selectedHunkIndex];

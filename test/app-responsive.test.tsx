@@ -79,27 +79,33 @@ function createBootstrap(): AppBootstrap {
 }
 
 async function captureResponsiveFrames() {
-  const setup = await testRender(<App bootstrap={createBootstrap()} />, { width: 120, height: 24 });
+  const setup = await testRender(<App bootstrap={createBootstrap()} />, { width: 180, height: 24 });
 
   try {
     await act(async () => {
       await setup.renderOnce();
     });
-    const wide = setup.captureCharFrame();
+    const ultraWide = setup.captureCharFrame();
 
     await act(async () => {
-      setup.resize(70, 24);
+      setup.resize(140, 24);
+      await setup.renderOnce();
+    });
+    const full = setup.captureCharFrame();
+
+    await act(async () => {
+      setup.resize(120, 24);
       await setup.renderOnce();
     });
     const medium = setup.captureCharFrame();
 
     await act(async () => {
-      setup.resize(45, 24);
+      setup.resize(80, 24);
       await setup.renderOnce();
     });
     const tight = setup.captureCharFrame();
 
-    return { wide, medium, tight };
+    return { ultraWide, full, medium, tight };
   } finally {
     await act(async () => {
       setup.renderer.destroy();
@@ -109,10 +115,15 @@ async function captureResponsiveFrames() {
 
 describe("responsive shell", () => {
   test("App adjusts the visible panes and diff layout on live resize", async () => {
-    const { wide, medium, tight } = await captureResponsiveFrames();
+    const { ultraWide, full, medium, tight } = await captureResponsiveFrames();
 
-    expect(wide).toContain("Files");
-    expect(wide).toContain("Changeset summary");
+    expect(ultraWide).toContain("Files");
+    expect(ultraWide).toContain("Changeset summary");
+
+    expect(full).toContain("Files");
+    expect(full).not.toContain("Changeset summary");
+    expect(full).toContain("drag divider resize");
+    expect(full).toContain("│");
 
     expect(medium).not.toContain("Files");
     expect(medium).not.toContain("Changeset summary");

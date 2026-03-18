@@ -2,39 +2,29 @@ import type { LayoutMode } from "../../core/types";
 
 export type ResponsiveViewport = "full" | "medium" | "tight";
 
+export const SPLIT_VIEWPORT_MIN_WIDTH = 120;
+export const FULL_VIEWPORT_MIN_WIDTH = 140;
+
 export interface ResponsiveLayout {
   viewport: ResponsiveViewport;
   layout: Exclude<LayoutMode, "auto">;
   showFilesPane: boolean;
 }
 
-export function resolveResponsiveViewport(
-  availableWidth: number,
-  filesPaneMinWidth: number,
-  diffPaneMinWidth: number,
-  dividerWidth: number,
-): ResponsiveViewport {
-  const fullWidthMin = filesPaneMinWidth + dividerWidth + diffPaneMinWidth;
-
-  if (availableWidth >= fullWidthMin) {
+export function resolveResponsiveViewport(viewportWidth: number): ResponsiveViewport {
+  if (viewportWidth >= FULL_VIEWPORT_MIN_WIDTH) {
     return "full";
   }
 
-  if (availableWidth >= diffPaneMinWidth) {
+  if (viewportWidth >= SPLIT_VIEWPORT_MIN_WIDTH) {
     return "medium";
   }
 
   return "tight";
 }
 
-export function resolveResponsiveLayout(
-  requestedLayout: LayoutMode,
-  centerWidth: number,
-  filesPaneMinWidth: number,
-  diffPaneMinWidth: number,
-  dividerWidth: number,
-): ResponsiveLayout {
-  const viewport = resolveResponsiveViewport(centerWidth, filesPaneMinWidth, diffPaneMinWidth, dividerWidth);
+export function resolveResponsiveLayout(requestedLayout: LayoutMode, viewportWidth: number): ResponsiveLayout {
+  const viewport = resolveResponsiveViewport(viewportWidth);
 
   if (requestedLayout === "stack") {
     return {
