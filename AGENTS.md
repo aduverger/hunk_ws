@@ -42,9 +42,14 @@ CLI input
 - Default behavior is a multi-file review stream in sidebar order.
 - Layout modes: `auto`, `split`, `stack`.
 - `auto` should choose split on wide terminals and stack on narrow ones.
+- Explicit `split` and `stack` choices override responsive `auto` layout selection.
+- `[` and `]` navigate hunks across the full review stream. Do not reintroduce `j`/`k` hunk navigation unless the user asks.
 - Agent context belongs beside the code, not hidden in a separate mode or workflow.
+- Agent notes are hunk-specific: show notes for the selected hunk, render them in the diff flow near the annotated row, and keep a clear spatial relationship to the code they explain.
 - When making code changes in this repo, also refresh `.hunk/latest.json` so the next review can load agent rationale with `hunk git --agent-context .hunk/latest.json`.
 - Keep `.hunk/latest.json` concise and review-oriented: one changeset summary, file summaries in narrative order, and a few hunk-level annotations with real rationale.
+- File order in `.hunk/latest.json` is intentional, but the visible note UI should stay hunk-note driven rather than showing generic file or changeset explainer cards.
+- If newly created files should appear in `hunk git` before commit, use `git add -N <paths>` so they show up in the review stream without staging content.
 
 ## commands
 
@@ -69,7 +74,6 @@ CLI input
 
 ## repo notes
 
-- There is an unrelated untracked file named `md` in the repo root. Leave it alone unless the user asks.
 - `.hunk/latest.json` is ignored on purpose. Update it when you change code, but do not commit it.
 - Do not auto-commit after making changes. Leave edits uncommitted so the user can review them in `hunk`, and only commit when the user explicitly asks.
 - Keep this doc short and architectural. Fresh-context agents can discover file paths themselves.
