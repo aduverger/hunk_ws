@@ -276,11 +276,12 @@ async function prepareHighlighter(language: string | undefined) {
     return cached;
   }
 
-  const prepared = getSharedHighlighter(
-    getHighlighterOptions(resolvedLanguage, {
+  const prepared = getSharedHighlighter({
+    ...getHighlighterOptions(resolvedLanguage, {
       theme: PIERRE_THEME,
     }),
-  ).catch((error) => {
+    preferredHighlighter: "shiki-wasm",
+  }).catch((error) => {
     preparedHighlighterPromises.delete(resolvedLanguage);
     throw error;
   });
