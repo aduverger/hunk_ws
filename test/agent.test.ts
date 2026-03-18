@@ -17,7 +17,7 @@ afterEach(() => {
 
 describe("agent context", () => {
   test("loads and matches annotations by current or previous path", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "otdiff-agent-"));
+    const dir = mkdtempSync(join(tmpdir(), "hunk-agent-"));
     tempDirs.push(dir);
 
     const contextPath = join(dir, "agent.json");

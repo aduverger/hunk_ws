@@ -1,6 +1,6 @@
-# opentui-diff
+# hunk
 
-A desktop-inspired terminal diff viewer for understanding AI-authored changesets in Bun + TypeScript with OpenTUI.
+Hunk is a desktop-inspired terminal diff viewer for understanding AI-authored changesets in Bun + TypeScript with OpenTUI.
 
 ## Requirements
 
@@ -25,24 +25,24 @@ Build a local executable:
 
 ```bash
 bun run build:bin
-./dist/otdiff git
+./dist/hunk git
 ```
 
 Install it into `~/.local/bin`:
 
 ```bash
 bun run install:bin
-otdiff git
+hunk git
 ```
 
-If you want a different install location, set `OTDIFF_INSTALL_DIR` before running the install script.
+If you want a different install location, set `HUNK_INSTALL_DIR` before running the install script.
 
 ## Workflows
 
-- `otdiff git [range]`
-- `otdiff diff <left> <right>`
-- `otdiff patch [file|-]`
-- `otdiff difftool <left> <right> [path]`
+- `hunk git [range]`
+- `hunk diff <left> <right>`
+- `hunk patch [file|-]`
+- `hunk difftool <left> <right> [path]`
 
 ## Interaction
 
@@ -82,11 +82,25 @@ Use `--agent-context <file>` to load a JSON sidecar and show agent rationale nex
 }
 ```
 
-## Git difftool
+## Git integration
 
-You can wire the app into git once the package is installed:
+Use Hunk as the viewer for `git diff` and `git show`:
 
 ```bash
-git config --global diff.tool otdiff
-git config --global difftool.otdiff.cmd 'otdiff difftool "$LOCAL" "$REMOTE" "$MERGED"'
+git config --global pager.diff 'hunk patch -'
+git config --global pager.show 'hunk patch -'
+```
+
+Then:
+
+```bash
+git diff
+git show HEAD
+```
+
+If you want Git to launch Hunk as a difftool for file-to-file comparisons:
+
+```bash
+git config --global diff.tool hunk
+git config --global difftool.hunk.cmd 'hunk difftool "$LOCAL" "$REMOTE" "$MERGED"'
 ```

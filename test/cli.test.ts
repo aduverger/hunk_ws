@@ -3,7 +3,7 @@ import { parseCli } from "../src/core/cli";
 
 describe("parseCli", () => {
   test("defaults to git mode when no subcommand is passed", async () => {
-    const parsed = await parseCli(["bun", "otdiff"]);
+    const parsed = await parseCli(["bun", "hunk"]);
 
     expect(parsed.kind).toBe("git");
     expect(parsed.options.mode).toBe("auto");
@@ -13,7 +13,7 @@ describe("parseCli", () => {
   test("parses diff mode with shared options", async () => {
     const parsed = await parseCli([
       "bun",
-      "otdiff",
+      "hunk",
       "diff",
       "left.ts",
       "right.ts",

@@ -1,12 +1,12 @@
 {
-  "name": "opentui-diff",
+  "name": "hunk",
   "version": "0.1.0",
   "description": "Desktop-inspired terminal diff viewer for agent-authored changesets.",
   "module": "src/main.tsx",
   "type": "module",
   "private": true,
   "bin": {
-    "otdiff": "./src/main.tsx"
+    "hunk": "./src/main.tsx"
   },
   "scripts": {
     "start": "bun run src/main.tsx",
@@ -29,5 +29,6 @@
     "diff": "^8.0.3",
     "parse-diff": "^0.11.1",
     "react": "^19.2.4"
-  }
+  },
+  "license": "MIT"
 }

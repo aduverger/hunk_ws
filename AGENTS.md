@@ -1,4 +1,4 @@
-# opentui-diff agent notes
+# hunk agent notes
 
 ## purpose
 
@@ -55,7 +55,7 @@ CLI input
 
 ## binary notes
 
-- Installed `otdiff` is a compiled snapshot, not linked to source.
+- Installed `hunk` is a compiled snapshot, not linked to source.
 - After source changes, rebuild/reinstall with `bun run install:bin`.
 - For rendering verification, prefer a real TTY smoke run over redirected stdout capture.
 

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "opentui-diff",
+      "name": "hunk",
       "dependencies": {
         "@opentui/core": "^0.1.88",
         "@opentui/react": "^0.1.88",
@@ -16,8 +16,6 @@
       "devDependencies": {
         "@types/bun": "latest",
         "@types/react": "^19.2.14",
-      },
-      "peerDependencies": {
         "typescript": "^5.9.3",
       },
     },

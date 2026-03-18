@@ -35,7 +35,7 @@ afterEach(() => {
 
 describe("loadAppBootstrap", () => {
   test("loads file-pair diffs and agent context", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "otdiff-diff-"));
+    const dir = mkdtempSync(join(tmpdir(), "hunk-diff-"));
     tempDirs.push(dir);
 
     const left = join(dir, "before.ts");
@@ -75,7 +75,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads git working tree changes from a temporary repo", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "otdiff-git-"));
+    const dir = mkdtempSync(join(tmpdir(), "hunk-git-"));
     tempDirs.push(dir);
 
     git(dir, "init");

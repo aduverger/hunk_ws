@@ -26,7 +26,7 @@ export async function parseCli(argv: string[]): Promise<CliInput> {
   const program = new Command();
 
   program
-    .name("otdiff")
+    .name("hunk")
     .description("Desktop-inspired terminal diff viewer for agent-authored changesets.")
     .showHelpAfterError();
 
