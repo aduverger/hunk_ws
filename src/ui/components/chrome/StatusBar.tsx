@@ -25,7 +25,7 @@ export function StatusBar({
   if (canResizeDivider) {
     hintParts.push("drag divider resize");
   }
-  hintParts.push("/ filter", "[ ] hunk nav", "1 2 0 layout", "t theme", "a notes", "q quit");
+  hintParts.push("/ filter", "[ ] hunk nav", "1 2 0 layout", "t theme", "a notes", "l lines", "q quit");
 
   return (
     <box

@@ -21,6 +21,7 @@ export function DiffPane({
   selectedHunkIndex,
   separatorWidth,
   showAgentNotes,
+  showLineNumbers,
   theme,
   width,
   onDismissAgentNote,
@@ -39,6 +40,7 @@ export function DiffPane({
   selectedHunkIndex: number;
   separatorWidth: number;
   showAgentNotes: boolean;
+  showLineNumbers: boolean;
   theme: AppTheme;
   width: number;
   onDismissAgentNote: (id: string) => void;
@@ -106,6 +108,7 @@ export function DiffPane({
                 selectedHunkIndex={file.id === selectedFileId ? selectedHunkIndex : -1}
                 separatorWidth={separatorWidth}
                 showSeparator={index > 0}
+                showLineNumbers={showLineNumbers}
                 theme={theme}
                 viewWidth={diffContentWidth}
                 visibleAgentNotes={visibleAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES}

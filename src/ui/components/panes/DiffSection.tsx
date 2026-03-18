@@ -15,6 +15,7 @@ interface DiffSectionProps {
   selected: boolean;
   selectedHunkIndex: number;
   separatorWidth: number;
+  showLineNumbers: boolean;
   showSeparator: boolean;
   theme: AppTheme;
   visibleAgentNotes: VisibleAgentNote[];
@@ -33,6 +34,7 @@ function DiffSectionComponent({
   selected,
   selectedHunkIndex,
   separatorWidth,
+  showLineNumbers,
   showSeparator,
   theme,
   visibleAgentNotes,
@@ -92,6 +94,7 @@ function DiffSectionComponent({
       <PierreDiffView
         file={file}
         layout={layout}
+        showLineNumbers={showLineNumbers}
         theme={theme}
         width={viewWidth}
         annotatedHunkIndices={annotatedHunkIndices}
@@ -117,6 +120,7 @@ export const DiffSection = memo(DiffSectionComponent, (previous, next) => {
     previous.selected === next.selected &&
     previous.selectedHunkIndex === next.selectedHunkIndex &&
     previous.separatorWidth === next.separatorWidth &&
+    previous.showLineNumbers === next.showLineNumbers &&
     previous.showSeparator === next.showSeparator &&
     previous.theme === next.theme &&
     previous.visibleAgentNotes === next.visibleAgentNotes &&

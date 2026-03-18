@@ -217,6 +217,7 @@ function renderSplitCell(
   cell: SplitLineCell,
   width: number,
   lineNumberDigits: number,
+  showLineNumbers: boolean,
   theme: AppTheme,
   keyPrefix: string,
   prefix?: {
@@ -228,9 +229,11 @@ function renderSplitCell(
   const palette = splitCellPalette(cell.kind, theme);
   const prefixWidth = prefix?.text.length ?? 0;
   const availableWidth = Math.max(0, width - prefixWidth);
-  const gutterWidth = Math.min(availableWidth, lineNumberDigits + 3);
+  const gutterWidth = Math.min(availableWidth, showLineNumbers ? lineNumberDigits + 3 : 2);
   const contentWidth = Math.max(0, availableWidth - gutterWidth);
-  const gutterText = `${cell.lineNumber ? String(cell.lineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits)} ${cell.sign}`.padEnd(gutterWidth);
+  const gutterText = showLineNumbers
+    ? `${cell.lineNumber ? String(cell.lineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits)} ${cell.sign}`.padEnd(gutterWidth)
+    : `${cell.sign} `.padEnd(gutterWidth);
 
   return (
     <>
@@ -252,6 +255,7 @@ function renderStackCell(
   cell: StackLineCell,
   width: number,
   lineNumberDigits: number,
+  showLineNumbers: boolean,
   theme: AppTheme,
   keyPrefix: string,
   prefix?: {
@@ -263,7 +267,7 @@ function renderStackCell(
   const palette = stackCellPalette(cell.kind, theme);
   const prefixWidth = prefix?.text.length ?? 0;
   const availableWidth = Math.max(0, width - prefixWidth);
-  const gutterWidth = Math.min(availableWidth, lineNumberDigits * 2 + 5);
+  const gutterWidth = Math.min(availableWidth, showLineNumbers ? lineNumberDigits * 2 + 5 : 2);
   const contentWidth = Math.max(0, availableWidth - gutterWidth);
 
   const oldNumber = cell.oldLineNumber ? String(cell.oldLineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits);
@@ -276,7 +280,9 @@ function renderStackCell(
           {prefix.text}
         </span>
       ) : null}
-      <span key={`${keyPrefix}:gutter`} fg={palette.numberColor} bg={palette.gutterBg}>{`${oldNumber} ${newNumber} ${cell.sign}`.padEnd(gutterWidth)}</span>
+      <span key={`${keyPrefix}:gutter`} fg={palette.numberColor} bg={palette.gutterBg}>
+        {(showLineNumbers ? `${oldNumber} ${newNumber} ${cell.sign}` : `${cell.sign} `).padEnd(gutterWidth)}
+      </span>
       {renderInlineSpans(cell.spans, contentWidth, theme.text, palette.contentBg, `${keyPrefix}:content`)}
     </>
   );
@@ -484,6 +490,7 @@ function renderRow(
   file: DiffFile,
   width: number,
   lineNumberDigits: number,
+  showLineNumbers: boolean,
   theme: AppTheme,
   selected: boolean,
   annotated: boolean,
@@ -508,12 +515,12 @@ function renderRow(
     baseRow = (
       <box style={{ width: "100%", height: 1 }}>
         <text>
-          {renderSplitCell(row.left, leftWidth, lineNumberDigits, theme, `${row.key}:left`, {
+          {renderSplitCell(row.left, leftWidth, lineNumberDigits, showLineNumbers, theme, `${row.key}:left`, {
             text: marker(selected),
             fg: selected ? splitLeftRailColor(row.left.kind, theme) : theme.panel,
             bg: theme.panel,
           })}
-          {renderSplitCell(row.right, rightWidth, lineNumberDigits, theme, `${row.key}:right`, {
+          {renderSplitCell(row.right, rightWidth, lineNumberDigits, showLineNumbers, theme, `${row.key}:right`, {
             text: selected ? "▌" : "│",
             fg: selected ? splitRightRailColor(row.right.kind, theme) : theme.border,
             bg: theme.panel,
@@ -525,7 +532,7 @@ function renderRow(
     baseRow = (
       <box style={{ width: "100%", height: 1 }}>
         <text>
-          {renderStackCell(row.cell, width, lineNumberDigits, theme, `${row.key}:stack`, {
+          {renderStackCell(row.cell, width, lineNumberDigits, showLineNumbers, theme, `${row.key}:stack`, {
             text: marker(selected),
             fg: selected ? stackRailColor(row.cell.kind, theme) : theme.panel,
             bg: theme.panel,
@@ -559,6 +566,7 @@ interface DiffRowViewProps {
   file: DiffFile;
   width: number;
   lineNumberDigits: number;
+  showLineNumbers: boolean;
   theme: AppTheme;
   selected: boolean;
   annotated: boolean;
@@ -574,6 +582,7 @@ const DiffRowView = memo(
     file,
     width,
     lineNumberDigits,
+    showLineNumbers,
     theme,
     selected,
     annotated,
@@ -586,6 +595,7 @@ const DiffRowView = memo(
       file,
       width,
       lineNumberDigits,
+      showLineNumbers,
       theme,
       selected,
       annotated,
@@ -601,6 +611,7 @@ const DiffRowView = memo(
       previous.file === next.file &&
       previous.width === next.width &&
       previous.lineNumberDigits === next.lineNumberDigits &&
+      previous.showLineNumbers === next.showLineNumbers &&
       previous.theme === next.theme &&
       previous.selected === next.selected &&
       previous.annotated === next.annotated &&
@@ -616,6 +627,7 @@ export function PierreDiffView({
   layout,
   onDismissAgentNote,
   onOpenAgentNotesAtHunk,
+  showLineNumbers = true,
   theme,
   visibleAgentNotes = EMPTY_VISIBLE_AGENT_NOTES,
   width,
@@ -627,6 +639,7 @@ export function PierreDiffView({
   layout: Exclude<LayoutMode, "auto">;
   onDismissAgentNote?: (id: string) => void;
   onOpenAgentNotesAtHunk?: (hunkIndex: number) => void;
+  showLineNumbers?: boolean;
   theme: AppTheme;
   visibleAgentNotes?: VisibleAgentNote[];
   width: number;
@@ -723,6 +736,7 @@ export function PierreDiffView({
           file={file}
           width={width}
           lineNumberDigits={lineNumberDigits}
+          showLineNumbers={showLineNumbers}
           theme={theme}
           selected={row.hunkIndex === selectedHunkIndex}
           annotated={row.type === "hunk-header" && annotatedHunkIndices.has(row.hunkIndex)}

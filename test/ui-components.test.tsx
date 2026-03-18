@@ -154,6 +154,7 @@ describe("UI components", () => {
         selectedHunkIndex={0}
         separatorWidth={68}
         showAgentNotes={false}
+        showLineNumbers={true}
         theme={theme}
         width={76}
         onDismissAgentNote={() => {}}
@@ -189,6 +190,7 @@ describe("UI components", () => {
         selectedHunkIndex={0}
         separatorWidth={84}
         showAgentNotes={true}
+        showLineNumbers={true}
         theme={theme}
         width={92}
         onDismissAgentNote={() => {}}
@@ -216,6 +218,7 @@ describe("UI components", () => {
         activeMenuEntries={[
           { kind: "item", label: "Split view", hint: "1", checked: true, action: () => {} },
           { kind: "item", label: "Stacked view", hint: "2", checked: false, action: () => {} },
+          { kind: "item", label: "Line numbers", hint: "l", checked: true, action: () => {} },
         ]}
         activeMenuItemIndex={0}
         activeMenuSpec={{ id: "view", left: 2, width: 6, label: "View" }}
@@ -230,8 +233,10 @@ describe("UI components", () => {
 
     expect(frame).toContain("[x] Split view");
     expect(frame).toContain("[ ] Stacked view");
+    expect(frame).toContain("[x] Line numbers");
     expect(frame).toContain("1");
     expect(frame).toContain("2");
+    expect(frame).toContain("l");
   });
 
   test("StatusBar renders filter mode affordance", async () => {
@@ -279,6 +284,7 @@ describe("UI components", () => {
         selectedHunkIndex={0}
         separatorWidth={68}
         showAgentNotes={false}
+        showLineNumbers={true}
         theme={theme}
         width={76}
         onDismissAgentNote={() => {}}
@@ -290,6 +296,40 @@ describe("UI components", () => {
     );
 
     expect(frame).toContain("No files match the current filter.");
+  });
+
+  test("DiffPane can hide line numbers while keeping diff signs visible", async () => {
+    const bootstrap = createBootstrap();
+    const theme = resolveTheme("midnight", null);
+    const frame = await captureFrame(
+      <DiffPane
+        activeAnnotations={[]}
+        diffContentWidth={72}
+        dismissedAgentNoteIds={[]}
+        files={bootstrap.changeset.files}
+        headerLabelWidth={40}
+        headerStatsWidth={16}
+        layout="split"
+        scrollRef={createRef()}
+        selectedFileId="alpha"
+        selectedHunkIndex={0}
+        separatorWidth={68}
+        showAgentNotes={false}
+        showLineNumbers={false}
+        theme={theme}
+        width={76}
+        onDismissAgentNote={() => {}}
+        onOpenAgentNotesAtHunk={() => {}}
+        onSelectFile={() => {}}
+      />,
+      80,
+      18,
+    );
+
+    expect(frame).not.toContain("1 - export const alpha = 1;");
+    expect(frame).not.toContain("1 + export const alpha = 2;");
+    expect(frame).toContain("- export const alpha = 1;");
+    expect(frame).toContain("+ export const alpha = 2;");
   });
 
   test("App renders the menu bar, multi-file stream, and AI badges", async () => {

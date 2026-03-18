@@ -39,6 +39,7 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(bootstrap.initialMode);
   const [themeId, setThemeId] = useState(() => resolveTheme(bootstrap.initialTheme, renderer.themeMode).id);
   const [showAgentNotes, setShowAgentNotes] = useState(false);
+  const [showLineNumbers, setShowLineNumbers] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
   const [focusArea, setFocusArea] = useState<FocusArea>("files");
   const [activeMenuId, setActiveMenuId] = useState<MenuId | null>(null);
@@ -236,6 +237,11 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     setDismissedAgentNoteIds((current) => [...current, noteId]);
   };
 
+  /** Toggle line-number gutters without changing the diff content itself. */
+  const toggleLineNumbers = () => {
+    setShowLineNumbers((current) => !current);
+  };
+
   /** Jump to the annotated hunk before opening the note layer. */
   const openAgentNotesAtHunk = (fileId: string, hunkIndex: number) => {
     jumpToFile(fileId, hunkIndex);
@@ -339,6 +345,13 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
         hint: "a",
         checked: showAgentNotes,
         action: toggleAgentNotes,
+      },
+      {
+        kind: "item",
+        label: "Line numbers",
+        hint: "l",
+        checked: showLineNumbers,
+        action: toggleLineNumbers,
       },
     ],
     navigate: [
@@ -580,6 +593,12 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
       return;
     }
 
+    if (key.name === "l" || key.sequence === "l") {
+      toggleLineNumbers();
+      closeMenu();
+      return;
+    }
+
     if (key.name === "[") {
       moveHunk(-1);
       closeMenu();
@@ -676,6 +695,7 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
           selectedHunkIndex={selectedHunkIndex}
           separatorWidth={diffSeparatorWidth}
           showAgentNotes={showAgentNotes}
+          showLineNumbers={showLineNumbers}
           theme={activeTheme}
           width={diffPaneWidth}
           onDismissAgentNote={dismissAgentNote}
