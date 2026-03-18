@@ -40,6 +40,7 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
   const [themeId, setThemeId] = useState(() => resolveTheme(bootstrap.initialTheme, renderer.themeMode).id);
   const [showAgentNotes, setShowAgentNotes] = useState(false);
   const [showLineNumbers, setShowLineNumbers] = useState(true);
+  const [wrapLines, setWrapLines] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [focusArea, setFocusArea] = useState<FocusArea>("files");
   const [activeMenuId, setActiveMenuId] = useState<MenuId | null>(null);
@@ -242,6 +243,11 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
     setShowLineNumbers((current) => !current);
   };
 
+  /** Toggle whether diff code rows wrap instead of truncating to one terminal row. */
+  const toggleLineWrap = () => {
+    setWrapLines((current) => !current);
+  };
+
   /** Jump to the annotated hunk before opening the note layer. */
   const openAgentNotesAtHunk = (fileId: string, hunkIndex: number) => {
     jumpToFile(fileId, hunkIndex);
@@ -352,6 +358,13 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
         hint: "l",
         checked: showLineNumbers,
         action: toggleLineNumbers,
+      },
+      {
+        kind: "item",
+        label: "Line wrapping",
+        hint: "w",
+        checked: wrapLines,
+        action: toggleLineWrap,
       },
     ],
     navigate: [
@@ -599,6 +612,12 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
       return;
     }
 
+    if (key.name === "w" || key.sequence === "w") {
+      toggleLineWrap();
+      closeMenu();
+      return;
+    }
+
     if (key.name === "[") {
       moveHunk(-1);
       closeMenu();
@@ -696,6 +715,7 @@ export function App({ bootstrap }: { bootstrap: AppBootstrap }) {
           separatorWidth={diffSeparatorWidth}
           showAgentNotes={showAgentNotes}
           showLineNumbers={showLineNumbers}
+          wrapLines={wrapLines}
           theme={activeTheme}
           width={diffPaneWidth}
           onDismissAgentNote={dismissAgentNote}

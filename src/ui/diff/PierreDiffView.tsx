@@ -212,6 +212,117 @@ function renderInlineSpans(
   );
 }
 
+interface WrappedCellLine {
+  gutterText: string;
+  spans: RenderSpan[];
+}
+
+interface WrappedCellLayout {
+  gutterWidth: number;
+  palette: ReturnType<typeof splitCellPalette> | ReturnType<typeof stackCellPalette>;
+  lines: WrappedCellLine[];
+}
+
+/** Wrap styled spans into visual lines while preserving color runs across splits. */
+function wrapSpans(spans: RenderSpan[], width: number) {
+  if (width <= 0) {
+    return [[]] as RenderSpan[][];
+  }
+
+  const lines: RenderSpan[][] = [[]];
+  let current = lines[0]!;
+  let remaining = width;
+
+  for (const span of spans) {
+    let offset = 0;
+
+    while (offset < span.text.length) {
+      if (remaining <= 0) {
+        current = [];
+        lines.push(current);
+        remaining = width;
+      }
+
+      const text = span.text.slice(offset, offset + remaining);
+      if (text.length === 0) {
+        break;
+      }
+
+      const nextSpan = {
+        ...span,
+        text,
+      };
+      const previous = current.at(-1);
+      if (previous && previous.fg === nextSpan.fg && previous.bg === nextSpan.bg) {
+        previous.text += nextSpan.text;
+      } else {
+        current.push(nextSpan);
+      }
+
+      offset += text.length;
+      remaining -= text.length;
+    }
+  }
+
+  return lines;
+}
+
+/** Build wrapped split-cell gutter/content lines while keeping continuation gutters blank. */
+function buildWrappedSplitCell(
+  cell: SplitLineCell,
+  width: number,
+  lineNumberDigits: number,
+  showLineNumbers: boolean,
+  prefixWidth: number,
+  theme: AppTheme,
+) {
+  const palette = splitCellPalette(cell.kind, theme);
+  const availableWidth = Math.max(0, width - prefixWidth);
+  const gutterWidth = Math.min(availableWidth, showLineNumbers ? lineNumberDigits + 3 : 2);
+  const contentWidth = Math.max(0, availableWidth - gutterWidth);
+  const firstGutterText = showLineNumbers
+    ? `${cell.lineNumber ? String(cell.lineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits)} ${cell.sign}`.padEnd(gutterWidth)
+    : `${cell.sign} `.padEnd(gutterWidth);
+  const wrappedSpans = wrapSpans(cell.spans, contentWidth);
+
+  return {
+    gutterWidth,
+    palette,
+    lines: wrappedSpans.map((spans, index) => ({
+      gutterText: index === 0 ? firstGutterText : " ".repeat(gutterWidth),
+      spans,
+    })),
+  } satisfies WrappedCellLayout;
+}
+
+/** Build wrapped stack-cell gutter/content lines while keeping continuation gutters blank. */
+function buildWrappedStackCell(
+  cell: StackLineCell,
+  width: number,
+  lineNumberDigits: number,
+  showLineNumbers: boolean,
+  prefixWidth: number,
+  theme: AppTheme,
+) {
+  const palette = stackCellPalette(cell.kind, theme);
+  const availableWidth = Math.max(0, width - prefixWidth);
+  const gutterWidth = Math.min(availableWidth, showLineNumbers ? lineNumberDigits * 2 + 5 : 2);
+  const contentWidth = Math.max(0, availableWidth - gutterWidth);
+  const oldNumber = cell.oldLineNumber ? String(cell.oldLineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits);
+  const newNumber = cell.newLineNumber ? String(cell.newLineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits);
+  const firstGutterText = (showLineNumbers ? `${oldNumber} ${newNumber} ${cell.sign}` : `${cell.sign} `).padEnd(gutterWidth);
+  const wrappedSpans = wrapSpans(cell.spans, contentWidth);
+
+  return {
+    gutterWidth,
+    palette,
+    lines: wrappedSpans.map((spans, index) => ({
+      gutterText: index === 0 ? firstGutterText : " ".repeat(gutterWidth),
+      spans,
+    })),
+  } satisfies WrappedCellLayout;
+}
+
 /** Render one split-view cell as prefix + gutter + content spans. */
 function renderSplitCell(
   cell: SplitLineCell,
@@ -284,6 +395,58 @@ function renderStackCell(
         {(showLineNumbers ? `${oldNumber} ${newNumber} ${cell.sign}` : `${cell.sign} `).padEnd(gutterWidth)}
       </span>
       {renderInlineSpans(cell.spans, contentWidth, theme.text, palette.contentBg, `${keyPrefix}:content`)}
+    </>
+  );
+}
+
+/** Render one already-wrapped split cell line with its persistent rail/separator prefix. */
+function renderWrappedSplitCellLine(
+  line: WrappedCellLine,
+  palette: ReturnType<typeof splitCellPalette>,
+  contentWidth: number,
+  theme: AppTheme,
+  keyPrefix: string,
+  prefix: {
+    text: string;
+    fg: string;
+    bg: string;
+  },
+) {
+  return (
+    <>
+      <span key={`${keyPrefix}:prefix`} fg={prefix.fg} bg={prefix.bg}>
+        {prefix.text}
+      </span>
+      <span key={`${keyPrefix}:gutter`} fg={palette.numberColor} bg={palette.gutterBg}>
+        {line.gutterText}
+      </span>
+      {renderInlineSpans(line.spans, contentWidth, theme.text, palette.contentBg, `${keyPrefix}:content`)}
+    </>
+  );
+}
+
+/** Render one already-wrapped stack cell line with its persistent rail prefix. */
+function renderWrappedStackCellLine(
+  line: WrappedCellLine,
+  palette: ReturnType<typeof stackCellPalette>,
+  contentWidth: number,
+  theme: AppTheme,
+  keyPrefix: string,
+  prefix: {
+    text: string;
+    fg: string;
+    bg: string;
+  },
+) {
+  return (
+    <>
+      <span key={`${keyPrefix}:prefix`} fg={prefix.fg} bg={prefix.bg}>
+        {prefix.text}
+      </span>
+      <span key={`${keyPrefix}:gutter`} fg={palette.numberColor} bg={palette.gutterBg}>
+        {line.gutterText}
+      </span>
+      {renderInlineSpans(line.spans, contentWidth, theme.text, palette.contentBg, `${keyPrefix}:content`)}
     </>
   );
 }
@@ -491,6 +654,7 @@ function renderRow(
   width: number,
   lineNumberDigits: number,
   showLineNumbers: boolean,
+  wrapLines: boolean,
   theme: AppTheme,
   selected: boolean,
   annotated: boolean,
@@ -511,35 +675,92 @@ function renderRow(
     const usableWidth = Math.max(0, width - markerWidth - separatorWidth);
     const leftWidth = Math.max(0, markerWidth + Math.floor(usableWidth / 2));
     const rightWidth = Math.max(0, separatorWidth + usableWidth - Math.floor(usableWidth / 2));
+    const leftPrefix = {
+      text: marker(selected),
+      fg: selected ? splitLeftRailColor(row.left.kind, theme) : theme.panel,
+      bg: theme.panel,
+    };
+    const rightPrefix = {
+      text: selected ? "▌" : "│",
+      fg: selected ? splitRightRailColor(row.right.kind, theme) : theme.border,
+      bg: theme.panel,
+    };
 
-    baseRow = (
-      <box style={{ width: "100%", height: 1 }}>
-        <text>
-          {renderSplitCell(row.left, leftWidth, lineNumberDigits, showLineNumbers, theme, `${row.key}:left`, {
-            text: marker(selected),
-            fg: selected ? splitLeftRailColor(row.left.kind, theme) : theme.panel,
-            bg: theme.panel,
+    if (!wrapLines) {
+      baseRow = (
+        <box style={{ width: "100%", height: 1 }}>
+          <text>
+            {renderSplitCell(row.left, leftWidth, lineNumberDigits, showLineNumbers, theme, `${row.key}:left`, leftPrefix)}
+            {renderSplitCell(row.right, rightWidth, lineNumberDigits, showLineNumbers, theme, `${row.key}:right`, rightPrefix)}
+          </text>
+        </box>
+      );
+    } else {
+      const leftLayout = buildWrappedSplitCell(row.left, leftWidth, lineNumberDigits, showLineNumbers, leftPrefix.text.length, theme);
+      const rightLayout = buildWrappedSplitCell(row.right, rightWidth, lineNumberDigits, showLineNumbers, rightPrefix.text.length, theme);
+      const leftContentWidth = Math.max(0, leftWidth - leftPrefix.text.length - leftLayout.gutterWidth);
+      const rightContentWidth = Math.max(0, rightWidth - rightPrefix.text.length - rightLayout.gutterWidth);
+      const visualLineCount = Math.max(leftLayout.lines.length, rightLayout.lines.length);
+
+      baseRow = (
+        <box style={{ width: "100%", flexDirection: "column" }}>
+          {Array.from({ length: visualLineCount }, (_, index) => {
+            const leftLine = leftLayout.lines[index] ?? { gutterText: " ".repeat(leftLayout.gutterWidth), spans: [] };
+            const rightLine = rightLayout.lines[index] ?? { gutterText: " ".repeat(rightLayout.gutterWidth), spans: [] };
+
+            return (
+              <box key={`${row.key}:wrap:${index}`} style={{ width: "100%", height: 1 }}>
+                <text>
+                  {renderWrappedSplitCellLine(
+                    leftLine,
+                    leftLayout.palette,
+                    leftContentWidth,
+                    theme,
+                    `${row.key}:left:${index}`,
+                    leftPrefix,
+                  )}
+                  {renderWrappedSplitCellLine(
+                    rightLine,
+                    rightLayout.palette,
+                    rightContentWidth,
+                    theme,
+                    `${row.key}:right:${index}`,
+                    rightPrefix,
+                  )}
+                </text>
+              </box>
+            );
           })}
-          {renderSplitCell(row.right, rightWidth, lineNumberDigits, showLineNumbers, theme, `${row.key}:right`, {
-            text: selected ? "▌" : "│",
-            fg: selected ? splitRightRailColor(row.right.kind, theme) : theme.border,
-            bg: theme.panel,
-          })}
-        </text>
-      </box>
-    );
+        </box>
+      );
+    }
   } else if (row.type === "stack-line") {
-    baseRow = (
-      <box style={{ width: "100%", height: 1 }}>
-        <text>
-          {renderStackCell(row.cell, width, lineNumberDigits, showLineNumbers, theme, `${row.key}:stack`, {
-            text: marker(selected),
-            fg: selected ? stackRailColor(row.cell.kind, theme) : theme.panel,
-            bg: theme.panel,
-          })}
-        </text>
-      </box>
-    );
+    const prefix = {
+      text: marker(selected),
+      fg: selected ? stackRailColor(row.cell.kind, theme) : theme.panel,
+      bg: theme.panel,
+    };
+
+    if (!wrapLines) {
+      baseRow = (
+        <box style={{ width: "100%", height: 1 }}>
+          <text>{renderStackCell(row.cell, width, lineNumberDigits, showLineNumbers, theme, `${row.key}:stack`, prefix)}</text>
+        </box>
+      );
+    } else {
+      const layout = buildWrappedStackCell(row.cell, width, lineNumberDigits, showLineNumbers, prefix.text.length, theme);
+      const contentWidth = Math.max(0, width - prefix.text.length - layout.gutterWidth);
+
+      baseRow = (
+        <box style={{ width: "100%", flexDirection: "column" }}>
+          {layout.lines.map((line, index) => (
+            <box key={`${row.key}:wrap:${index}`} style={{ width: "100%", height: 1 }}>
+              <text>{renderWrappedStackCellLine(line, layout.palette, contentWidth, theme, `${row.key}:stack:${index}`, prefix)}</text>
+            </box>
+          ))}
+        </box>
+      );
+    }
   } else {
     baseRow = (
       <box style={{ width: "100%", height: 1 }}>
@@ -567,6 +788,7 @@ interface DiffRowViewProps {
   width: number;
   lineNumberDigits: number;
   showLineNumbers: boolean;
+  wrapLines: boolean;
   theme: AppTheme;
   selected: boolean;
   annotated: boolean;
@@ -583,6 +805,7 @@ const DiffRowView = memo(
     width,
     lineNumberDigits,
     showLineNumbers,
+    wrapLines,
     theme,
     selected,
     annotated,
@@ -596,6 +819,7 @@ const DiffRowView = memo(
       width,
       lineNumberDigits,
       showLineNumbers,
+      wrapLines,
       theme,
       selected,
       annotated,
@@ -612,6 +836,7 @@ const DiffRowView = memo(
       previous.width === next.width &&
       previous.lineNumberDigits === next.lineNumberDigits &&
       previous.showLineNumbers === next.showLineNumbers &&
+      previous.wrapLines === next.wrapLines &&
       previous.theme === next.theme &&
       previous.selected === next.selected &&
       previous.annotated === next.annotated &&
@@ -628,6 +853,7 @@ export function PierreDiffView({
   onDismissAgentNote,
   onOpenAgentNotesAtHunk,
   showLineNumbers = true,
+  wrapLines = false,
   theme,
   visibleAgentNotes = EMPTY_VISIBLE_AGENT_NOTES,
   width,
@@ -640,6 +866,7 @@ export function PierreDiffView({
   onDismissAgentNote?: (id: string) => void;
   onOpenAgentNotesAtHunk?: (hunkIndex: number) => void;
   showLineNumbers?: boolean;
+  wrapLines?: boolean;
   theme: AppTheme;
   visibleAgentNotes?: VisibleAgentNote[];
   width: number;
@@ -737,6 +964,7 @@ export function PierreDiffView({
           width={width}
           lineNumberDigits={lineNumberDigits}
           showLineNumbers={showLineNumbers}
+          wrapLines={wrapLines}
           theme={theme}
           selected={row.hunkIndex === selectedHunkIndex}
           annotated={row.type === "hunk-header" && annotatedHunkIndices.has(row.hunkIndex)}

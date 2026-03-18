@@ -16,6 +16,7 @@ interface DiffSectionProps {
   selectedHunkIndex: number;
   separatorWidth: number;
   showLineNumbers: boolean;
+  wrapLines: boolean;
   showSeparator: boolean;
   theme: AppTheme;
   visibleAgentNotes: VisibleAgentNote[];
@@ -35,6 +36,7 @@ function DiffSectionComponent({
   selectedHunkIndex,
   separatorWidth,
   showLineNumbers,
+  wrapLines,
   showSeparator,
   theme,
   visibleAgentNotes,
@@ -95,6 +97,7 @@ function DiffSectionComponent({
         file={file}
         layout={layout}
         showLineNumbers={showLineNumbers}
+        wrapLines={wrapLines}
         theme={theme}
         width={viewWidth}
         annotatedHunkIndices={annotatedHunkIndices}
@@ -121,6 +124,7 @@ export const DiffSection = memo(DiffSectionComponent, (previous, next) => {
     previous.selectedHunkIndex === next.selectedHunkIndex &&
     previous.separatorWidth === next.separatorWidth &&
     previous.showLineNumbers === next.showLineNumbers &&
+    previous.wrapLines === next.wrapLines &&
     previous.showSeparator === next.showSeparator &&
     previous.theme === next.theme &&
     previous.visibleAgentNotes === next.visibleAgentNotes &&

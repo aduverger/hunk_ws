@@ -92,6 +92,33 @@ function createBootstrap(): AppBootstrap {
   };
 }
 
+function createWrapBootstrap(): AppBootstrap {
+  return {
+    input: {
+      kind: "git",
+      staged: false,
+      options: {
+        mode: "split",
+      },
+    },
+    changeset: {
+      id: "changeset:wrap",
+      sourceLabel: "repo",
+      title: "repo working tree",
+      files: [
+        createDiffFile(
+          "wrap",
+          "wrap.ts",
+          "export const message = 'short';\n",
+          "export const message = 'this is a very long wrapped line for diff rendering coverage';\n",
+        ),
+      ],
+    },
+    initialMode: "split",
+    initialTheme: "midnight",
+  };
+}
+
 async function captureFrame(node: ReactNode, width = 120, height = 24) {
   const setup = await testRender(node, { width, height });
 
@@ -155,6 +182,7 @@ describe("UI components", () => {
         separatorWidth={68}
         showAgentNotes={false}
         showLineNumbers={true}
+        wrapLines={false}
         theme={theme}
         width={76}
         onDismissAgentNote={() => {}}
@@ -191,6 +219,7 @@ describe("UI components", () => {
         separatorWidth={84}
         showAgentNotes={true}
         showLineNumbers={true}
+        wrapLines={false}
         theme={theme}
         width={92}
         onDismissAgentNote={() => {}}
@@ -219,6 +248,7 @@ describe("UI components", () => {
           { kind: "item", label: "Split view", hint: "1", checked: true, action: () => {} },
           { kind: "item", label: "Stacked view", hint: "2", checked: false, action: () => {} },
           { kind: "item", label: "Line numbers", hint: "l", checked: true, action: () => {} },
+          { kind: "item", label: "Line wrapping", hint: "w", checked: false, action: () => {} },
         ]}
         activeMenuItemIndex={0}
         activeMenuSpec={{ id: "view", left: 2, width: 6, label: "View" }}
@@ -234,9 +264,11 @@ describe("UI components", () => {
     expect(frame).toContain("[x] Split view");
     expect(frame).toContain("[ ] Stacked view");
     expect(frame).toContain("[x] Line numbers");
+    expect(frame).toContain("[ ] Line wrapping");
     expect(frame).toContain("1");
     expect(frame).toContain("2");
     expect(frame).toContain("l");
+    expect(frame).toContain("w");
   });
 
   test("StatusBar renders filter mode affordance", async () => {
@@ -285,6 +317,7 @@ describe("UI components", () => {
         separatorWidth={68}
         showAgentNotes={false}
         showLineNumbers={true}
+        wrapLines={false}
         theme={theme}
         width={76}
         onDismissAgentNote={() => {}}
@@ -316,6 +349,7 @@ describe("UI components", () => {
         separatorWidth={68}
         showAgentNotes={false}
         showLineNumbers={false}
+        wrapLines={false}
         theme={theme}
         width={76}
         onDismissAgentNote={() => {}}
@@ -330,6 +364,41 @@ describe("UI components", () => {
     expect(frame).not.toContain("1 + export const alpha = 2;");
     expect(frame).toContain("- export const alpha = 1;");
     expect(frame).toContain("+ export const alpha = 2;");
+  });
+
+  test("DiffPane can wrap long diff lines onto continuation rows", async () => {
+    const bootstrap = createWrapBootstrap();
+    const theme = resolveTheme("midnight", null);
+    const frame = await captureFrame(
+      <DiffPane
+        activeAnnotations={[]}
+        diffContentWidth={48}
+        dismissedAgentNoteIds={[]}
+        files={bootstrap.changeset.files}
+        headerLabelWidth={24}
+        headerStatsWidth={12}
+        layout="split"
+        scrollRef={createRef()}
+        selectedFileId="wrap"
+        selectedHunkIndex={0}
+        separatorWidth={44}
+        showAgentNotes={false}
+        showLineNumbers={true}
+        wrapLines={true}
+        theme={theme}
+        width={52}
+        onDismissAgentNote={() => {}}
+        onOpenAgentNotesAtHunk={() => {}}
+        onSelectFile={() => {}}
+      />,
+      56,
+      20,
+    );
+
+    expect(frame).toContain("1 + export const messag");
+    expect(frame).toContain("e = 'this is a very");
+    expect(frame).toContain("long wrapped line");
+    expect(frame).toContain("for diff rendering");
   });
 
   test("App renders the menu bar, multi-file stream, and AI badges", async () => {

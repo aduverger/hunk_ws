@@ -22,6 +22,7 @@ export function DiffPane({
   separatorWidth,
   showAgentNotes,
   showLineNumbers,
+  wrapLines,
   theme,
   width,
   onDismissAgentNote,
@@ -41,6 +42,7 @@ export function DiffPane({
   separatorWidth: number;
   showAgentNotes: boolean;
   showLineNumbers: boolean;
+  wrapLines: boolean;
   theme: AppTheme;
   width: number;
   onDismissAgentNote: (id: string) => void;
@@ -109,6 +111,7 @@ export function DiffPane({
                 separatorWidth={separatorWidth}
                 showSeparator={index > 0}
                 showLineNumbers={showLineNumbers}
+                wrapLines={wrapLines}
                 theme={theme}
                 viewWidth={diffContentWidth}
                 visibleAgentNotes={visibleAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES}
