@@ -33,7 +33,7 @@ function stripTerminalControl(text: string) {
     .replace(/\x1b[@-_]/g, "");
 }
 
-function createFixtureFiles() {
+function createFixtureFiles(lines = 1) {
   const dir = mkdtempSync(join(tmpdir(), "hunk-tty-smoke-"));
   tempDirs.push(dir);
 
@@ -43,8 +43,21 @@ function createFixtureFiles() {
   const patch = join(dir, "input.patch");
   const coloredPatch = join(dir, "input-colored.patch");
 
-  writeFileSync(before, "export const answer = 41;\n");
-  writeFileSync(after, "export const answer = 42;\nexport const added = true;\n");
+  if (lines <= 1) {
+    writeFileSync(before, "export const answer = 41;\n");
+    writeFileSync(after, "export const answer = 42;\nexport const added = true;\n");
+  } else {
+    writeFileSync(
+      before,
+      Array.from({ length: lines }, (_, index) => `export const before_${String(index + 1).padStart(2, "0")} = ${index + 1};`).join("\n") +
+        "\n",
+    );
+    writeFileSync(
+      after,
+      Array.from({ length: lines }, (_, index) => `export const after_${String(index + 1).padStart(2, "0")} = ${index + 101};`).join("\n") +
+        "\n",
+    );
+  }
   writeFileSync(
     agent,
     JSON.stringify({
@@ -124,12 +137,13 @@ async function runTtySmoke(options: { mode?: "split" | "stack"; pager?: boolean;
   return stripTerminalControl(await Bun.file(transcript).text());
 }
 
-async function runStdinPagerSmoke() {
-  const fixture = createFixtureFiles();
+async function runStdinPagerSmoke(options?: { input?: string; inputCommand?: string; lines?: number }) {
+  const fixture = createFixtureFiles(options?.lines ?? 1);
   const transcript = join(fixture.dir, "stdin-pager-transcript.txt");
   const patchCommand = `cat ${shellQuote(fixture.coloredPatch)} | bun run src/main.tsx patch -`;
   const scriptCommand = `timeout 5 script -q -f -e -c ${shellQuote(patchCommand)} ${shellQuote(transcript)}`;
-  const proc = Bun.spawnSync(["bash", "-lc", `(sleep 1; printf q) | ${scriptCommand}`], {
+  const inputCommand = options?.inputCommand ?? `(sleep 1; printf ${shellQuote(options?.input ?? "q")})`;
+  const proc = Bun.spawnSync(["bash", "-lc", `${inputCommand} | ${scriptCommand}`], {
     cwd: process.cwd(),
     stdin: "ignore",
     stdout: "pipe",
@@ -206,5 +220,19 @@ describe("TTY render smoke", () => {
     expect(output).toContain("after.ts");
     expect(output).toContain("@@ -1 +1,2 @@");
     expect(output).toContain("export const answer = 42;");
+  });
+
+  test("stdin pager mode pages forward by a full viewport on space", async () => {
+    if (!ttyToolsAvailable) {
+      return;
+    }
+
+    const output = await runStdinPagerSmoke({
+      lines: 40,
+      inputCommand: `(sleep 1; printf ' '; sleep 1; printf q)`,
+    });
+
+    expect(output).toContain("before_23");
+    expect(output).toContain("after_06");
   });
 });

@@ -509,12 +509,12 @@ export function App({ bootstrap, onQuit = () => process.exit(0) }: { bootstrap: 
       }
 
       if (pageDownKey) {
-        scrollDiff(1 / 2, "viewport");
+        scrollDiff(1, "viewport");
         return;
       }
 
       if (pageUpKey) {
-        scrollDiff(-1 / 2, "viewport");
+        scrollDiff(-1, "viewport");
         return;
       }
 
@@ -625,12 +625,12 @@ export function App({ bootstrap, onQuit = () => process.exit(0) }: { bootstrap: 
     }
 
     if (pageDownKey) {
-      scrollDiff(1 / 2, "viewport");
+      scrollDiff(1, "viewport");
       return;
     }
 
     if (pageUpKey) {
-      scrollDiff(-1 / 2, "viewport");
+      scrollDiff(-1, "viewport");
       return;
     }
 
