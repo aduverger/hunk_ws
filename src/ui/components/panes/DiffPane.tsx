@@ -1,7 +1,8 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type RefObject } from "react";
 import type { AgentAnnotation, DiffFile, LayoutMode } from "../../../core/types";
 import type { VisibleAgentNote } from "../../lib/agentAnnotations";
+import { diffHunkId, diffSectionId } from "../../lib/ids";
 import type { AppTheme } from "../../themes";
 import { estimateDiffBodyRows } from "../../lib/sectionHeights";
 import { DiffSection } from "./DiffSection";
@@ -182,6 +183,29 @@ export function DiffPane({
 
     return next;
   }, [adjacentPrefetchFileIds, selectedFileId, visibleViewportFileIds, windowingEnabled]);
+
+  const selectedFile = selectedFileId ? files.find((file) => file.id === selectedFileId) : undefined;
+  const selectedAnchorId = selectedFile
+    ? (selectedFile.metadata.hunks[selectedHunkIndex] ? diffHunkId(selectedFile.id, selectedHunkIndex) : diffSectionId(selectedFile.id))
+    : null;
+
+  useLayoutEffect(() => {
+    if (!selectedAnchorId) {
+      return;
+    }
+
+    const scrollSelectionIntoView = () => {
+      scrollRef.current?.scrollChildIntoView(selectedAnchorId);
+    };
+
+    // Run after this pane renders the selected section/hunk, then retry briefly while layout settles.
+    scrollSelectionIntoView();
+    const retryDelays = [0, 16, 48];
+    const timeouts = retryDelays.map((delay) => setTimeout(scrollSelectionIntoView, delay));
+    return () => {
+      timeouts.forEach((timeout) => clearTimeout(timeout));
+    };
+  }, [selectedAnchorId, scrollRef]);
 
   return (
     <box
