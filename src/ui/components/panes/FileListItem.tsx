@@ -39,8 +39,6 @@ export function FileListItem({
         style={{
           flexGrow: 1,
           height: 2,
-          paddingLeft: 1,
-          paddingRight: 1,
           flexDirection: "column",
           backgroundColor: theme.panel,
         }}
