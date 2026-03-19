@@ -31,7 +31,8 @@ export function FilesPane({
         border: ["top"],
         borderColor: theme.border,
         backgroundColor: theme.panel,
-        padding: 1,
+        paddingY: 1,
+        paddingX: 0,
         flexDirection: "column",
       }}
     >

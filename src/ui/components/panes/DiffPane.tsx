@@ -246,7 +246,8 @@ export function DiffPane({
         border: pagerMode ? [] : ["top"],
         borderColor: theme.border,
         backgroundColor: theme.panel,
-        padding: pagerMode ? 0 : 1,
+        paddingY: pagerMode ? 0 : 1,
+        paddingX: 0,
         flexDirection: "column",
       }}
     >
