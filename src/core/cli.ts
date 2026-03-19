@@ -84,7 +84,6 @@ function renderCliHelp() {
     "  hunk patch [file]                       review a patch file or stdin",
     "  hunk pager                              general Git pager wrapper with diff detection",
     "  hunk difftool <left> <right> [path]     review Git difftool file pairs",
-    "  hunk git [range]                        legacy alias for git diff-style review",
     "",
     "Options:",
     "  -h, --help                              show help",
@@ -222,37 +221,6 @@ async function parseShowCommand(tokens: string[], argv: string[]): Promise<Parse
   return {
     kind: "show",
     ref: parsedRef,
-    pathspecs: pathspecs.length > 0 ? pathspecs : undefined,
-    options: buildCommonOptions(parsedOptions, argv),
-  };
-}
-
-/** Parse the legacy `hunk git` command. */
-async function parseGitCommand(tokens: string[], argv: string[]): Promise<ParsedCliInput> {
-  const { commandTokens, pathspecs } = splitPathspecArgs(tokens);
-  const command = createCommand("git", "legacy alias for Git diff-style review")
-    .option("--staged", "show staged changes instead of the working tree")
-    .option("--cached", "alias for --staged")
-    .argument("[range]");
-
-  let parsedRange: string | undefined;
-  let parsedOptions: Record<string, unknown> = {};
-
-  command.action((range: string | undefined, options: Record<string, unknown>) => {
-    parsedRange = range;
-    parsedOptions = options;
-  });
-
-  if (commandTokens.includes("--help") || commandTokens.includes("-h")) {
-    return { kind: "help", text: `${command.helpInformation().trimEnd()}\n` };
-  }
-
-  await parseStandaloneCommand(command, commandTokens);
-
-  return {
-    kind: "git",
-    range: parsedRange,
-    staged: Boolean(parsedOptions.staged) || Boolean(parsedOptions.cached),
     pathspecs: pathspecs.length > 0 ? pathspecs : undefined,
     options: buildCommonOptions(parsedOptions, argv),
   };
@@ -397,8 +365,6 @@ export async function parseCli(argv: string[]): Promise<ParsedCliInput> {
       return parseDiffCommand(rest, argv);
     case "show":
       return parseShowCommand(rest, argv);
-    case "git":
-      return parseGitCommand(rest, argv);
     case "patch":
       return parsePatchCommand(rest, argv);
     case "pager":

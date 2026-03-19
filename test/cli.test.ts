@@ -144,23 +144,8 @@ describe("parseCli", () => {
     });
   });
 
-  test("parses legacy git mode with range and staged flag", async () => {
-    const parsed = await parseCli(["bun", "hunk", "git", "HEAD~1..HEAD", "--staged", "--theme", "ember"]);
-
-    expect(parsed).toMatchObject({
-      kind: "git",
-      range: "HEAD~1..HEAD",
-      staged: true,
-      options: {
-        theme: "ember",
-      },
-    });
-    if (parsed.kind !== "git") {
-      throw new Error("Expected legacy git command input.");
-    }
-
-    expect(parsed.options.mode).toBeUndefined();
-    expect(parsed.options.pager).toBeUndefined();
+  test("rejects removed legacy git alias", async () => {
+    await expect(parseCli(["bun", "hunk", "git"])).rejects.toThrow("Unknown command: git");
   });
 
   test("parses patch mode from a file", async () => {
