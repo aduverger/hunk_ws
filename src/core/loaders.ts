@@ -311,7 +311,11 @@ export async function loadAppBootstrap(input: CliInput): Promise<AppBootstrap> {
   return {
     input,
     changeset,
-    initialMode: input.options.mode,
+    initialMode: input.options.mode ?? "auto",
     initialTheme: input.options.theme,
+    initialShowLineNumbers: input.options.lineNumbers ?? true,
+    initialWrapLines: input.options.wrapLines ?? false,
+    initialShowHunkHeaders: input.options.hunkHeaders ?? true,
+    initialShowAgentNotes: input.options.agentNotes ?? false,
   };
 }

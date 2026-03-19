@@ -47,10 +47,23 @@ export interface Changeset {
 }
 
 export interface CommonOptions {
-  mode: LayoutMode;
+  mode?: LayoutMode;
   theme?: string;
   agentContext?: string;
   pager?: boolean;
+  lineNumbers?: boolean;
+  wrapLines?: boolean;
+  hunkHeaders?: boolean;
+  agentNotes?: boolean;
+}
+
+export interface PersistedViewPreferences {
+  mode: LayoutMode;
+  theme?: string;
+  showLineNumbers: boolean;
+  wrapLines: boolean;
+  showHunkHeaders: boolean;
+  showAgentNotes: boolean;
 }
 
 export interface GitCommandInput {
@@ -92,4 +105,8 @@ export interface AppBootstrap {
   changeset: Changeset;
   initialMode: LayoutMode;
   initialTheme?: string;
+  initialShowLineNumbers?: boolean;
+  initialWrapLines?: boolean;
+  initialShowHunkHeaders?: boolean;
+  initialShowAgentNotes?: boolean;
 }

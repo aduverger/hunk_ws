@@ -230,6 +230,59 @@ describe("App interactions", () => {
     }
   });
 
+  test("bootstrap preferences initialize the visible view state", async () => {
+    const setup = await testRender(
+      <App
+        bootstrap={{
+          input: {
+            kind: "git",
+            staged: false,
+            options: {
+              mode: "split",
+            },
+          },
+          changeset: {
+            id: "changeset:bootstrap-prefs",
+            sourceLabel: "repo",
+            title: "repo working tree",
+            files: [
+              createDiffFile(
+                "prefs",
+                "prefs.ts",
+                "export const message = 'short';\n",
+                "export const message = 'this is a very long wrapped line for bootstrap preference coverage';\nexport const added = true;\n",
+                true,
+              ),
+            ],
+          },
+          initialMode: "split",
+          initialTheme: "paper",
+          initialShowLineNumbers: false,
+          initialWrapLines: true,
+          initialShowHunkHeaders: false,
+          initialShowAgentNotes: true,
+        }}
+      />,
+      { width: 140, height: 20 },
+    );
+
+    try {
+      await flush(setup);
+
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain("Annotation for prefs.ts");
+      expect(frame).toContain("long wrapped line");
+      expect(frame).toContain("coverage");
+      expect(frame).not.toContain("@@ -1,1 +1,2 @@");
+      expect(frame).not.toContain("1 - export const message");
+      expect(frame).toContain("- export const message");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
   test("menu navigation can switch layouts and activate view actions", async () => {
     const setup = await testRender(<App bootstrap={createBootstrap()} />, { width: 220, height: 24 });
 
@@ -393,6 +446,38 @@ describe("App interactions", () => {
     } finally {
       await act(async () => {
         pagerSetup.renderer.destroy();
+      });
+    }
+  });
+
+  test("view preference changes are emitted for persistence after interaction", async () => {
+    const onPreferencesChange = mock(() => undefined);
+    const setup = await testRender(
+      <App bootstrap={createSingleFileBootstrap()} onPreferencesChange={onPreferencesChange} />,
+      { width: 220, height: 24 },
+    );
+
+    try {
+      await flush(setup);
+      expect(onPreferencesChange).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await setup.mockInput.typeText("l");
+      });
+      await flush(setup);
+
+      expect(onPreferencesChange).toHaveBeenCalledTimes(1);
+      expect(onPreferencesChange.mock.calls[0]?.[0]).toMatchObject({
+        mode: "split",
+        theme: "midnight",
+        showLineNumbers: false,
+        wrapLines: false,
+        showHunkHeaders: true,
+        showAgentNotes: false,
+      });
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
       });
     }
   });

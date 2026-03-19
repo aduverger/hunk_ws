@@ -3,12 +3,15 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { parseCli } from "./core/cli";
+import { persistViewPreferences, resolveConfiguredCliInput } from "./core/config";
 import { loadAppBootstrap } from "./core/loaders";
 import { shutdownSession } from "./core/shutdown";
 import { openControllingTerminal, resolveRuntimeCliInput, usesPipedPatchInput } from "./core/terminal";
 import { App } from "./ui/App";
 
-const cliInput = resolveRuntimeCliInput(await parseCli(process.argv));
+const runtimeCliInput = resolveRuntimeCliInput(await parseCli(process.argv));
+const configured = resolveConfiguredCliInput(runtimeCliInput);
+const cliInput = configured.input;
 const bootstrap = await loadAppBootstrap(cliInput);
 const controllingTerminal = usesPipedPatchInput(cliInput) ? openControllingTerminal() : null;
 
@@ -36,4 +39,12 @@ function shutdown() {
 }
 
 // The app owns the full alternate screen session from this point on.
-root.render(<App bootstrap={bootstrap} onQuit={shutdown} />);
+root.render(
+  <App
+    bootstrap={bootstrap}
+    onQuit={shutdown}
+    onPreferencesChange={
+      configured.persistencePath ? (preferences) => persistViewPreferences(configured.persistencePath!, preferences) : undefined
+    }
+  />,
+);

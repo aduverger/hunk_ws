@@ -1,7 +1,7 @@
 import { MouseButton, type KeyEvent, type MouseEvent as TuiMouseEvent, type ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { Suspense, lazy, startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
-import type { AppBootstrap, LayoutMode } from "../core/types";
+import type { AppBootstrap, LayoutMode, PersistedViewPreferences } from "../core/types";
 import { MenuBar } from "./components/chrome/MenuBar";
 import { MENU_ORDER, buildMenuSpecs, menuWidth, nextMenuItemIndex, type MenuEntry, type MenuId } from "./components/chrome/menu";
 import { StatusBar } from "./components/chrome/StatusBar";
@@ -26,7 +26,15 @@ function clamp(value: number, min: number, max: number) {
 }
 
 /** Orchestrate global app state, layout, navigation, and pane coordination. */
-export function App({ bootstrap, onQuit = () => process.exit(0) }: { bootstrap: AppBootstrap; onQuit?: () => void }) {
+export function App({
+  bootstrap,
+  onQuit = () => process.exit(0),
+  onPreferencesChange,
+}: {
+  bootstrap: AppBootstrap;
+  onQuit?: () => void;
+  onPreferencesChange?: (preferences: PersistedViewPreferences) => void;
+}) {
   const FILES_MIN_WIDTH = 22;
   const DIFF_MIN_WIDTH = 48;
   const BODY_PADDING = 2;
@@ -37,12 +45,13 @@ export function App({ bootstrap, onQuit = () => process.exit(0) }: { bootstrap: 
   const terminal = useTerminalDimensions();
   const filesScrollRef = useRef<ScrollBoxRenderable | null>(null);
   const diffScrollRef = useRef<ScrollBoxRenderable | null>(null);
+  const didPersistPreferences = useRef(false);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(bootstrap.initialMode);
   const [themeId, setThemeId] = useState(() => resolveTheme(bootstrap.initialTheme, renderer.themeMode).id);
-  const [showAgentNotes, setShowAgentNotes] = useState(false);
-  const [showLineNumbers, setShowLineNumbers] = useState(true);
-  const [wrapLines, setWrapLines] = useState(false);
-  const [showHunkHeaders, setShowHunkHeaders] = useState(true);
+  const [showAgentNotes, setShowAgentNotes] = useState(bootstrap.initialShowAgentNotes ?? false);
+  const [showLineNumbers, setShowLineNumbers] = useState(bootstrap.initialShowLineNumbers ?? true);
+  const [wrapLines, setWrapLines] = useState(bootstrap.initialWrapLines ?? false);
+  const [showHunkHeaders, setShowHunkHeaders] = useState(bootstrap.initialShowHunkHeaders ?? true);
   const [showHelp, setShowHelp] = useState(false);
   const [focusArea, setFocusArea] = useState<FocusArea>("files");
   const [activeMenuId, setActiveMenuId] = useState<MenuId | null>(null);
@@ -58,6 +67,26 @@ export function App({ bootstrap, onQuit = () => process.exit(0) }: { bootstrap: 
 
   const pagerMode = Boolean(bootstrap.input.options.pager);
   const activeTheme = resolveTheme(themeId, renderer.themeMode);
+
+  useEffect(() => {
+    if (!onPreferencesChange) {
+      return;
+    }
+
+    if (!didPersistPreferences.current) {
+      didPersistPreferences.current = true;
+      return;
+    }
+
+    onPreferencesChange({
+      mode: layoutMode,
+      theme: themeId,
+      showLineNumbers,
+      wrapLines,
+      showHunkHeaders,
+      showAgentNotes,
+    });
+  }, [layoutMode, onPreferencesChange, showAgentNotes, showHunkHeaders, showLineNumbers, themeId, wrapLines]);
 
   const filteredFiles = bootstrap.changeset.files.filter((file) => {
     if (!deferredFilter.trim()) {

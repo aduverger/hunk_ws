@@ -51,10 +51,61 @@ If you want a different install location, set `HUNK_INSTALL_DIR` before running 
 - `0` auto layout
 - `t` cycle themes
 - `a` toggle the agent panel
+- `l` toggle line numbers
+- `w` toggle line wrapping
+- `m` toggle hunk metadata
 - `[` / `]` move between hunks
+- `space` / `b` page forward and backward
 - `/` focus the file filter
 - `tab` cycle focus regions
 - `q` or `Esc` quit
+
+## Configuration
+
+Hunk reads layered TOML config with this precedence:
+
+1. built-in defaults
+2. global config: `$XDG_CONFIG_HOME/hunk/config.toml` or `~/.config/hunk/config.toml`
+3. repo-local config: `.hunk/config.toml`
+4. command-specific sections like `[git]`, `[diff]`, `[patch]`, `[difftool]`
+5. `[pager]` when Hunk is running in pager mode
+6. explicit CLI flags
+
+When you change persistent view settings inside Hunk, it writes them back to `.hunk/config.toml` in the current repo when possible, or to the global config file outside a repo.
+
+Example:
+
+```toml
+theme = "midnight"
+mode = "auto"
+line_numbers = true
+wrap_lines = false
+hunk_headers = true
+agent_notes = false
+
+[pager]
+mode = "stack"
+line_numbers = false
+
+[diff]
+mode = "split"
+```
+
+CLI overrides are available when you want one-off or pager-specific behavior:
+
+```bash
+hunk patch - --mode stack --no-line-numbers
+hunk diff before.ts after.ts --theme paper --wrap
+```
+
+Supported persistent CLI overrides:
+
+- `--mode <auto|split|stack>`
+- `--theme <theme>`
+- `--line-numbers` / `--no-line-numbers`
+- `--wrap` / `--no-wrap`
+- `--hunk-headers` / `--no-hunk-headers`
+- `--agent-notes` / `--no-agent-notes`
 
 ## Agent sidecar format
 

@@ -6,7 +6,7 @@ describe("parseCli", () => {
     const parsed = await parseCli(["bun", "hunk"]);
 
     expect(parsed.kind).toBe("git");
-    expect(parsed.options.mode).toBe("auto");
+    expect(parsed.options.mode).toBeUndefined();
     expect(parsed.options.theme).toBeUndefined();
   });
 
@@ -24,6 +24,10 @@ describe("parseCli", () => {
       "--agent-context",
       "notes.json",
       "--pager",
+      "--no-line-numbers",
+      "--wrap",
+      "--no-hunk-headers",
+      "--agent-notes",
     ]);
 
     expect(parsed).toMatchObject({
@@ -35,6 +39,10 @@ describe("parseCli", () => {
         theme: "paper",
         agentContext: "notes.json",
         pager: true,
+        lineNumbers: false,
+        wrapLines: true,
+        hunkHeaders: false,
+        agentNotes: true,
       },
     });
   });
@@ -47,11 +55,11 @@ describe("parseCli", () => {
       range: "HEAD~1..HEAD",
       staged: true,
       options: {
-        mode: "auto",
         theme: "ember",
-        pager: false,
       },
     });
+    expect(parsed.options.mode).toBeUndefined();
+    expect(parsed.options.pager).toBeUndefined();
   });
 
   test("parses patch mode from a file", async () => {
@@ -61,10 +69,10 @@ describe("parseCli", () => {
       kind: "patch",
       file: "changes.patch",
       options: {
-        mode: "auto",
         pager: true,
       },
     });
+    expect(parsed.options.mode).toBeUndefined();
   });
 
   test("parses difftool mode with display path", async () => {
@@ -77,8 +85,8 @@ describe("parseCli", () => {
       path: "src/example.ts",
       options: {
         mode: "stack",
-        pager: false,
       },
     });
+    expect(parsed.options.pager).toBeUndefined();
   });
 });

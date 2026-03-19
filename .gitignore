@@ -38,4 +38,5 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # runtime output
 tmp
 .hunk/latest.json
+.hunk/config.toml
 .pi/

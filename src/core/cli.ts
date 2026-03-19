@@ -1,18 +1,52 @@
 import { Command } from "commander";
 import type { CliInput, CommonOptions, LayoutMode } from "./types";
 
+/** Validate one requested layout mode from CLI input. */
+function parseLayoutMode(value: string): LayoutMode {
+  if (value === "auto" || value === "split" || value === "stack") {
+    return value;
+  }
+
+  throw new Error(`Invalid layout mode: ${value}`);
+}
+
+/** Read one paired positive/negative boolean flag directly from raw argv. */
+function resolveBooleanFlag(argv: string[], enabledFlag: string, disabledFlag: string) {
+  let resolved: boolean | undefined;
+
+  for (const arg of argv) {
+    if (arg === enabledFlag) {
+      resolved = true;
+      continue;
+    }
+
+    if (arg === disabledFlag) {
+      resolved = false;
+    }
+  }
+
+  return resolved;
+}
+
 /** Normalize the flags shared by every input mode. */
-function buildCommonOptions(options: {
-  mode?: LayoutMode;
-  theme?: string;
-  agentContext?: string;
-  pager?: boolean;
-}): CommonOptions {
+function buildCommonOptions(
+  options: {
+    mode?: LayoutMode;
+    theme?: string;
+    agentContext?: string;
+    pager?: boolean;
+  },
+  argv: string[],
+): CommonOptions {
   return {
-    mode: options.mode ?? "auto",
+    mode: options.mode,
     theme: options.theme,
     agentContext: options.agentContext,
-    pager: options.pager ?? false,
+    pager: options.pager ? true : undefined,
+    lineNumbers: resolveBooleanFlag(argv, "--line-numbers", "--no-line-numbers"),
+    wrapLines: resolveBooleanFlag(argv, "--wrap", "--no-wrap"),
+    hunkHeaders: resolveBooleanFlag(argv, "--hunk-headers", "--no-hunk-headers"),
+    agentNotes: resolveBooleanFlag(argv, "--agent-notes", "--no-agent-notes"),
   };
 }
 
@@ -22,7 +56,7 @@ export async function parseCli(argv: string[]): Promise<CliInput> {
     return {
       kind: "git",
       staged: false,
-      options: buildCommonOptions({}),
+      options: buildCommonOptions({}, argv),
     };
   }
 
@@ -37,25 +71,28 @@ export async function parseCli(argv: string[]): Promise<CliInput> {
   /** Attach the shared mode/theme/agent-context flags to a subcommand. */
   const applyCommonOptions = (command: Command) =>
     command
-      .option("--mode <mode>", "layout mode: auto, split, stack", "auto")
+      .option("--mode <mode>", "layout mode: auto, split, stack", parseLayoutMode)
       .option("--theme <theme>", "named theme override")
       .option("--agent-context <path>", "JSON sidecar with agent rationale")
-      .option("--pager", "use pager-style chrome and controls", false);
+      .option("--pager", "use pager-style chrome and controls")
+      .option("--line-numbers", "show line numbers")
+      .option("--no-line-numbers", "hide line numbers")
+      .option("--wrap", "wrap long diff lines")
+      .option("--no-wrap", "truncate long diff lines to one row")
+      .option("--hunk-headers", "show hunk metadata rows")
+      .option("--no-hunk-headers", "hide hunk metadata rows")
+      .option("--agent-notes", "show agent notes by default")
+      .option("--no-agent-notes", "hide agent notes by default");
 
   applyCommonOptions(program.command("git"))
     .argument("[range]", "revision or range to diff")
-    .option("--staged", "show staged changes instead of the working tree", false)
+    .option("--staged", "show staged changes instead of the working tree")
     .action((range: string | undefined, options: Record<string, unknown>) => {
       selected = {
         kind: "git",
         range,
         staged: Boolean(options.staged),
-        options: buildCommonOptions({
-          mode: options.mode as LayoutMode | undefined,
-          theme: options.theme as string | undefined,
-          agentContext: options.agentContext as string | undefined,
-          pager: options.pager as boolean | undefined,
-        }),
+        options: buildCommonOptions(options, argv),
       };
     });
 
@@ -67,12 +104,7 @@ export async function parseCli(argv: string[]): Promise<CliInput> {
         kind: "diff",
         left,
         right,
-        options: buildCommonOptions({
-          mode: options.mode as LayoutMode | undefined,
-          theme: options.theme as string | undefined,
-          agentContext: options.agentContext as string | undefined,
-          pager: options.pager as boolean | undefined,
-        }),
+        options: buildCommonOptions(options, argv),
       };
     });
 
@@ -82,12 +114,7 @@ export async function parseCli(argv: string[]): Promise<CliInput> {
       selected = {
         kind: "patch",
         file,
-        options: buildCommonOptions({
-          mode: options.mode as LayoutMode | undefined,
-          theme: options.theme as string | undefined,
-          agentContext: options.agentContext as string | undefined,
-          pager: options.pager as boolean | undefined,
-        }),
+        options: buildCommonOptions(options, argv),
       };
     });
 
@@ -101,12 +128,7 @@ export async function parseCli(argv: string[]): Promise<CliInput> {
         left,
         right,
         path,
-        options: buildCommonOptions({
-          mode: options.mode as LayoutMode | undefined,
-          theme: options.theme as string | undefined,
-          agentContext: options.agentContext as string | undefined,
-          pager: options.pager as boolean | undefined,
-        }),
+        options: buildCommonOptions(options, argv),
       };
     });
 
