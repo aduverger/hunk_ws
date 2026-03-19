@@ -181,6 +181,31 @@ describe("config resolution", () => {
     ]);
   });
 
+  test("command-specific config sections also apply to show mode", () => {
+    const home = createTempDir("hunk-config-home-");
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "hunk", "config.toml"),
+      [
+        '[show]',
+        'mode = "stack"',
+        'line_numbers = false',
+      ].join('\n'),
+    );
+
+    const resolved = resolveConfiguredCliInput(
+      {
+        kind: "show",
+        ref: "HEAD~1",
+        options: {},
+      },
+      { cwd: createTempDir("hunk-config-cwd-"), env: { HOME: home } },
+    );
+
+    expect(resolved.input.options.mode).toBe("stack");
+    expect(resolved.input.options.lineNumbers).toBe(false);
+  });
+
   test("loadAppBootstrap exposes resolved initial preferences to the UI", async () => {
     const home = createTempDir("hunk-config-home-");
     const repo = createTempDir("hunk-config-repo-");

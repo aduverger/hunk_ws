@@ -16,7 +16,7 @@ bun install
 ## Run
 
 ```bash
-bun run src/main.tsx -- git
+bun run src/main.tsx -- diff
 ```
 
 ## Standalone binary
@@ -25,24 +25,33 @@ Build a local executable:
 
 ```bash
 bun run build:bin
-./dist/hunk git
+./dist/hunk diff
 ```
 
 Install it into `~/.local/bin`:
 
 ```bash
 bun run install:bin
-hunk git
+hunk
+hunk diff
 ```
 
 If you want a different install location, set `HUNK_INSTALL_DIR` before running the install script.
 
 ## Workflows
 
-- `hunk git [range]`
-- `hunk diff <left> <right>`
-- `hunk patch [file|-]`
-- `hunk difftool <left> <right> [path]`
+- `hunk` — print standard CLI help with the most common commands
+- `hunk diff` — review local working tree changes in the full Hunk UI
+- `hunk diff --staged` / `hunk diff --cached` — review staged changes in the full Hunk UI
+- `hunk diff <ref>` — review changes versus a branch, tag, or commit-ish
+- `hunk diff <ref1>..<ref2>` / `hunk diff <ref1>...<ref2>` — review common Git ranges
+- `hunk diff -- <pathspec...>` — review only selected paths
+- `hunk show [ref]` — review the last commit or a given ref in the full Hunk UI
+- `hunk stash show [ref]` — review a stash entry in the full Hunk UI
+- `hunk diff <left> <right>` — compare two concrete files directly
+- `hunk patch [file|-]` — review a patch file or stdin, including pager mode
+- `hunk difftool <left> <right> [path]` — integrate with Git difftool
+- `hunk git [range]` — legacy alias for the original Git-style diff entrypoint
 
 ## Interaction
 
@@ -67,7 +76,7 @@ Hunk reads layered TOML config with this precedence:
 1. built-in defaults
 2. global config: `$XDG_CONFIG_HOME/hunk/config.toml` or `~/.config/hunk/config.toml`
 3. repo-local config: `.hunk/config.toml`
-4. command-specific sections like `[git]`, `[diff]`, `[patch]`, `[difftool]`
+4. command-specific sections like `[git]`, `[diff]`, `[show]`, `[stash-show]`, `[patch]`, `[difftool]`
 5. `[pager]` when Hunk is running in pager mode
 6. explicit CLI flags
 
@@ -94,6 +103,8 @@ mode = "split"
 CLI overrides are available when you want one-off or pager-specific behavior:
 
 ```bash
+hunk diff --mode split --line-numbers
+hunk show HEAD~1 --theme paper
 hunk patch - --mode stack --no-line-numbers
 hunk diff before.ts after.ts --theme paper --wrap
 ```
@@ -155,14 +166,14 @@ Files omitted from the sidecar keep their original diff order and appear after t
 For Codex-driven changes, keep a transient sidecar at `.hunk/latest.json` and load it during review:
 
 ```bash
-hunk git --agent-context .hunk/latest.json
+hunk diff --agent-context .hunk/latest.json
 ```
 
 Suggested pattern:
 
 - Codex makes code changes.
 - Codex refreshes `.hunk/latest.json` with a concise changeset summary, file summaries, and hunk-level rationale.
-- You open `hunk` against the working tree, staged diff, or a commit range with that sidecar.
+- You open `hunk diff`, `hunk diff --staged`, or `hunk show <ref>` with that sidecar.
 
 Keep the sidecar concise. It should explain why a hunk exists, what risk to review, and how the files fit together. It should not narrate obvious syntax edits line by line.
 
@@ -212,7 +223,18 @@ Interpretation:
 
 ## Git integration
 
-Use Hunk as the default Git pager:
+For full-screen review, you can invoke Hunk directly with Git-shaped commands:
+
+```bash
+hunk diff
+hunk diff --staged
+hunk diff main...feature
+hunk show
+hunk show HEAD~1
+hunk stash show
+```
+
+Use Hunk as the default Git pager when you want it to behave like a normal pager under `git diff` / `git show`:
 
 ```bash
 git config --global core.pager 'hunk patch -'
