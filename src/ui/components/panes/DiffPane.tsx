@@ -124,11 +124,6 @@ export function DiffPane({
   const [scrollViewport, setScrollViewport] = useState({ top: 0, height: 0 });
 
   useEffect(() => {
-    if (!windowingEnabled) {
-      setScrollViewport({ top: 0, height: 0 });
-      return;
-    }
-
     const updateViewport = () => {
       const nextTop = scrollRef.current?.scrollTop ?? 0;
       const nextHeight = scrollRef.current?.viewport.height ?? 0;
@@ -141,18 +136,15 @@ export function DiffPane({
     updateViewport();
     const interval = setInterval(updateViewport, 50);
     return () => clearInterval(interval);
-  }, [scrollRef, windowingEnabled]);
+  }, [scrollRef]);
 
   const estimatedBodyHeights = useMemo(
     () => files.map((file) => estimateDiffBodyRows(file, layout, showHunkHeaders)),
     [files, layout, showHunkHeaders],
   );
-  const visibleWindowedFileIds = useMemo(() => {
-    if (!windowingEnabled) {
-      return null;
-    }
 
-    const overscanRows = 40;
+  const visibleViewportFileIds = useMemo(() => {
+    const overscanRows = 8;
     const minVisibleY = Math.max(0, scrollViewport.top - overscanRows);
     const maxVisibleY = scrollViewport.top + scrollViewport.height + overscanRows;
     let offsetY = 0;
@@ -163,7 +155,7 @@ export function DiffPane({
       const sectionStart = offsetY;
       const sectionEnd = sectionStart + sectionHeight;
 
-      if (file.id === selectedFileId || (sectionEnd >= minVisibleY && sectionStart <= maxVisibleY)) {
+      if (sectionEnd >= minVisibleY && sectionStart <= maxVisibleY) {
         next.add(file.id);
       }
 
@@ -171,7 +163,25 @@ export function DiffPane({
     });
 
     return next;
-  }, [estimatedBodyHeights, files, scrollViewport.height, scrollViewport.top, selectedFileId, windowingEnabled]);
+  }, [estimatedBodyHeights, files, scrollViewport.height, scrollViewport.top]);
+
+  const visibleWindowedFileIds = useMemo(() => {
+    if (!windowingEnabled) {
+      return null;
+    }
+
+    const next = new Set(visibleViewportFileIds);
+
+    if (selectedFileId) {
+      next.add(selectedFileId);
+    }
+
+    for (const fileId of adjacentPrefetchFileIds) {
+      next.add(fileId);
+    }
+
+    return next;
+  }, [adjacentPrefetchFileIds, selectedFileId, visibleViewportFileIds, windowingEnabled]);
 
   return (
     <box
@@ -202,6 +212,10 @@ export function DiffPane({
           <box style={{ width: "100%", flexDirection: "column" }}>
             {files.map((file, index) => {
               const shouldRenderSection = visibleWindowedFileIds?.has(file.id) ?? true;
+              const shouldPrefetchVisibleHighlight =
+                Boolean(selectedHighlightKey) &&
+                prefetchAnchorKey === selectedHighlightKey &&
+                visibleViewportFileIds.has(file.id);
 
               return shouldRenderSection ? (
                 <DiffSection
@@ -212,7 +226,9 @@ export function DiffPane({
                   layout={layout}
                   selected={file.id === selectedFileId}
                   selectedHunkIndex={file.id === selectedFileId ? selectedHunkIndex : -1}
-                  shouldLoadHighlight={file.id === selectedFileId || adjacentPrefetchFileIds.has(file.id)}
+                  shouldLoadHighlight={
+                    file.id === selectedFileId || adjacentPrefetchFileIds.has(file.id) || shouldPrefetchVisibleHighlight
+                  }
                   onHighlightReady={file.id === selectedFileId ? handleSelectedHighlightReady : undefined}
                   separatorWidth={separatorWidth}
                   showSeparator={index > 0}
