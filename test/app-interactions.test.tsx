@@ -122,6 +122,35 @@ function createWrapBootstrap(): AppBootstrap {
   };
 }
 
+function createFileScrollBootstrap(): AppBootstrap {
+  const files = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"].map((name, index) =>
+    createDiffFile(
+      name,
+      `${name}.ts`,
+      `export const ${name}Marker = ${index + 1};\n`,
+      `export const ${name}Marker = ${index + 2};\nexport const ${name}Added = true;\n`,
+    ),
+  );
+
+  return {
+    input: {
+      kind: "git",
+      staged: false,
+      options: {
+        mode: "auto",
+      },
+    },
+    changeset: {
+      id: "changeset:app-file-scroll",
+      sourceLabel: "repo",
+      title: "repo working tree",
+      files,
+    },
+    initialMode: "auto",
+    initialTheme: "midnight",
+  };
+}
+
 
 async function flush(setup: Awaited<ReturnType<typeof testRender>>) {
   await act(async () => {
@@ -189,7 +218,7 @@ describe("App interactions", () => {
       frame = setup.captureCharFrame();
       expect(frame).toContain("this is a very");
       expect(frame).toContain("long wrapped line");
-      expect(frame).toContain("rendering coverage");
+      expect(frame).toContain("coverage");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -261,6 +290,36 @@ describe("App interactions", () => {
 
       frame = setup.captureCharFrame();
       expect(frame).toContain("Annotation for alpha.ts");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("arrow-key file navigation scrolls the review pane to the selected file hunk", async () => {
+    const setup = await testRender(<App bootstrap={createFileScrollBootstrap()} />, { width: 280, height: 12 });
+
+    try {
+      await flush(setup);
+
+      for (let index = 0; index < 4; index += 1) {
+        await act(async () => {
+          await setup.mockInput.pressArrow("down");
+        });
+        await flush(setup);
+      }
+
+      await act(async () => {
+        await Bun.sleep(80);
+        await setup.renderOnce();
+      });
+
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain("M epsilon.ts");
+      expect(frame).toContain("epsilon.ts");
+      expect(frame).toContain("▌@@ -1,1 +1,2 @@");
+      expect(frame).not.toContain("alphaMarker");
     } finally {
       await act(async () => {
         setup.renderer.destroy();

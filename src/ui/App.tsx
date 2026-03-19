@@ -1,6 +1,6 @@
 import { MouseButton, type KeyEvent, type MouseEvent as TuiMouseEvent, type ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
-import { Suspense, lazy, startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, startTransition, useDeferredValue, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AppBootstrap, LayoutMode } from "../core/types";
 import { MenuBar } from "./components/chrome/MenuBar";
 import { MENU_ORDER, buildMenuSpecs, menuWidth, nextMenuItemIndex, type MenuEntry, type MenuId } from "./components/chrome/menu";
@@ -133,18 +133,28 @@ export function App({ bootstrap, onQuit = () => process.exit(0) }: { bootstrap: 
     setSelectedHunkIndex((current) => clamp(current, 0, maxIndex));
   }, [selectedFile]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!selectedFile) {
       return;
     }
 
-    filesScrollRef.current?.scrollChildIntoView(fileRowId(selectedFile.id));
-    if (selectedFile.metadata.hunks[selectedHunkIndex]) {
-      diffScrollRef.current?.scrollChildIntoView(diffHunkId(selectedFile.id, selectedHunkIndex));
-      return;
-    }
+    const scrollSelectionIntoView = () => {
+      filesScrollRef.current?.scrollChildIntoView(fileRowId(selectedFile.id));
+      if (selectedFile.metadata.hunks[selectedHunkIndex]) {
+        diffScrollRef.current?.scrollChildIntoView(diffHunkId(selectedFile.id, selectedHunkIndex));
+        return;
+      }
 
-    diffScrollRef.current?.scrollChildIntoView(diffSectionId(selectedFile.id));
+      diffScrollRef.current?.scrollChildIntoView(diffSectionId(selectedFile.id));
+    };
+
+    // Selection changes can race with section windowing, so retry briefly while the new target mounts.
+    scrollSelectionIntoView();
+    const retryDelays = [0, 16, 48];
+    const timeouts = retryDelays.map((delay) => setTimeout(scrollSelectionIntoView, delay));
+    return () => {
+      timeouts.forEach((timeout) => clearTimeout(timeout));
+    };
   }, [selectedFile, selectedHunkIndex]);
 
   useEffect(() => {
