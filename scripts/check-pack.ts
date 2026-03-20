@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 
-import { existsSync } from "node:fs";
-
 interface PackedFile {
   path: string;
   size: number;
@@ -46,17 +44,10 @@ if (!pack) {
 
 const publishedPaths = new Set(pack.files.map((file) => file.path));
 const requiredPaths = ["dist/npm/main.js", "README.md", "LICENSE", "package.json"];
-const optionalPaths = ["CONTRIBUTING.md", "SECURITY.md"];
 
 for (const path of requiredPaths) {
   if (!publishedPaths.has(path)) {
     throw new Error(`Expected npm package to include ${path}.`);
-  }
-}
-
-for (const path of optionalPaths) {
-  if (existsSync(path) && !publishedPaths.has(path)) {
-    throw new Error(`Expected npm package to include ${path} when it exists in the repo.`);
   }
 }
 

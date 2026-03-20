@@ -10,9 +10,7 @@
   "files": [
     "dist/npm",
     "README.md",
-    "LICENSE",
-    "CONTRIBUTING.md",
-    "SECURITY.md"
+    "LICENSE"
   ],
   "scripts": {
     "start": "bun run src/main.tsx",

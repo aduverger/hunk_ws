@@ -2,64 +2,19 @@
 
 Hunk is a terminal diff viewer for reviewing agent-authored changesets with a desktop-style UI.
 
-It is built for code review, not patch dumping:
-
 - full-screen multi-file review stream
 - split, stacked, and responsive auto layouts
 - keyboard and mouse navigation
-- optional agent rationale shown next to annotated hunks
+- optional agent rationale beside annotated hunks
 - Git pager and difftool integration
 
-## Requirements
-
-- [Bun](https://bun.sh) 1.3.10+
-- Git for `hunk diff`, `hunk show`, `hunk stash show`, and `hunk pager`
-
-> `npm i -g hunkdiff` installs the package, but the `hunk` executable still runs with Bun via its shebang. Install Bun first.
-
 ## Install
-
-### Global install from npm
 
 ```bash
 npm i -g hunkdiff
 ```
 
-Then run:
-
-```bash
-hunk diff
-```
-
-### Global install with Bun
-
-```bash
-bun install -g hunkdiff
-```
-
-### Run from source
-
-```bash
-git clone https://github.com/modem-dev/hunk.git
-cd hunk
-bun install
-bun run src/main.tsx -- diff
-```
-
-### Build a standalone binary locally
-
-```bash
-bun run build:bin
-./dist/hunk diff
-```
-
-To install that binary into `~/.local/bin`:
-
-```bash
-bun run install:bin
-```
-
-Set `HUNK_INSTALL_DIR` first if you want a different install location.
+For now, the published `hunk` executable still expects [Bun](https://bun.sh) 1.3.10+ to be available on your `PATH` at runtime.
 
 ## Quick start
 
@@ -92,6 +47,40 @@ Open a patch from stdin:
 ```bash
 git diff --no-color | hunk patch -
 ```
+
+## Feature comparison
+
+| Capability | hunk | difftastic | delta | diff |
+| --- | --- | --- | --- | --- |
+| Dedicated interactive review UI | ✅ | ❌ | ❌ | ❌ |
+| Multi-file review stream with navigation sidebar | ✅ | ❌ | ❌ | ❌ |
+| Agent / AI rationale sidecar | ✅ | ❌ | ❌ | ❌ |
+| Split diffs | ✅ | ✅ | ✅ | ✅ |
+| Stacked diffs | ✅ | ✅ | ✅ | ✅ |
+| Auto responsive layouts | ✅ | ❌ | ❌ | ❌ |
+| Themes | ✅ | ❌ | ✅ | ❌ |
+| Syntax highlighting | ✅ | ✅ | ✅ | ❌ |
+| Syntax-aware / structural diffing | ❌ | ✅ | ❌ | ❌ |
+| Mouse support inside the diff viewer | ✅ | ❌ | ❌ | ❌ |
+| Runtime toggles for wrapping / line numbers / hunk metadata | ✅ | ❌ | ❌ | ❌ |
+| Pager-compatible mode | ✅ | ✅ | ✅ | ✅ |
+
+## Benchmarks
+
+Quick local timing snapshot from one Linux machine on the same 120-line TypeScript file pair. Metric: time until a changed marker first became visible.
+
+| Tool | Avg first-visible changed output |
+| --- | ---: |
+| `diff` | ~37 ms |
+| `delta --paging=never` | ~35 ms |
+| `hunk diff` | ~219 ms |
+| `difft --display side-by-side` | ~266 ms |
+
+Takeaway:
+
+- `diff` and `delta` are fastest here because they print plain diff text and exit.
+- `hunk` spends more startup time on an interactive UI, syntax highlighting, navigation state, and optional agent context.
+- `difftastic` spends more startup time on structural diffing.
 
 ## Common workflows
 
@@ -235,12 +224,6 @@ Install dependencies:
 bun install
 ```
 
-Run the source entrypoint:
-
-```bash
-bun run src/main.tsx -- diff
-```
-
 Validate a change:
 
 ```bash
@@ -256,8 +239,6 @@ bun run build:npm
 bun run check:pack
 ```
 
-## Open source project docs
+## License
 
-- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
-- Security: [SECURITY.md](SECURITY.md)
-- License: [MIT](LICENSE)
+[MIT](LICENSE)
