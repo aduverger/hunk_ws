@@ -447,7 +447,7 @@ describe("UI components", () => {
     expect(frame).toContain("1 + export const messag");
     expect(frame).toContain("e = 'this is a very");
     expect(frame).toContain("long wrapped line");
-    expect(frame).toContain("for diff rendering");
+    expect(frame).toContain("coverage';");
   });
 
   test("DiffPane can hide hunk metadata rows without hiding code lines", async () => {

@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const repoRoot = process.cwd();
+const sourceEntrypoint = join(repoRoot, "src/main.tsx");
 const tempDirs: string[] = [];
 const ttyToolsAvailable = Bun.spawnSync(["bash", "-lc", "command -v script >/dev/null && command -v timeout >/dev/null"], {
   stdin: "ignore",
@@ -117,9 +119,9 @@ async function runTtySmoke(options: { mode?: "split" | "stack"; pager?: boolean;
     args.push("--agent-context", fixture.agent);
   }
 
-  const command = `timeout 2 bun run src/main.tsx ${args.map(shellQuote).join(" ")}`;
+  const command = `timeout 2 bun run ${shellQuote(sourceEntrypoint)} ${args.map(shellQuote).join(" ")}`;
   const proc = Bun.spawnSync(["script", "-q", "-f", "-e", "-c", command, transcript], {
-    cwd: process.cwd(),
+    cwd: fixture.dir,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -141,11 +143,11 @@ async function runStdinPagerSmoke(options?: { input?: string; inputCommand?: str
   const fixture = createFixtureFiles(options?.lines ?? 1);
   const transcript = join(fixture.dir, "stdin-pager-transcript.txt");
   const subcommand = options?.command === "pager" ? "pager" : "patch -";
-  const patchCommand = `cat ${shellQuote(fixture.coloredPatch)} | bun run src/main.tsx ${subcommand}`;
+  const patchCommand = `cat ${shellQuote(fixture.coloredPatch)} | bun run ${shellQuote(sourceEntrypoint)} ${subcommand}`;
   const scriptCommand = `timeout 5 script -q -f -e -c ${shellQuote(patchCommand)} ${shellQuote(transcript)}`;
   const inputCommand = options?.inputCommand ?? `(sleep 1; printf ${shellQuote(options?.input ?? "q")})`;
   const proc = Bun.spawnSync(["bash", "-lc", `${inputCommand} | ${scriptCommand}`], {
-    cwd: process.cwd(),
+    cwd: fixture.dir,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
