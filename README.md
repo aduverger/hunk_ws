@@ -14,7 +14,10 @@ Hunk is a terminal diff viewer for reviewing agent-authored changesets with a de
 npm i -g hunkdiff
 ```
 
-For now, the published `hunk` executable still expects [Bun](https://bun.sh) 1.3.10+ to be available on your `PATH` at runtime.
+## Requirements
+
+- Node.js 18+
+- Git for `hunk diff`, `hunk show`, `hunk stash show`, and pager integration
 
 ## Quick start
 

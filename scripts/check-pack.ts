@@ -43,7 +43,7 @@ if (!pack) {
 }
 
 const publishedPaths = new Set(pack.files.map((file) => file.path));
-const requiredPaths = ["dist/npm/main.js", "README.md", "LICENSE", "package.json"];
+const requiredPaths = ["bin/hunk.cjs", "dist/npm/main.js", "README.md", "LICENSE", "package.json"];
 
 for (const path of requiredPaths) {
   if (!publishedPaths.has(path)) {
