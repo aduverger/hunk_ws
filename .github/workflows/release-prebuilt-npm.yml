@@ -32,7 +32,7 @@ jobs:
           - package_name: hunkdiff-linux-x64
             runner: ubuntu-latest
           - package_name: hunkdiff-darwin-x64
-            runner: macos-13
+            runner: macos-15-intel
           - package_name: hunkdiff-darwin-arm64
             runner: macos-14
     steps:
