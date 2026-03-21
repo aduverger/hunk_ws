@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { getHostPlatformPackageSpec, releaseNpmDir } from "./prebuilt-package-helpers";
+import { releaseNpmDir } from "./prebuilt-package-helpers";
 
 interface PackedFile {
   path: string;
@@ -43,7 +44,7 @@ function runPackDryRun(cwd: string) {
   return pack;
 }
 
-function assertPaths(pack: PackResult, requiredPaths: string[], forbiddenPrefixes: string[] = []) {
+function assertPaths(pack: PackResult, requiredPaths: string[]) {
   const publishedPaths = new Set(pack.files.map((file) => file.path));
 
   for (const requiredPath of requiredPaths) {
@@ -51,21 +52,37 @@ function assertPaths(pack: PackResult, requiredPaths: string[], forbiddenPrefixe
       throw new Error(`Expected ${pack.name} to include ${requiredPath}.`);
     }
   }
-
-  for (const file of pack.files) {
-    if (forbiddenPrefixes.some((prefix) => file.path.startsWith(prefix))) {
-      throw new Error(`Unexpected file in ${pack.name}: ${file.path}`);
-    }
-  }
 }
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const releaseRoot = releaseNpmDir(repoRoot);
-const hostSpec = getHostPlatformPackageSpec();
-const metaPack = runPackDryRun(path.join(releaseRoot, "hunkdiff"));
-const hostPack = runPackDryRun(path.join(releaseRoot, hostSpec.packageName));
+const metaDir = path.join(releaseRoot, "hunkdiff");
 
+if (!existsSync(metaDir)) {
+  throw new Error(`Missing staged top-level package at ${metaDir}`);
+}
+
+const metaPack = runPackDryRun(metaDir);
 assertPaths(metaPack, ["bin/hunk.cjs", "README.md", "LICENSE", "package.json"]);
-assertPaths(hostPack, ["bin/hunk", "LICENSE", "package.json"]);
 
-console.log(`Verified prebuilt npm packages for ${metaPack.version}: ${metaPack.name} + ${hostPack.name}`);
+const packageDirectories = readdirSync(releaseRoot, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && entry.name !== "hunkdiff")
+  .map((entry) => path.join(releaseRoot, entry.name))
+  .sort();
+
+if (packageDirectories.length === 0) {
+  throw new Error(`No staged platform packages found in ${releaseRoot}`);
+}
+
+const verifiedNames = [metaPack.name];
+for (const packageDirectory of packageDirectories) {
+  const pack = runPackDryRun(packageDirectory);
+  assertPaths(pack, ["LICENSE", "package.json"]);
+  const binaryPath = pack.files.find((file) => file.path.startsWith("bin/"))?.path;
+  if (!binaryPath) {
+    throw new Error(`Expected ${pack.name} to publish one binary under bin/.`);
+  }
+  verifiedNames.push(pack.name);
+}
+
+console.log(`Verified prebuilt npm packages for ${metaPack.version}: ${verifiedNames.join(", ")}`);

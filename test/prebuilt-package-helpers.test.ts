@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { PLATFORM_PACKAGE_MATRIX, binaryFilenameForSpec, buildOptionalDependencyMap } from "../scripts/prebuilt-package-helpers";
+import {
+  PLATFORM_PACKAGE_MATRIX,
+  binaryFilenameForSpec,
+  buildOptionalDependencyMap,
+  getPlatformPackageSpecByName,
+  sortPlatformPackageSpecs,
+} from "../scripts/prebuilt-package-helpers";
 
 describe("prebuilt package helpers", () => {
   test("buildOptionalDependencyMap includes every supported platform package at one version", () => {
@@ -11,9 +17,23 @@ describe("prebuilt package helpers", () => {
   });
 
   test("binaryFilenameForSpec keeps unix package binaries extensionless", () => {
-    expect(binaryFilenameForSpec(PLATFORM_PACKAGE_MATRIX[0]!)).toBe("hunk");
-    expect(binaryFilenameForSpec(PLATFORM_PACKAGE_MATRIX[1]!)).toBe("hunk");
-    expect(binaryFilenameForSpec(PLATFORM_PACKAGE_MATRIX[2]!)).toBe("hunk");
-    expect(binaryFilenameForSpec(PLATFORM_PACKAGE_MATRIX[3]!)).toBe("hunk");
+    for (const spec of PLATFORM_PACKAGE_MATRIX) {
+      expect(binaryFilenameForSpec(spec)).toBe("hunk");
+    }
+  });
+
+  test("getPlatformPackageSpecByName returns known package specs", () => {
+    expect(getPlatformPackageSpecByName("hunkdiff-linux-x64")?.cpu).toBe("x64");
+    expect(getPlatformPackageSpecByName("hunkdiff-darwin-arm64")?.os).toBe("darwin");
+    expect(getPlatformPackageSpecByName("hunkdiff-does-not-exist")).toBeUndefined();
+  });
+
+  test("sortPlatformPackageSpecs keeps package publish order stable", () => {
+    const reversed = [...PLATFORM_PACKAGE_MATRIX].reverse();
+    expect(sortPlatformPackageSpecs(reversed).map((spec) => spec.packageName)).toEqual([
+      "hunkdiff-darwin-arm64",
+      "hunkdiff-darwin-x64",
+      "hunkdiff-linux-x64",
+    ]);
   });
 });

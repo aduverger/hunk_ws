@@ -25,36 +25,51 @@ const ARCH_NAME_MAP: Partial<Record<NodeJS.Architecture, SupportedArch>> = {
   arm64: "arm64",
 };
 
+/** Platforms we actually plan to publish in the first prebuilt-binary rollout. */
 export const PLATFORM_PACKAGE_MATRIX: PlatformPackageSpec[] = [
   { packageName: "hunkdiff-darwin-arm64", os: "darwin", cpu: "arm64", binaryName: "hunk", binaryRelativePath: "bin/hunk" },
   { packageName: "hunkdiff-darwin-x64", os: "darwin", cpu: "x64", binaryName: "hunk", binaryRelativePath: "bin/hunk" },
-  { packageName: "hunkdiff-linux-arm64", os: "linux", cpu: "arm64", binaryName: "hunk", binaryRelativePath: "bin/hunk" },
   { packageName: "hunkdiff-linux-x64", os: "linux", cpu: "x64", binaryName: "hunk", binaryRelativePath: "bin/hunk" },
 ] as const;
 
+/** Normalize a Node platform string into Hunk's package naming vocabulary. */
+export function normalizeHostPlatform(platform: NodeJS.Platform) {
+  return PLATFORM_NAME_MAP[platform];
+}
+
+/** Normalize a Node architecture string into Hunk's package naming vocabulary. */
+export function normalizeHostArch(arch: NodeJS.Architecture) {
+  return ARCH_NAME_MAP[arch];
+}
+
+/** Find one known prebuilt package spec by package name. */
+export function getPlatformPackageSpecByName(packageName: string) {
+  return PLATFORM_PACKAGE_MATRIX.find((candidate) => candidate.packageName === packageName);
+}
+
 /** Return the Hunk package spec that matches the current machine. */
 export function getHostPlatformPackageSpec() {
-  const normalizedPlatform = PLATFORM_NAME_MAP[os.platform()];
+  const normalizedPlatform = normalizeHostPlatform(os.platform());
   if (!normalizedPlatform) {
     throw new Error(`Unsupported host platform for prebuilt packaging: ${os.platform()}`);
   }
 
-  const normalizedArch = ARCH_NAME_MAP[os.arch()];
+  const normalizedArch = normalizeHostArch(os.arch());
   if (!normalizedArch) {
     throw new Error(`Unsupported host architecture for prebuilt packaging: ${os.arch()}`);
   }
 
   const spec = PLATFORM_PACKAGE_MATRIX.find((candidate) => candidate.os === normalizedPlatform && candidate.cpu === normalizedArch);
   if (!spec) {
-    throw new Error(`No prebuilt package spec matches ${normalizedPlatform}/${normalizedArch}`);
+    throw new Error(`No published prebuilt package spec matches ${normalizedPlatform}/${normalizedArch}`);
   }
 
   return spec;
 }
 
 /** Build the optional dependency map for the top-level hunkdiff package. */
-export function buildOptionalDependencyMap(version: string) {
-  return Object.fromEntries(PLATFORM_PACKAGE_MATRIX.map((spec) => [spec.packageName, version]));
+export function buildOptionalDependencyMap(version: string, specs: readonly PlatformPackageSpec[] = PLATFORM_PACKAGE_MATRIX) {
+  return Object.fromEntries(specs.map((spec) => [spec.packageName, version]));
 }
 
 /** Return the executable filename for a platform package. */
@@ -65,4 +80,14 @@ export function binaryFilenameForSpec(spec: PlatformPackageSpec) {
 /** Resolve a path under the generated prebuilt npm release directory. */
 export function releaseNpmDir(repoRoot: string) {
   return path.join(repoRoot, "dist", "release", "npm");
+}
+
+/** Resolve a path under the generated prebuilt binary artifact directory. */
+export function releaseArtifactsDir(repoRoot: string) {
+  return path.join(repoRoot, "dist", "release", "artifacts");
+}
+
+/** Sort package specs into stable npm publish order. */
+export function sortPlatformPackageSpecs(specs: readonly PlatformPackageSpec[]) {
+  return [...specs].sort((left, right) => left.packageName.localeCompare(right.packageName));
 }

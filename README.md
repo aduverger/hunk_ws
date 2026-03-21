@@ -242,13 +242,24 @@ bun run build:npm
 bun run check:pack
 ```
 
-Stage the prototype prebuilt npm packages for the current host and smoke test the install path without Bun on `PATH`:
+Stage the prebuilt npm packages for the current host and smoke test the install path without Bun on `PATH`:
 
 ```bash
 bun run build:prebuilt:npm
 bun run check:prebuilt-pack
 bun run smoke:prebuilt-install
 ```
+
+Prepare the multi-platform release directories from downloaded build artifacts and dry-run the publish order:
+
+```bash
+bun run build:prebuilt:artifact
+bun run stage:prebuilt:release
+bun run check:prebuilt-pack
+bun run publish:prebuilt:npm -- --dry-run
+```
+
+The automated tag/manual release workflow lives in `.github/workflows/release-prebuilt-npm.yml`.
 
 ## License
 
