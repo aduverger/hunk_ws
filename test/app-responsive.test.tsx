@@ -162,10 +162,10 @@ describe("responsive shell", () => {
     expect(forcedSplit).toMatch(/▌.*▌/);
     expect(forcedSplit).not.toContain("drag divider resize");
 
-    expect(forcedStack).not.toContain("Files");
+    expect(forcedStack).toContain("M alpha.ts");
     expect(forcedStack).not.toContain("Changeset summary");
     expect(forcedStack).not.toMatch(/▌.*▌/);
-    expect(forcedStack).not.toContain("drag divider resize");
+    expect(forcedStack).toContain("drag divider resize");
   });
 
   test("pager mode stays responsive while hiding app chrome", async () => {

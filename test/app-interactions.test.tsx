@@ -313,7 +313,6 @@ describe("App interactions", () => {
 
       frame = setup.captureCharFrame();
       expect(frame).not.toContain("Split view");
-      expect(frame).not.toContain("│");
       expect(frame).toContain("1   -  export const alpha = 1;");
     } finally {
       await act(async () => {

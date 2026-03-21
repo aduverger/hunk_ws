@@ -49,6 +49,7 @@ export function App({
   const [showLineNumbers, setShowLineNumbers] = useState(bootstrap.initialShowLineNumbers ?? true);
   const [wrapLines, setWrapLines] = useState(bootstrap.initialWrapLines ?? false);
   const [showHunkHeaders, setShowHunkHeaders] = useState(bootstrap.initialShowHunkHeaders ?? true);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
   const [focusArea, setFocusArea] = useState<FocusArea>("files");
   const [activeMenuId, setActiveMenuId] = useState<MenuId | null>(null);
@@ -83,7 +84,7 @@ export function App({
   const bodyPadding = pagerMode ? 0 : BODY_PADDING;
   const bodyWidth = Math.max(0, terminal.width - bodyPadding);
   const responsiveLayout = resolveResponsiveLayout(layoutMode, terminal.width);
-  const showFilesPane = pagerMode ? false : responsiveLayout.showFilesPane;
+  const showFilesPane = pagerMode ? false : responsiveLayout.showFilesPane && sidebarVisible;
   const centerWidth = bodyWidth;
   const resolvedLayout = responsiveLayout.layout;
   const currentHunk = selectedFile?.metadata.hunks[selectedHunkIndex];
@@ -247,6 +248,11 @@ export function App({
     setWrapLines((current) => !current);
   };
 
+  /** Toggle sidebar visibility independently of layout mode. */
+  const toggleSidebar = () => {
+    setSidebarVisible((current) => !current);
+  };
+
   /** Toggle visibility of hunk metadata rows without changing the actual diff lines. */
   const toggleHunkHeaders = () => {
     setShowHunkHeaders((current) => !current);
@@ -352,6 +358,14 @@ export function App({
         hint: "0",
         checked: layoutMode === "auto",
         action: () => setLayoutMode("auto"),
+      },
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Sidebar",
+        hint: "s",
+        checked: sidebarVisible,
+        action: toggleSidebar,
       },
       { kind: "separator" },
       {
@@ -674,6 +688,12 @@ export function App({
 
     if (key.name === "0") {
       setLayoutMode("auto");
+      closeMenu();
+      return;
+    }
+
+    if (key.name === "s") {
+      toggleSidebar();
       closeMenu();
       return;
     }

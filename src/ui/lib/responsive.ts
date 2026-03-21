@@ -32,7 +32,7 @@ export function resolveResponsiveLayout(requestedLayout: LayoutMode, viewportWid
     return {
       viewport,
       layout: "split",
-      showFilesPane: false,
+      showFilesPane: viewport === "full",
     };
   }
 
@@ -40,7 +40,7 @@ export function resolveResponsiveLayout(requestedLayout: LayoutMode, viewportWid
     return {
       viewport,
       layout: "stack",
-      showFilesPane: false,
+      showFilesPane: viewport === "full",
     };
   }
 
