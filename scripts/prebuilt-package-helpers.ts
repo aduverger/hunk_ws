@@ -1,0 +1,68 @@
+#!/usr/bin/env bun
+
+import os from "node:os";
+import path from "node:path";
+
+export type SupportedPlatform = "darwin" | "linux" | "windows";
+export type SupportedArch = "x64" | "arm64";
+
+export interface PlatformPackageSpec {
+  packageName: string;
+  os: SupportedPlatform;
+  cpu: SupportedArch;
+  binaryName: string;
+  binaryRelativePath: string;
+}
+
+const PLATFORM_NAME_MAP: Partial<Record<NodeJS.Platform, SupportedPlatform>> = {
+  darwin: "darwin",
+  linux: "linux",
+  win32: "windows",
+};
+
+const ARCH_NAME_MAP: Partial<Record<NodeJS.Architecture, SupportedArch>> = {
+  x64: "x64",
+  arm64: "arm64",
+};
+
+export const PLATFORM_PACKAGE_MATRIX: PlatformPackageSpec[] = [
+  { packageName: "hunkdiff-darwin-arm64", os: "darwin", cpu: "arm64", binaryName: "hunk", binaryRelativePath: "bin/hunk" },
+  { packageName: "hunkdiff-darwin-x64", os: "darwin", cpu: "x64", binaryName: "hunk", binaryRelativePath: "bin/hunk" },
+  { packageName: "hunkdiff-linux-arm64", os: "linux", cpu: "arm64", binaryName: "hunk", binaryRelativePath: "bin/hunk" },
+  { packageName: "hunkdiff-linux-x64", os: "linux", cpu: "x64", binaryName: "hunk", binaryRelativePath: "bin/hunk" },
+] as const;
+
+/** Return the Hunk package spec that matches the current machine. */
+export function getHostPlatformPackageSpec() {
+  const normalizedPlatform = PLATFORM_NAME_MAP[os.platform()];
+  if (!normalizedPlatform) {
+    throw new Error(`Unsupported host platform for prebuilt packaging: ${os.platform()}`);
+  }
+
+  const normalizedArch = ARCH_NAME_MAP[os.arch()];
+  if (!normalizedArch) {
+    throw new Error(`Unsupported host architecture for prebuilt packaging: ${os.arch()}`);
+  }
+
+  const spec = PLATFORM_PACKAGE_MATRIX.find((candidate) => candidate.os === normalizedPlatform && candidate.cpu === normalizedArch);
+  if (!spec) {
+    throw new Error(`No prebuilt package spec matches ${normalizedPlatform}/${normalizedArch}`);
+  }
+
+  return spec;
+}
+
+/** Build the optional dependency map for the top-level hunkdiff package. */
+export function buildOptionalDependencyMap(version: string) {
+  return Object.fromEntries(PLATFORM_PACKAGE_MATRIX.map((spec) => [spec.packageName, version]));
+}
+
+/** Return the executable filename for a platform package. */
+export function binaryFilenameForSpec(spec: PlatformPackageSpec) {
+  return spec.os === "windows" ? `${spec.binaryName}.exe` : spec.binaryName;
+}
+
+/** Resolve a path under the generated prebuilt npm release directory. */
+export function releaseNpmDir(repoRoot: string) {
+  return path.join(repoRoot, "dist", "release", "npm");
+}

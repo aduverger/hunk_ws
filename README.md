@@ -242,6 +242,14 @@ bun run build:npm
 bun run check:pack
 ```
 
+Stage the prototype prebuilt npm packages for the current host and smoke test the install path without Bun on `PATH`:
+
+```bash
+bun run build:prebuilt:npm
+bun run check:prebuilt-pack
+bun run smoke:prebuilt-install
+```
+
 ## License
 
 [MIT](LICENSE)
