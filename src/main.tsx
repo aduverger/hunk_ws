@@ -3,7 +3,7 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { parseCli } from "./core/cli";
-import { persistViewPreferences, resolveConfiguredCliInput } from "./core/config";
+import { resolveConfiguredCliInput } from "./core/config";
 import { loadAppBootstrap } from "./core/loaders";
 import { looksLikePatchInput, pagePlainText } from "./core/pager";
 import { shutdownSession } from "./core/shutdown";
@@ -70,8 +70,5 @@ root.render(
   <App
     bootstrap={bootstrap}
     onQuit={shutdown}
-    onPreferencesChange={
-      configured.persistencePath ? (preferences) => persistViewPreferences(configured.persistencePath!, preferences) : undefined
-    }
   />,
 );

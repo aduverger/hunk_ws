@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CliInput } from "../src/core/types";
-import { persistViewPreferences, resolveConfiguredCliInput } from "../src/core/config";
+import { resolveConfiguredCliInput } from "../src/core/config";
 import { loadAppBootstrap } from "../src/core/loaders";
 
 const tempDirs: string[] = [];
@@ -81,7 +81,6 @@ describe("config resolution", () => {
     });
 
     expect(resolved.repoConfigPath).toBe(join(repo, ".hunk", "config.toml"));
-    expect(resolved.persistencePath).toBe(join(repo, ".hunk", "config.toml"));
     expect(resolved.input.options).toMatchObject({
       pager: true,
       mode: "stack",
@@ -103,82 +102,6 @@ describe("config resolution", () => {
     });
 
     expect(resolved.repoConfigPath).toBeUndefined();
-    expect(resolved.persistencePath).toBe(join(home, ".config", "hunk", "config.toml"));
-  });
-
-  test("persists top-level preferences without discarding profile sections", () => {
-    const repo = createTempDir("hunk-config-repo-");
-    const configPath = join(repo, ".hunk", "config.toml");
-
-    mkdirSync(join(repo, ".hunk"), { recursive: true });
-    writeFileSync(
-      configPath,
-      [
-        'recent_themes = ["paper", "midnight"]',
-        '',
-        '[pager]',
-        'mode = "stack"',
-        '',
-        '[git]',
-        'wrap_lines = true',
-      ].join('\n'),
-    );
-
-    persistViewPreferences(configPath, {
-      mode: "split",
-      theme: "midnight",
-      showLineNumbers: false,
-      wrapLines: true,
-      showHunkHeaders: false,
-      showAgentNotes: true,
-    });
-
-    const parsed = Bun.TOML.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
-    expect(parsed.mode).toBe("split");
-    expect(parsed.theme).toBe("midnight");
-    expect(parsed.line_numbers).toBe(false);
-    expect(parsed.wrap_lines).toBe(true);
-    expect(parsed.hunk_headers).toBe(false);
-    expect(parsed.agent_notes).toBe(true);
-    expect(parsed.recent_themes).toEqual(["paper", "midnight"]);
-    expect((parsed.pager as Record<string, unknown>).mode).toBe("stack");
-    expect((parsed.git as Record<string, unknown>).wrap_lines).toBe(true);
-  });
-
-  test("preserves TOML array-of-table sections when persisting view preferences", () => {
-    const repo = createTempDir("hunk-config-repo-");
-    const configPath = join(repo, ".hunk", "config.toml");
-
-    mkdirSync(join(repo, ".hunk"), { recursive: true });
-    writeFileSync(
-      configPath,
-      [
-        'theme = "paper"',
-        '',
-        '[[bookmarks]]',
-        'path = "src/a.ts"',
-        'hunk = 0',
-        '',
-        '[[bookmarks]]',
-        'path = "src/b.ts"',
-        'hunk = 2',
-      ].join('\n'),
-    );
-
-    persistViewPreferences(configPath, {
-      mode: "split",
-      theme: "paper",
-      showLineNumbers: true,
-      wrapLines: false,
-      showHunkHeaders: true,
-      showAgentNotes: false,
-    });
-
-    const parsed = Bun.TOML.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
-    expect(parsed.bookmarks).toEqual([
-      { path: "src/a.ts", hunk: 0 },
-      { path: "src/b.ts", hunk: 2 },
-    ]);
   });
 
   test("command-specific config sections also apply to show mode", () => {

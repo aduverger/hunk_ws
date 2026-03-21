@@ -20,7 +20,7 @@ interface HunkConfigResolution {
   input: CliInput;
   globalConfigPath?: string;
   repoConfigPath?: string;
-  persistencePath?: string;
+
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -178,112 +178,7 @@ export function resolveConfiguredCliInput(
     },
     globalConfigPath: userConfigPath,
     repoConfigPath,
-    persistencePath: repoConfigPath ?? userConfigPath,
   };
-}
-
-/** Return whether an array contains only TOML table objects. */
-function isRecordArray(value: unknown): value is Array<Record<string, unknown>> {
-  return Array.isArray(value) && value.every(isRecord);
-}
-
-/** Serialize one inline TOML value, including scalar arrays. */
-function serializeTomlValue(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    return JSON.stringify(value);
-  }
-
-  if (typeof value === "boolean" || typeof value === "number") {
-    return String(value);
-  }
-
-  if (Array.isArray(value) && !isRecordArray(value)) {
-    const serializedItems = value.map((item) => serializeTomlValue(item));
-    if (serializedItems.some((item) => item === undefined)) {
-      return undefined;
-    }
-
-    return `[${serializedItems.join(", ")}]`;
-  }
-
-  return undefined;
-}
-
-/** Render one TOML object recursively while keeping scalar keys above child tables. */
-function serializeTomlObject(source: Record<string, unknown>, sectionName?: string, arrayTable = false): string[] {
-  const lines: string[] = [];
-  const scalarEntries: Array<[string, string]> = [];
-  const tableEntries: Array<[string, Record<string, unknown>]> = [];
-  const arrayTableEntries: Array<[string, Array<Record<string, unknown>>]> = [];
-
-  for (const [key, value] of Object.entries(source)) {
-    if (value === undefined) {
-      continue;
-    }
-
-    if (isRecord(value)) {
-      tableEntries.push([key, value]);
-      continue;
-    }
-
-    if (isRecordArray(value)) {
-      arrayTableEntries.push([key, value]);
-      continue;
-    }
-
-    const serialized = serializeTomlValue(value);
-    if (serialized !== undefined) {
-      scalarEntries.push([key, serialized]);
-    }
-  }
-
-  if (sectionName) {
-    lines.push(`${arrayTable ? "[[" : "["}${sectionName}${arrayTable ? "]]" : "]"}`);
-  }
-
-  for (const [key, value] of scalarEntries) {
-    lines.push(`${key} = ${value}`);
-  }
-
-  for (const [key, value] of tableEntries) {
-    if (lines.length > 0) {
-      lines.push("");
-    }
-
-    lines.push(...serializeTomlObject(value, sectionName ? `${sectionName}.${key}` : key));
-  }
-
-  for (const [key, values] of arrayTableEntries) {
-    for (const value of values) {
-      if (lines.length > 0) {
-        lines.push("");
-      }
-
-      lines.push(...serializeTomlObject(value, sectionName ? `${sectionName}.${key}` : key, true));
-    }
-  }
-
-  return lines;
-}
-
-/** Persist the current view defaults while preserving any existing profile sections. */
-export function persistViewPreferences(path: string, preferences: PersistedViewPreferences) {
-  const existing = readTomlRecord(path);
-
-  existing.mode = preferences.mode;
-  existing.line_numbers = preferences.showLineNumbers;
-  existing.wrap_lines = preferences.wrapLines;
-  existing.hunk_headers = preferences.showHunkHeaders;
-  existing.agent_notes = preferences.showAgentNotes;
-
-  if (preferences.theme) {
-    existing.theme = preferences.theme;
-  } else {
-    delete existing.theme;
-  }
-
-  fs.mkdirSync(dirname(path), { recursive: true });
-  fs.writeFileSync(path, `${serializeTomlObject(existing).join("\n").trim()}\n`);
 }
 
 export const CONFIG_DEFAULTS = DEFAULT_VIEW_PREFERENCES;

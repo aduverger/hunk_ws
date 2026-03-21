@@ -450,35 +450,4 @@ describe("App interactions", () => {
     }
   });
 
-  test("view preference changes are emitted for persistence after interaction", async () => {
-    const onPreferencesChange = mock(() => undefined);
-    const setup = await testRender(
-      <App bootstrap={createSingleFileBootstrap()} onPreferencesChange={onPreferencesChange} />,
-      { width: 220, height: 24 },
-    );
-
-    try {
-      await flush(setup);
-      expect(onPreferencesChange).not.toHaveBeenCalled();
-
-      await act(async () => {
-        await setup.mockInput.typeText("l");
-      });
-      await flush(setup);
-
-      expect(onPreferencesChange).toHaveBeenCalledTimes(1);
-      expect(onPreferencesChange.mock.calls[0]?.[0]).toMatchObject({
-        mode: "split",
-        theme: "midnight",
-        showLineNumbers: false,
-        wrapLines: false,
-        showHunkHeaders: true,
-        showAgentNotes: false,
-      });
-    } finally {
-      await act(async () => {
-        setup.renderer.destroy();
-      });
-    }
-  });
 });
