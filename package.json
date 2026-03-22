@@ -10,6 +10,7 @@
   "files": [
     "bin",
     "dist/npm",
+    "skills",
     "README.md",
     "LICENSE"
   ],
@@ -72,5 +73,10 @@
     "react": "^19.2.4",
     "zod": "^4.3.6"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "pi": {
+    "skills": [
+      "./skills"
+    ]
+  }
 }

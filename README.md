@@ -98,6 +98,31 @@ Ready-to-run demo diffs live in [`examples/`](examples/README.md).
 
 Each example includes the exact command to run from the repository root.
 
+## Pi integration
+
+Hunk ships a bundled Pi skill named `hunk-review`.
+
+Use it from a local checkout:
+
+```bash
+pi install /path/to/hunk
+# or rely on Pi's project/package discovery while working inside the repo
+```
+
+Or install it from the published package:
+
+```bash
+pi install npm:hunkdiff
+```
+
+Then load it in Pi with:
+
+```bash
+/skill:hunk-review
+```
+
+The skill explains what Hunk is and how to use Hunk's MCP tools for live code review.
+
 ## Config
 
 Hunk reads config from:
