@@ -1,4 +1,5 @@
-<img src="assets/hunk-logo.webp" alt="Hunk logo" width="180">
+<img width="384" height="384" alt="image" src="https://github.com/user-attachments/assets/85c5ba93-9de1-4757-87ae-4520b8fd659f" />
+
 
 # hunk
 
