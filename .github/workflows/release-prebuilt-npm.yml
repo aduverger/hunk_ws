@@ -155,3 +155,52 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: bun run publish:prebuilt:npm -- --tag "${{ github.event_name == 'workflow_dispatch' && inputs.npm_tag || 'latest' }}"
+
+  create-github-release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    needs:
+      - build-binaries
+      - publish
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/release/artifacts
+
+      - name: Archive release assets
+        run: |
+          mkdir -p dist/release/github
+          while IFS= read -r -d '' directory; do
+            package_name="$(basename "$directory")"
+            tar -C "$(dirname "$directory")" -czf "dist/release/github/${package_name}.tar.gz" "$package_name"
+          done < <(find dist/release/artifacts -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
+          find dist/release/github -maxdepth 1 -type f | sort
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          prerelease_args=()
+          case "$TAG_NAME" in
+            *-alpha*|*-beta*|*-rc*)
+              prerelease_args+=(--prerelease)
+              ;;
+          esac
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" dist/release/github/* --clobber
+          else
+            gh release create "$TAG_NAME" \
+              --title "$TAG_NAME" \
+              --generate-notes \
+              "${prerelease_args[@]}" \
+              dist/release/github/*
+          fi
