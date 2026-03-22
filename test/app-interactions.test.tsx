@@ -560,6 +560,40 @@ describe("App interactions", () => {
     }
   });
 
+  test("sidebar shortcut can force the files pane open when responsive layout hides it", async () => {
+    const setup = await testRender(<App bootstrap={createBootstrap("auto")} />, { width: 160, height: 24 });
+
+    try {
+      await flush(setup);
+
+      let frame = setup.captureCharFrame();
+      expect(frame).not.toContain("M alpha.ts");
+      expect(frame).not.toContain("drag divider resize");
+
+      await act(async () => {
+        await setup.mockInput.typeText("s");
+      });
+      await flush(setup);
+
+      frame = setup.captureCharFrame();
+      expect(frame).toContain("M alpha.ts");
+      expect(frame).toContain("drag divider resize");
+
+      await act(async () => {
+        await setup.mockInput.typeText("s");
+      });
+      await flush(setup);
+
+      frame = setup.captureCharFrame();
+      expect(frame).not.toContain("M alpha.ts");
+      expect(frame).not.toContain("drag divider resize");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
   test("quit shortcuts route through the provided onQuit handler in regular and pager modes", async () => {
     const regularQuit = mock(() => undefined);
     const regularSetup = await testRender(<App bootstrap={createBootstrap()} onQuit={regularQuit} />, { width: 220, height: 24 });

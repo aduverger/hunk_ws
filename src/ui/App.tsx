@@ -56,6 +56,7 @@ export function App({
   const [wrapLines, setWrapLines] = useState(bootstrap.initialWrapLines ?? false);
   const [showHunkHeaders, setShowHunkHeaders] = useState(bootstrap.initialShowHunkHeaders ?? true);
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [forceSidebarOpen, setForceSidebarOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [focusArea, setFocusArea] = useState<FocusArea>("files");
   const [filter, setFilter] = useState("");
@@ -128,7 +129,10 @@ export function App({
   const bodyPadding = pagerMode ? 0 : BODY_PADDING;
   const bodyWidth = Math.max(0, terminal.width - bodyPadding);
   const responsiveLayout = resolveResponsiveLayout(layoutMode, terminal.width);
-  const showFilesPane = pagerMode ? false : responsiveLayout.showFilesPane && sidebarVisible;
+  const canForceShowFilesPane = bodyWidth >= FILES_MIN_WIDTH + DIVIDER_WIDTH + DIFF_MIN_WIDTH;
+  const showFilesPane = pagerMode
+    ? false
+    : sidebarVisible && (responsiveLayout.showFilesPane || (forceSidebarOpen && canForceShowFilesPane));
   const centerWidth = bodyWidth;
   const resolvedLayout = responsiveLayout.layout;
   const currentHunk = selectedFile?.metadata.hunks[selectedHunkIndex];
@@ -258,9 +262,23 @@ export function App({
     setWrapLines((current) => !current);
   };
 
-  /** Toggle sidebar visibility independently of layout mode. */
+  /** Toggle the sidebar, forcing it open on narrower layouts when the shell can still fit both panes. */
   const toggleSidebar = () => {
-    setSidebarVisible((current) => !current);
+    if (sidebarVisible && (responsiveLayout.showFilesPane || forceSidebarOpen)) {
+      setSidebarVisible(false);
+      setForceSidebarOpen(false);
+      return;
+    }
+
+    if (sidebarVisible && !responsiveLayout.showFilesPane) {
+      if (canForceShowFilesPane) {
+        setForceSidebarOpen(true);
+      }
+      return;
+    }
+
+    setSidebarVisible(true);
+    setForceSidebarOpen(!responsiveLayout.showFilesPane && canForceShowFilesPane);
   };
 
   /** Toggle visibility of hunk metadata rows without changing the actual diff lines. */
