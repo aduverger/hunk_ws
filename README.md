@@ -62,34 +62,26 @@ hunk show HEAD~1  # review an earlier commit
 
 ## Git integration
 
-Use Hunk directly for full-screen review:
+You can set Hunk as your Git pager so `git diff` and `git show` open in Hunk automatically.
+
+From the terminal:
 
 ```bash
-hunk diff
-hunk diff --staged
-hunk diff main...feature
-hunk show
-hunk stash show
+git config --global core.pager "hunk pager"
 ```
 
-Use Hunk as a Git pager for diff-like output:
+Or in your Git config:
 
-```bash
-git config --global core.pager 'hunk patch -'
+```ini
+[core]
+    pager = hunk pager
 ```
 
-Or scope it just to `diff` and `show`:
+If you’d rather keep Git’s default `diff` and `show` behavior, you can add optional aliases instead:
 
 ```bash
-git config --global pager.diff 'hunk patch -'
-git config --global pager.show 'hunk patch -'
-```
-
-Use Hunk as a Git difftool:
-
-```bash
-git config --global diff.tool hunk
-git config --global difftool.hunk.cmd 'hunk difftool "$LOCAL" "$REMOTE" "$MERGED"'
+git config --global alias.hdiff "-c core.pager=\"hunk pager\" diff"
+git config --global alias.hshow "-c core.pager=\"hunk pager\" show"
 ```
 
 ## Examples
