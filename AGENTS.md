@@ -10,14 +10,17 @@
 
 ```text
 CLI input
+  -> parse runtime + config-backed view options
   -> normalize into one Changeset / DiffFile model
-  -> App shell coordinates state and pane layout
+  -> App shell coordinates state, layout, and review navigation
   -> pane components render review UI
   -> Pierre-backed terminal renderer draws diff rows
 ```
 
-- Input modes: `git`, `diff`, `patch`, `difftool`.
+- CLI entrypoints: `diff`, `show`, `stash show`, `patch`, `pager`, `difftool`.
 - All input sources normalize into one internal changeset model.
+- Pager mode has two paths: full diff UI for patch-like stdin, plain-text fallback for non-diff pager content.
+- View defaults are layered through built-ins, user config, repo `.hunk/config.toml`, command sections, pager sections, and CLI flags.
 - Agent rationale is optional sidecar JSON matched onto files/hunks.
 - The order of `files` in the sidecar is intentional. Hunk uses that order for the sidebar and main review stream.
 
@@ -54,10 +57,12 @@ CLI input
 ## commands
 
 - install deps: `bun install`
-- run from source: `bun run src/main.tsx -- git`
-- fast smoke test: `bun run src/main.tsx diff /tmp/before.ts /tmp/after.ts`
+- run from source: `bun run src/main.tsx -- diff`
+- review a commit from source: `bun run src/main.tsx -- show HEAD~1`
+- fast smoke test: `bun run src/main.tsx -- diff /tmp/before.ts /tmp/after.ts`
 - typecheck: `bun run typecheck`
 - tests: `bun test`
+- TTY smoke test: `bun run test:tty-smoke`
 - build binary: `bun run build:bin`
 - install binary: `bun run install:bin`
 
@@ -69,7 +74,8 @@ CLI input
 
 ## verification
 
-- For rendering changes: run `bun run typecheck`, `bun test`, and do one real TTY smoke run on an actual diff.
+- For rendering changes: run `bun run typecheck`, `bun test`, `bun run test:tty-smoke`, and do one real TTY smoke run on an actual diff.
+- For CLI, config, or pager work: make sure the relevant source invocation still works (`diff`, `show`, `patch`, or `pager`).
 - Preserve current interaction model unless the user asks to change it explicitly.
 
 ## repo notes
