@@ -62,6 +62,7 @@ function DiffSectionComponent({
         width: "100%",
         flexDirection: "column",
         backgroundColor: theme.panel,
+        overflow: "visible",
       }}
     >
       {showSeparator ? (

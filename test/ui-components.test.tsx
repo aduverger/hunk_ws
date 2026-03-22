@@ -8,6 +8,7 @@ import { resolveTheme } from "../src/ui/themes";
 const { App } = await import("../src/ui/App");
 const { HelpDialog } = await import("../src/ui/components/chrome/HelpDialog");
 const { FilesPane } = await import("../src/ui/components/panes/FilesPane");
+const { AgentCard } = await import("../src/ui/components/panes/AgentCard");
 const { DiffPane } = await import("../src/ui/components/panes/DiffPane");
 const { MenuDropdown } = await import("../src/ui/components/chrome/MenuDropdown");
 const { StatusBar } = await import("../src/ui/components/chrome/StatusBar");
@@ -236,6 +237,30 @@ describe("UI components", () => {
     expect(frame.indexOf("alpha.ts")).toBeLessThan(frame.indexOf("beta.ts"));
   });
 
+  test("AgentCard removes top and bottom padding while keeping the footer inside the frame", async () => {
+    const theme = resolveTheme("midnight", null);
+    const frame = await captureFrame(
+      <AgentCard
+        locationLabel="alpha.ts +2"
+        rationale="Why alpha.ts changed"
+        summary="Annotation for alpha.ts"
+        theme={theme}
+        width={34}
+        onClose={() => {}}
+      />,
+      40,
+      12,
+    );
+
+    const lines = frame.split("\n").slice(0, 8).map((line) => line.trimEnd());
+    expect(lines[0]).toBe("┌────────────────────────────────┐");
+    expect(lines[1]).toContain("AI note");
+    expect(lines[2]).toContain("Annotation for alpha.ts");
+    expect(lines[4]).toContain("Why alpha.ts changed");
+    expect(lines[6]).toContain("alpha.ts +2");
+    expect(lines[7]).toBe("└────────────────────────────────┘");
+  });
+
   test("DiffPane renders hunk notes with file and line labels only", async () => {
     const bootstrap = createBootstrap();
     const theme = resolveTheme("midnight", null);
@@ -266,6 +291,7 @@ describe("UI components", () => {
       18,
     );
 
+    expect(frame).toContain("AI note");
     expect(frame).toContain("alpha.ts +2");
     expect(frame).toContain("Annotation for alpha.ts");
     expect(frame).toContain("Why alpha.ts changed");
@@ -273,6 +299,60 @@ describe("UI components", () => {
     expect(frame).not.toContain("review");
     expect(frame).not.toContain("confidence");
     expect(frame).toContain("[x]");
+  });
+
+  test("DiffPane shows one framed popover at a time when a hunk has multiple notes", async () => {
+    const bootstrap = createBootstrap();
+    const theme = resolveTheme("midnight", null);
+    const file = bootstrap.changeset.files[0]!;
+    file.agent = {
+      ...file.agent!,
+      annotations: [
+        {
+          newRange: [2, 2],
+          summary: "First note",
+          rationale: "First rationale.",
+        },
+        {
+          newRange: [2, 2],
+          summary: "Second note",
+          rationale: "Second rationale.",
+        },
+      ],
+    };
+
+    const frame = await captureFrame(
+      <DiffPane
+        activeAnnotations={file.agent.annotations}
+        diffContentWidth={88}
+        dismissedAgentNoteIds={[]}
+        files={bootstrap.changeset.files}
+        headerLabelWidth={48}
+        headerStatsWidth={16}
+        layout="split"
+        scrollRef={createRef()}
+        selectedFileId="alpha"
+        selectedHunkIndex={0}
+        separatorWidth={84}
+        showAgentNotes={true}
+        showLineNumbers={true}
+        showHunkHeaders={true}
+        wrapLines={false}
+        theme={theme}
+        width={92}
+        onDismissAgentNote={() => {}}
+        onOpenAgentNotesAtHunk={() => {}}
+        onSelectFile={() => {}}
+      />,
+      96,
+      18,
+    );
+
+    expect(frame).toContain("AI note 1/2");
+    expect(frame).toContain("First note");
+    expect(frame).toContain("First rationale.");
+    expect(frame).not.toContain("Second note");
+    expect(frame).not.toContain("Second rationale.");
   });
 
   test("MenuDropdown renders checked items and key hints", async () => {
@@ -563,8 +643,10 @@ describe("UI components", () => {
     );
 
     expect(frame).not.toContain("@@ -1,1 +1,2 @@");
+    expect(frame).toContain("AI note");
     expect(frame).toContain("Ungrounded note");
-    expect(frame).toContain("Falls back to the first visible row.");
+    expect(frame).toContain("Falls back to the first visible");
+    expect(frame).toContain("row.");
     expect(frame).toContain("note-fallback.ts");
     expect(frame).toContain("1 - export const value = 1;");
   });

@@ -259,12 +259,12 @@ describe("App interactions", () => {
       await flush(setup);
 
       const frame = setup.captureCharFrame();
+      expect(frame).toContain("AI note");
       expect(frame).toContain("Annotation for prefs.ts");
-      expect(frame).toContain("long wrapped line");
-      expect(frame).toContain("coverage");
+      expect(frame).toContain("Why prefs.ts changed");
       expect(frame).not.toContain("@@ -1,1 +1,2 @@");
       expect(frame).not.toContain("1 - export const message");
-      expect(frame).toContain("- export const message");
+      expect(frame).toContain("prefs.ts +2");
     } finally {
       await act(async () => {
         setup.renderer.destroy();

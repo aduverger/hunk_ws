@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseDiffFromFile } from "@pierre/diffs";
 import type { DiffFile } from "../src/core/types";
 import { buildMenuSpecs, menuBoxHeight, menuWidth, nextMenuItemIndex, type MenuEntry } from "../src/ui/components/chrome/menu";
+import { buildAgentPopoverContent, resolveAgentPopoverPlacement, wrapText } from "../src/ui/lib/agentPopover";
 import { fitText, padText } from "../src/ui/lib/text";
 import { estimateDiffBodyRows } from "../src/ui/lib/sectionHeights";
 import { resizeSidebarWidth } from "../src/ui/lib/sidebar";
@@ -74,6 +75,49 @@ describe("ui helpers", () => {
     expect(fitText("hello", 4)).toBe("hel.");
     expect(padText("hello", 4)).toBe("hel.");
     expect(padText("ok", 4)).toBe("ok  ");
+  });
+
+  test("agent popover helpers wrap text and right-align the card within the viewport", () => {
+    expect(wrapText("alpha beta gamma", 8)).toEqual(["alpha", "beta", "gamma"]);
+    expect(wrapText("supercalifragilistic", 6)).toEqual(["superc", "alifra", "gilist", "ic"]);
+
+    const content = buildAgentPopoverContent({
+      summary: "Guard missing socket path",
+      rationale: "Prevents noisy reconnect errors during first launch.",
+      locationLabel: "startup.ts +43-44",
+      noteIndex: 0,
+      noteCount: 2,
+      width: 34,
+    });
+
+    expect(content.title).toBe("AI note 1/2");
+    expect(content.summaryLines.length).toBeGreaterThan(0);
+    expect(content.rationaleLines.length).toBeGreaterThan(0);
+    expect(content.height).toBe(9);
+
+    expect(
+      resolveAgentPopoverPlacement({
+        anchorColumn: 12,
+        anchorRowTop: 4,
+        anchorRowHeight: 1,
+        contentHeight: 20,
+        noteWidth: 18,
+        noteHeight: 7,
+        viewportWidth: 60,
+      }),
+    ).toMatchObject({ left: 42, top: 4, side: "right" });
+
+    expect(
+      resolveAgentPopoverPlacement({
+        anchorColumn: 48,
+        anchorRowTop: 16,
+        anchorRowHeight: 1,
+        contentHeight: 20,
+        noteWidth: 18,
+        noteHeight: 7,
+        viewportWidth: 60,
+      }),
+    ).toMatchObject({ left: 42, top: 13, side: "left" });
   });
 
   test("resizeSidebarWidth clamps drag updates into the allowed sidebar range", () => {
