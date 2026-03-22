@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+
+concurrency:
+  group: pr-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-validate:
+    name: Typecheck + Test + Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test suite
+        run: bun test
+
+      - name: Verify terminal tools
+        run: |
+          command -v script
+          command -v timeout
+
+      - name: TTY smoke tests
+        run: bun run test:tty-smoke
+
+      - name: Build npm runtime bundle
+        run: bun run build:npm
+
+      - name: Verify npm pack output
+        run: bun run check:pack
+
+      - name: Simulate global npm install
+        run: |
+          pkg_dir="$(mktemp -d)"
+          install_dir="$(mktemp -d)"
+          node_dir="$(dirname "$(command -v node)")"
+          npm pack --pack-destination "$pkg_dir" >/dev/null
+          pkg="$(find "$pkg_dir" -maxdepth 1 -name 'hunkdiff-*.tgz' | head -n1)"
+          npm install -g --prefix "$install_dir" "$pkg"
+          PATH="$install_dir/bin:$node_dir:/usr/bin:/bin"
+          if command -v bun >/dev/null 2>&1; then
+            echo "bun unexpectedly available on the sanitized PATH" >&2
+            exit 1
+          fi
+          hunk --help | grep 'Usage: hunk'
+
+      - name: Stage prebuilt npm packages
+        run: bun run build:prebuilt:npm
+
+      - name: Verify staged prebuilt packs
+        run: bun run check:prebuilt-pack
+
+      - name: Smoke test prebuilt global install
+        run: bun run smoke:prebuilt-install
