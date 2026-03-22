@@ -152,6 +152,113 @@ describe("parseCli", () => {
     });
   });
 
+  test("parses session list mode", async () => {
+    const parsed = await parseCli(["bun", "hunk", "session", "list", "--json"]);
+
+    expect(parsed).toEqual({
+      kind: "session",
+      action: "list",
+      output: "json",
+    });
+  });
+
+  test("parses session get by repo", async () => {
+    const parsed = await parseCli(["bun", "hunk", "session", "get", "--repo", "."]);
+
+    expect(parsed).toMatchObject({
+      kind: "session",
+      action: "get",
+      selector: {
+        repoRoot: process.cwd(),
+      },
+      output: "text",
+    });
+  });
+
+  test("parses session navigate by hunk number", async () => {
+    const parsed = await parseCli([
+      "bun",
+      "hunk",
+      "session",
+      "navigate",
+      "session-1",
+      "--file",
+      "README.md",
+      "--hunk",
+      "2",
+      "--json",
+    ]);
+
+    expect(parsed).toEqual({
+      kind: "session",
+      action: "navigate",
+      selector: { sessionId: "session-1" },
+      filePath: "README.md",
+      hunkNumber: 2,
+      output: "json",
+    });
+  });
+
+  test("parses session comment add", async () => {
+    const parsed = await parseCli([
+      "bun",
+      "hunk",
+      "session",
+      "comment",
+      "add",
+      "session-1",
+      "--file",
+      "README.md",
+      "--new-line",
+      "103",
+      "--summary",
+      "Frame this as MCP-first",
+      "--rationale",
+      "Live review is the main value.",
+      "--author",
+      "Pi",
+      "--no-reveal",
+    ]);
+
+    expect(parsed).toEqual({
+      kind: "session",
+      action: "comment-add",
+      selector: { sessionId: "session-1" },
+      filePath: "README.md",
+      side: "new",
+      line: 103,
+      summary: "Frame this as MCP-first",
+      rationale: "Live review is the main value.",
+      author: "Pi",
+      reveal: false,
+      output: "text",
+    });
+  });
+
+  test("rejects session commands without an explicit target", async () => {
+    await expect(parseCli(["bun", "hunk", "session", "get"])).rejects.toThrow(
+      "Specify one live Hunk session with <session-id> or --repo <path>.",
+    );
+  });
+
+  test("rejects session navigation with multiple target selectors", async () => {
+    await expect(
+      parseCli([
+        "bun",
+        "hunk",
+        "session",
+        "navigate",
+        "session-1",
+        "--file",
+        "README.md",
+        "--hunk",
+        "1",
+        "--new-line",
+        "103",
+      ]),
+    ).rejects.toThrow("Specify exactly one navigation target");
+  });
+
   test("parses stash show mode", async () => {
     const parsed = await parseCli(["bun", "hunk", "stash", "show", "stash@{1}"]);
 

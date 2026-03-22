@@ -1,0 +1,309 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const repoRoot = process.cwd();
+const sourceEntrypoint = join(repoRoot, "src/main.tsx");
+const tempDirs: string[] = [];
+const ttyToolsAvailable = Bun.spawnSync(["bash", "-lc", "command -v script >/dev/null && command -v timeout >/dev/null"], {
+  stdin: "ignore",
+  stdout: "ignore",
+  stderr: "ignore",
+}).exitCode === 0;
+
+interface SessionListJson {
+  sessions: Array<{
+    sessionId: string;
+    files: Array<{
+      path: string;
+    }>;
+  }>;
+}
+
+function cleanupTempDirs() {
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+}
+
+function shellQuote(value: string) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function stripTerminalControl(text: string) {
+  return text
+    .replace(/^Script started.*?\n/s, "")
+    .replace(/\nScript done.*$/s, "")
+    .replace(/\x1bP[\s\S]*?\x1b\\/g, "")
+    .replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1b[@-_]/g, "");
+}
+
+function waitUntil<T>(label: string, poll: () => T | null | Promise<T | null>, timeoutMs = 10_000, intervalMs = 100) {
+  const deadline = Date.now() + timeoutMs;
+
+  return new Promise<T>(async (resolve, reject) => {
+    while (Date.now() < deadline) {
+      const value = await poll();
+      if (value !== null) {
+        resolve(value);
+        return;
+      }
+
+      await Bun.sleep(intervalMs);
+    }
+
+    reject(new Error(`Timed out waiting for ${label}.`));
+  });
+}
+
+function createFixtureFiles(name: string, beforeLines: string[], afterLines: string[]) {
+  const dir = mkdtempSync(join(tmpdir(), `hunk-session-cli-${name}-`));
+  tempDirs.push(dir);
+
+  const beforeName = `${name}-before.ts`;
+  const afterName = `${name}-after.ts`;
+  const before = join(dir, beforeName);
+  const after = join(dir, afterName);
+  const transcript = join(dir, `${name}-transcript.txt`);
+
+  writeFileSync(before, [...beforeLines, ""].join("\n"));
+  writeFileSync(after, [...afterLines, ""].join("\n"));
+
+  return { dir, before, after, transcript, afterName };
+}
+
+function spawnHunkSession(
+  fixture: ReturnType<typeof createFixtureFiles>,
+  {
+    port,
+    quitAfterSeconds = 8,
+    timeoutSeconds = 10,
+  }: {
+    port: number;
+    quitAfterSeconds?: number;
+    timeoutSeconds?: number;
+  },
+) {
+  const innerCommand = `bun run ${shellQuote(sourceEntrypoint)} diff ${shellQuote(fixture.before)} ${shellQuote(fixture.after)}`;
+  const hunkCommand = [
+    `(sleep ${quitAfterSeconds}; printf q) | timeout ${timeoutSeconds} script -q -f -e -c`,
+    shellQuote(innerCommand),
+    shellQuote(fixture.transcript),
+  ].join(" ");
+
+  return Bun.spawn(["bash", "-lc", hunkCommand], {
+    cwd: fixture.dir,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: {
+      ...process.env,
+      HUNK_MCP_PORT: `${port}`,
+    },
+  });
+}
+
+function runSessionCli(args: string[], port: number) {
+  const proc = Bun.spawnSync(["bun", "run", "src/main.tsx", "session", ...args], {
+    cwd: repoRoot,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: {
+      ...process.env,
+      HUNK_MCP_PORT: `${port}`,
+    },
+  });
+
+  const stdout = Buffer.from(proc.stdout).toString("utf8");
+  const stderr = Buffer.from(proc.stderr).toString("utf8");
+  return { proc, stdout, stderr };
+}
+
+afterEach(() => {
+  cleanupTempDirs();
+});
+
+describe("session CLI", () => {
+  test("list/get/context expose live Hunk sessions through the daemon", async () => {
+    if (!ttyToolsAvailable) {
+      return;
+    }
+
+    const port = 48961;
+    const fixture = createFixtureFiles(
+      "inspect",
+      ["export const value = 1;", "console.log(value);"],
+      ["export const value = 2;", "console.log(value * 2);"],
+    );
+    const session = spawnHunkSession(fixture, { port });
+
+    try {
+      const listed = await waitUntil("registered live session", () => {
+        const { proc, stdout } = runSessionCli(["list", "--json"], port);
+        if (proc.exitCode !== 0) {
+          return null;
+        }
+
+        const parsed = JSON.parse(stdout) as SessionListJson;
+        return parsed.sessions.length > 0 ? parsed.sessions : null;
+      });
+
+      const sessionId = listed[0]!.sessionId;
+      const get = runSessionCli(["get", sessionId, "--json"], port);
+      expect(get.proc.exitCode).toBe(0);
+      expect(get.stderr).toBe("");
+      expect(JSON.parse(get.stdout)).toMatchObject({
+        session: {
+          sessionId,
+          files: [
+            {
+              path: fixture.afterName,
+            },
+          ],
+        },
+      });
+
+      const context = runSessionCli(["context", sessionId, "--json"], port);
+      expect(context.proc.exitCode).toBe(0);
+      expect(context.stderr).toBe("");
+      expect(JSON.parse(context.stdout)).toMatchObject({
+        context: {
+          sessionId,
+          selectedFile: {
+            path: fixture.afterName,
+          },
+          selectedHunk: {
+            index: 0,
+          },
+        },
+      });
+    } finally {
+      session.kill();
+      await session.exited;
+    }
+  });
+
+  test("navigate and comment add control a live Hunk session", async () => {
+    if (!ttyToolsAvailable) {
+      return;
+    }
+
+    const port = 48962;
+    const fixture = createFixtureFiles(
+      "mutate",
+      [
+        "export const one = 1;",
+        "export const two = 2;",
+        "export const three = 3;",
+        "export const four = 4;",
+        "export const five = 5;",
+        "export const six = 6;",
+        "export const seven = 7;",
+        "export const eight = 8;",
+        "export const nine = 9;",
+        "export const ten = 10;",
+        "export const eleven = 11;",
+        "export const twelve = 12;",
+        "export const thirteen = 13;",
+      ],
+      [
+        "export const one = 1;",
+        "export const two = 20;",
+        "export const three = 3;",
+        "export const four = 4;",
+        "export const five = 5;",
+        "export const six = 6;",
+        "export const seven = 7;",
+        "export const eight = 8;",
+        "export const nine = 9;",
+        "export const ten = 10;",
+        "export const eleven = 11;",
+        "export const twelve = 12;",
+        "export const thirteen = 130;",
+      ],
+    );
+    const session = spawnHunkSession(fixture, { port, quitAfterSeconds: 10, timeoutSeconds: 12 });
+
+    try {
+      const listed = await waitUntil("registered live session", () => {
+        const { proc, stdout } = runSessionCli(["list", "--json"], port);
+        if (proc.exitCode !== 0) {
+          return null;
+        }
+
+        const parsed = JSON.parse(stdout) as SessionListJson;
+        return parsed.sessions.length > 0 ? parsed.sessions : null;
+      });
+
+      const sessionId = listed[0]!.sessionId;
+
+      const navigate = runSessionCli(
+        ["navigate", sessionId, "--file", fixture.afterName, "--hunk", "2", "--json"],
+        port,
+      );
+      expect(navigate.proc.exitCode).toBe(0);
+      expect(navigate.stderr).toBe("");
+      expect(JSON.parse(navigate.stdout)).toMatchObject({
+        result: {
+          filePath: fixture.afterName,
+          hunkIndex: 1,
+        },
+      });
+
+      await waitUntil("updated session context", () => {
+        const context = runSessionCli(["context", sessionId, "--json"], port);
+        if (context.proc.exitCode !== 0) {
+          return null;
+        }
+
+        const parsed = JSON.parse(context.stdout) as { context?: { selectedHunk?: { index: number } } };
+        return parsed.context?.selectedHunk?.index === 1 ? parsed : null;
+      });
+
+      const comment = runSessionCli(
+        [
+          "comment",
+          "add",
+          sessionId,
+          "--file",
+          fixture.afterName,
+          "--new-line",
+          "10",
+          "--summary",
+          "Second hunk note",
+          "--rationale",
+          "Added through the session CLI.",
+          "--author",
+          "Pi",
+          "--json",
+        ],
+        port,
+      );
+      expect(comment.proc.exitCode).toBe(0);
+      expect(comment.stderr).toBe("");
+      expect(JSON.parse(comment.stdout)).toMatchObject({
+        result: {
+          filePath: fixture.afterName,
+          hunkIndex: 1,
+          side: "new",
+          line: 10,
+        },
+      });
+
+      await waitUntil("rendered live comment", () => {
+        const transcript = stripTerminalControl(readFileSync(fixture.transcript, "utf8"));
+        return transcript.includes("Second hunk note") ? transcript : null;
+      });
+    } finally {
+      session.kill();
+      await session.exited;
+    }
+  });
+});

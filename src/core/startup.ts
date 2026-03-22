@@ -2,7 +2,7 @@ import { resolveConfiguredCliInput } from "./config";
 import { loadAppBootstrap } from "./loaders";
 import { looksLikePatchInput } from "./pager";
 import { openControllingTerminal, resolveRuntimeCliInput, usesPipedPatchInput, type ControllingTerminal } from "./terminal";
-import type { AppBootstrap, CliInput, ParsedCliInput } from "./types";
+import type { AppBootstrap, CliInput, ParsedCliInput, SessionCommandInput } from "./types";
 import { parseCli } from "./cli";
 
 export type StartupPlan =
@@ -12,6 +12,10 @@ export type StartupPlan =
     }
   | {
       kind: "mcp-serve";
+    }
+  | {
+      kind: "session-command";
+      input: SessionCommandInput;
     }
   | {
       kind: "plain-text-pager";
@@ -61,6 +65,13 @@ export async function prepareStartupPlan(
   if (parsedCliInput.kind === "mcp-serve") {
     return {
       kind: "mcp-serve",
+    };
+  }
+
+  if (parsedCliInput.kind === "session") {
+    return {
+      kind: "session-command",
+      input: parsedCliInput,
     };
   }
 

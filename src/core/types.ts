@@ -84,6 +84,57 @@ export interface McpServeCommandInput {
   kind: "mcp-serve";
 }
 
+export type SessionCommandOutput = "text" | "json";
+
+export interface SessionSelectorInput {
+  sessionId?: string;
+  repoRoot?: string;
+}
+
+export interface SessionListCommandInput {
+  kind: "session";
+  action: "list";
+  output: SessionCommandOutput;
+}
+
+export interface SessionGetCommandInput {
+  kind: "session";
+  action: "get" | "context";
+  output: SessionCommandOutput;
+  selector: SessionSelectorInput;
+}
+
+export interface SessionNavigateCommandInput {
+  kind: "session";
+  action: "navigate";
+  output: SessionCommandOutput;
+  selector: SessionSelectorInput;
+  filePath: string;
+  hunkNumber?: number;
+  side?: "old" | "new";
+  line?: number;
+}
+
+export interface SessionCommentAddCommandInput {
+  kind: "session";
+  action: "comment-add";
+  output: SessionCommandOutput;
+  selector: SessionSelectorInput;
+  filePath: string;
+  side: "old" | "new";
+  line: number;
+  summary: string;
+  rationale?: string;
+  author?: string;
+  reveal: boolean;
+}
+
+export type SessionCommandInput =
+  | SessionListCommandInput
+  | SessionGetCommandInput
+  | SessionNavigateCommandInput
+  | SessionCommentAddCommandInput;
+
 export interface GitCommandInput {
   kind: "git";
   range?: string;
@@ -135,7 +186,7 @@ export type CliInput =
   | PatchCommandInput
   | DiffToolCommandInput;
 
-export type ParsedCliInput = CliInput | HelpCommandInput | PagerCommandInput | McpServeCommandInput;
+export type ParsedCliInput = CliInput | HelpCommandInput | PagerCommandInput | McpServeCommandInput | SessionCommandInput;
 
 export interface AppBootstrap {
   input: CliInput;

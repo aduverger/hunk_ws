@@ -9,6 +9,7 @@ import { App } from "./ui/App";
 import { HunkHostClient } from "./mcp/client";
 import { serveHunkMcpServer } from "./mcp/server";
 import { createInitialSessionSnapshot, createSessionRegistration } from "./mcp/sessionRegistration";
+import { runSessionCommand } from "./session/commands";
 
 const startupPlan = await prepareStartupPlan();
 
@@ -20,6 +21,11 @@ if (startupPlan.kind === "help") {
 if (startupPlan.kind === "mcp-serve") {
   serveHunkMcpServer();
   await new Promise<never>(() => {});
+}
+
+if (startupPlan.kind === "session-command") {
+  process.stdout.write(await runSessionCommand(startupPlan.input));
+  process.exit(0);
 }
 
 if (startupPlan.kind === "plain-text-pager") {
