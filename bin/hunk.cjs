@@ -5,7 +5,24 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
+function ensureExecutable(target) {
+  if (process.platform === "win32") {
+    return;
+  }
+
+  try {
+    const mode = fs.statSync(target).mode & 0o777;
+    if ((mode & 0o111) !== 0) {
+      return;
+    }
+    fs.chmodSync(target, mode | 0o755);
+  } catch {
+    // Let spawnSync surface the real error if chmod is not possible.
+  }
+}
+
 function run(target, args) {
+  ensureExecutable(target);
   const result = childProcess.spawnSync(target, args, {
     stdio: "inherit",
     env: process.env,

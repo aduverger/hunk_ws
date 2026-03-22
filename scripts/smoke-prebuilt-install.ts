@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 
-import { mkdtempSync, rmSync } from "node:fs";
-import os from "node:os";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { getHostPlatformPackageSpec, releaseNpmDir } from "./prebuilt-package-helpers";
 
@@ -28,8 +27,10 @@ const repoRoot = path.resolve(import.meta.dir, "..");
 const packageVersion = JSON.parse(await Bun.file(path.join(repoRoot, "package.json")).text()).version as string;
 const releaseRoot = releaseNpmDir(repoRoot);
 const hostSpec = getHostPlatformPackageSpec();
-const packageDir = mkdtempSync(path.join(os.tmpdir(), "hunk-prebuilt-pack-"));
-const installDir = mkdtempSync(path.join(os.tmpdir(), "hunk-prebuilt-install-"));
+const tempRoot = path.join(repoRoot, "tmp");
+mkdirSync(tempRoot, { recursive: true });
+const packageDir = mkdtempSync(path.join(tempRoot, "hunk-prebuilt-pack-"));
+const installDir = mkdtempSync(path.join(tempRoot, "hunk-prebuilt-install-"));
 const nodeBinary = Bun.spawnSync(["bash", "-lc", "command -v node"], {
   stdin: "ignore",
   stdout: "pipe",

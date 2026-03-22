@@ -99,6 +99,9 @@ jobs:
       - name: Verify staged packages
         run: bun run check:prebuilt-pack
 
+      - name: Smoke test staged install
+        run: bun run smoke:prebuilt-install
+
       - name: Dry-run npm publish order
         run: bun run publish:prebuilt:npm -- --dry-run --tag "${{ github.event_name == 'workflow_dispatch' && inputs.npm_tag || 'latest' }}"
 

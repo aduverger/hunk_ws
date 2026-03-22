@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   binaryFilenameForSpec,
@@ -102,7 +102,9 @@ function stagePlatformPackage(
   const binaryName = binaryFilenameForSpec(spec);
 
   ensureDirectory(path.join(packageDir, "bin"));
-  cpSync(compiledBinary, path.join(packageDir, "bin", binaryName));
+  const stagedBinary = path.join(packageDir, "bin", binaryName);
+  cpSync(compiledBinary, stagedBinary);
+  chmodSync(stagedBinary, 0o755);
   cpSync(path.join(repoRoot, "LICENSE"), path.join(packageDir, "LICENSE"));
 
   writeJson(path.join(packageDir, "package.json"), {
