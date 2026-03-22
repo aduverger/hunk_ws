@@ -104,6 +104,8 @@ Takeaway:
 
 Hunk can run a local MCP daemon that brokers commands to live Hunk TUI sessions.
 
+Opening a normal Hunk review session now tries to register with the daemon automatically and will auto-start it on loopback when needed. You can still run the daemon explicitly:
+
 ```bash
 hunk mcp serve
 ```

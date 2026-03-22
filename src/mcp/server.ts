@@ -131,6 +131,7 @@ export function serveHunkMcpServer() {
       if (url.pathname === "/health") {
         return Response.json({
           ok: true,
+          pid: process.pid,
           transport: `${config.httpOrigin}${HUNK_MCP_PATH}`,
           sessionSocket: `${config.wsOrigin}${HUNK_SESSION_SOCKET_PATH}`,
           sessions: state.listSessions().length,

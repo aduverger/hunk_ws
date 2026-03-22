@@ -1,5 +1,6 @@
 import type { AppliedCommentResult, HunkSessionRegistration, HunkSessionSnapshot, SessionClientMessage, SessionServerMessage } from "./types";
 import { HUNK_SESSION_SOCKET_PATH, resolveHunkMcpConfig } from "./config";
+import { isHunkDaemonHealthy, launchHunkDaemon, waitForHunkDaemonHealth } from "./daemonLauncher";
 
 export interface HunkAppBridge {
   applyComment: (message: Extract<SessionServerMessage, { command: "comment" }>) => Promise<AppliedCommentResult>;
@@ -12,6 +13,8 @@ export class HunkHostClient {
   private queuedMessages: SessionServerMessage[] = [];
   private reconnectTimer: Timer | null = null;
   private stopped = false;
+  private startupPromise: Promise<void> | null = null;
+  private lastDaemonLaunchStartedAt = 0;
   private readonly config = resolveHunkMcpConfig();
 
   constructor(
@@ -24,7 +27,13 @@ export class HunkHostClient {
       return;
     }
 
-    this.connect();
+    if (this.startupPromise) {
+      return;
+    }
+
+    this.startupPromise = this.ensureDaemonAndConnect().finally(() => {
+      this.startupPromise = null;
+    });
   }
 
   stop() {
@@ -36,6 +45,28 @@ export class HunkHostClient {
 
     this.websocket?.close();
     this.websocket = null;
+  }
+
+  private async ensureDaemonAndConnect() {
+    await this.ensureDaemonAvailable();
+    this.connect();
+  }
+
+  private async ensureDaemonAvailable() {
+    if (await isHunkDaemonHealthy(this.config)) {
+      return;
+    }
+
+    const launchCooldownMs = 5_000;
+    if (Date.now() - this.lastDaemonLaunchStartedAt < launchCooldownMs) {
+      return;
+    }
+
+    this.lastDaemonLaunchStartedAt = Date.now();
+    launchHunkDaemon();
+    await waitForHunkDaemonHealth({
+      config: this.config,
+    });
   }
 
   setBridge(bridge: HunkAppBridge | null) {
@@ -61,6 +92,7 @@ export class HunkHostClient {
     this.websocket = websocket;
 
     websocket.onopen = () => {
+      this.lastDaemonLaunchStartedAt = 0;
       this.send({
         type: "register",
         registration: this.registration,
@@ -103,7 +135,7 @@ export class HunkHostClient {
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      this.connect();
+      void this.ensureDaemonAndConnect();
     }, 3_000);
     this.reconnectTimer.unref?.();
   }

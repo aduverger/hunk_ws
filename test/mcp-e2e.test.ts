@@ -76,7 +76,7 @@ async function waitForHealth(port: number) {
         return null;
       }
 
-      return await response.json();
+      return (await response.json()) as { ok: boolean; pid: number; sessions: number };
     } catch {
       return null;
     }
@@ -88,24 +88,13 @@ afterEach(() => {
 });
 
 describe("MCP end-to-end", () => {
-  test("daemon comment calls reach a live Hunk TTY session and render inline notes", async () => {
+  test("a live Hunk session auto-starts the daemon and renders MCP comments inline", async () => {
     if (!ttyToolsAvailable) {
       return;
     }
 
     const fixture = createFixtureFiles();
     const port = 48000 + Math.floor(Math.random() * 1000);
-    const daemonProc = Bun.spawn(["bun", "run", sourceEntrypoint, "--", "mcp", "serve"], {
-      cwd: repoRoot,
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: {
-        ...process.env,
-        HUNK_MCP_PORT: String(port),
-      },
-    });
-
     const hunkCommand = [
       `(sleep 6; printf q) | timeout 8 script -q -f -e -c`,
       shellQuote(`bun run ${shellQuote(sourceEntrypoint)} diff ${shellQuote(fixture.before)} ${shellQuote(fixture.after)}`),
@@ -125,11 +114,14 @@ describe("MCP end-to-end", () => {
       },
     });
 
+    let daemonPid: number | null = null;
     let client: Client | null = null;
     let transport: StreamableHTTPClientTransport | null = null;
 
     try {
-      await waitForHealth(port);
+      const health = await waitForHealth(port);
+      daemonPid = health.pid;
+      expect(health.ok).toBe(true);
 
       client = new Client({ name: "mcp-e2e-test", version: "1.0.0" });
       transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`));
@@ -157,8 +149,8 @@ describe("MCP end-to-end", () => {
           filePath: "after.ts",
           side: "new",
           line: 2,
-          summary: "MCP e2e note",
-          rationale: "Injected from the automated MCP integration test.",
+          summary: "MCP autostart note",
+          rationale: "Injected after the Hunk session auto-started the local daemon.",
           author: "Pi",
           reveal: true,
         },
@@ -172,17 +164,23 @@ describe("MCP end-to-end", () => {
       expect([0, 124]).toContain(hunkExitCode);
 
       const transcript = stripTerminalControl(await Bun.file(fixture.transcript).text());
-      expect(transcript).toContain("MCP e2e note");
-      expect(transcript).toContain("Injected from the automated");
+      expect(transcript).toContain("MCP autostart note");
+      expect(transcript).toContain("Injected after the Hunk");
     } finally {
       if (transport) {
         await transport.close().catch(() => undefined);
       }
 
       hunkProc.kill();
-      daemonProc.kill();
       await hunkProc.exited.catch(() => undefined);
-      await daemonProc.exited.catch(() => undefined);
+
+      if (daemonPid) {
+        try {
+          process.kill(daemonPid, "SIGTERM");
+        } catch {
+          // Ignore daemons that already exited during cleanup.
+        }
+      }
     }
   }, 20_000);
 });

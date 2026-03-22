@@ -128,6 +128,7 @@ async function runTtySmoke(options: { mode?: "split" | "stack"; pager?: boolean;
     env: {
       ...process.env,
       TERM: "xterm-256color",
+      HUNK_MCP_DISABLE: "1",
     },
   });
 
@@ -154,6 +155,7 @@ async function runStdinPagerSmoke(options?: { input?: string; inputCommand?: str
     env: {
       ...process.env,
       TERM: "xterm-256color",
+      HUNK_MCP_DISABLE: "1",
     },
   });
 
