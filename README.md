@@ -1,7 +1,7 @@
 <img width="384" height="384" alt="image" src="https://github.com/user-attachments/assets/85c5ba93-9de1-4757-87ae-4520b8fd659f" />
 
 
-# hunk
+# hunk - TUI diff tool that's AI-friendly
 
 [![CI status](https://img.shields.io/github/actions/workflow/status/modem-dev/hunk/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/modem-dev/hunk/actions/workflows/ci.yml?branch=main)
 [![Latest release](https://img.shields.io/github/v/release/modem-dev/hunk?style=for-the-badge)](https://github.com/modem-dev/hunk/releases)
@@ -9,10 +9,10 @@
 
 Hunk is a desktop-inspired terminal diff viewer for reviewing agent-authored changesets.
 
+- AI annotations
 - full-screen multi-file review stream
+- keyboard & mouse support
 - split, stacked, and responsive auto layouts
-- keyboard and mouse navigation
-- optional agent rationale beside annotated hunks
 - Git pager and difftool integration
 
 ## Install
