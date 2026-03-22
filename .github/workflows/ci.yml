@@ -3,7 +3,7 @@ name: Main CI
 on:
   push:
     branches:
-      - master
+      - main
 
 concurrency:
   group: main-ci-${{ github.workflow }}-${{ github.ref }}

@@ -3,7 +3,7 @@ name: Benchmarks
 on:
   push:
     branches:
-      - master
+      - main
   workflow_dispatch:
 
 concurrency:
