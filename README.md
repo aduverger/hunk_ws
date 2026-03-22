@@ -144,6 +144,8 @@ agent_notes = false
 
 - `hunk diff --agent-context <file>` loads inline agent rationale from a JSON sidecar
 - `hunk mcp serve` runs the local MCP daemon for agent-to-diff communication
+  - Hunk keeps the daemon loopback-only by default
+  - if you intentionally need remote access, set `HUNK_MCP_UNSAFE_ALLOW_REMOTE=1` and choose a non-loopback `HUNK_MCP_HOST`
 
 ## Performance notes
 

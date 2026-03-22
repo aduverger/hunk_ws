@@ -353,8 +353,9 @@ async function parseMcpCommand(tokens: string[]): Promise<ParsedCliInput> {
         "Run the local Hunk MCP daemon and websocket session broker.",
         "",
         "Environment:",
-        "  HUNK_MCP_HOST   bind host (default 127.0.0.1)",
-        "  HUNK_MCP_PORT   bind port (default 47657)",
+        "  HUNK_MCP_HOST                  bind host (default 127.0.0.1; loopback only unless explicitly overridden)",
+        "  HUNK_MCP_PORT                  bind port (default 47657)",
+        "  HUNK_MCP_UNSAFE_ALLOW_REMOTE   set to 1 to allow non-loopback binding (unsafe)",
       ].join("\n") + "\n",
     };
   }

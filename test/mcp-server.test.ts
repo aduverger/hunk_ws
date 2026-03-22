@@ -4,6 +4,7 @@ import { serveHunkMcpServer } from "../src/mcp/server";
 
 const originalHost = process.env.HUNK_MCP_HOST;
 const originalPort = process.env.HUNK_MCP_PORT;
+const originalUnsafeRemote = process.env.HUNK_MCP_UNSAFE_ALLOW_REMOTE;
 
 afterEach(() => {
   if (originalHost === undefined) {
@@ -17,9 +18,23 @@ afterEach(() => {
   } else {
     process.env.HUNK_MCP_PORT = originalPort;
   }
+
+  if (originalUnsafeRemote === undefined) {
+    delete process.env.HUNK_MCP_UNSAFE_ALLOW_REMOTE;
+  } else {
+    process.env.HUNK_MCP_UNSAFE_ALLOW_REMOTE = originalUnsafeRemote;
+  }
 });
 
 describe("Hunk MCP server", () => {
+  test("refuses non-loopback binding unless explicitly allowed", () => {
+    process.env.HUNK_MCP_HOST = "0.0.0.0";
+    process.env.HUNK_MCP_PORT = "47657";
+    delete process.env.HUNK_MCP_UNSAFE_ALLOW_REMOTE;
+
+    expect(() => serveHunkMcpServer()).toThrow("local-only by default");
+  });
+
   test("reports a clear error when the daemon port is already in use", async () => {
     const listener = createServer(() => undefined);
     await new Promise<void>((resolve, reject) => {

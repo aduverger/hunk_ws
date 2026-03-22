@@ -7,7 +7,7 @@ import type {
   SessionCommandResult,
   SessionServerMessage,
 } from "./types";
-import { HUNK_SESSION_SOCKET_PATH, resolveHunkMcpConfig } from "./config";
+import { HUNK_SESSION_SOCKET_PATH, resolveHunkMcpConfig, type ResolvedHunkMcpConfig } from "./config";
 import { isHunkDaemonHealthy, isLoopbackPortReachable, launchHunkDaemon, waitForHunkDaemonHealth } from "./daemonLauncher";
 
 const DAEMON_LAUNCH_COOLDOWN_MS = 5_000;
@@ -31,7 +31,6 @@ export class HunkHostClient {
   private startupPromise: Promise<void> | null = null;
   private lastDaemonLaunchStartedAt = 0;
   private lastConnectionWarning: string | null = null;
-  private readonly config = resolveHunkMcpConfig();
 
   constructor(
     private readonly registration: HunkSessionRegistration,
@@ -73,13 +72,18 @@ export class HunkHostClient {
     this.websocket = null;
   }
 
-  private async ensureDaemonAndConnect() {
-    await this.ensureDaemonAvailable();
-    this.connect();
+  private resolveConfig() {
+    return resolveHunkMcpConfig();
   }
 
-  private async ensureDaemonAvailable() {
-    if (await isHunkDaemonHealthy(this.config)) {
+  private async ensureDaemonAndConnect() {
+    const config = this.resolveConfig();
+    await this.ensureDaemonAvailable(config);
+    this.connect(config);
+  }
+
+  private async ensureDaemonAvailable(config: ResolvedHunkMcpConfig) {
+    if (await isHunkDaemonHealthy(config)) {
       this.lastConnectionWarning = null;
       return;
     }
@@ -91,7 +95,7 @@ export class HunkHostClient {
     }
 
     const ready = await waitForHunkDaemonHealth({
-      config: this.config,
+      config,
       timeoutMs: shouldLaunch ? DAEMON_STARTUP_TIMEOUT_MS : 1_500,
     });
 
@@ -100,16 +104,16 @@ export class HunkHostClient {
       return;
     }
 
-    const portReachable = await isLoopbackPortReachable(this.config);
+    const portReachable = await isLoopbackPortReachable(config);
     if (portReachable) {
       throw new Error(
-        `Hunk MCP port ${this.config.host}:${this.config.port} is already in use by another process. ` +
+        `Hunk MCP port ${config.host}:${config.port} is already in use by another process. ` +
           `Stop the conflicting process or set HUNK_MCP_PORT to a different loopback port.`,
       );
     }
 
     throw new Error(
-      `Timed out waiting for the Hunk MCP daemon on ${this.config.host}:${this.config.port}. ` +
+      `Timed out waiting for the Hunk MCP daemon on ${config.host}:${config.port}. ` +
         `Hunk will retry in the background.`,
     );
   }
@@ -128,12 +132,12 @@ export class HunkHostClient {
     });
   }
 
-  private connect() {
+  private connect(config: ResolvedHunkMcpConfig) {
     if (this.stopped || this.websocket) {
       return;
     }
 
-    const websocket = new WebSocket(`${this.config.wsOrigin}${HUNK_SESSION_SOCKET_PATH}`);
+    const websocket = new WebSocket(`${config.wsOrigin}${HUNK_SESSION_SOCKET_PATH}`);
     this.websocket = websocket;
 
     websocket.onopen = () => {

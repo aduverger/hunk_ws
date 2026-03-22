@@ -6,6 +6,7 @@ import type { HunkSessionRegistration, HunkSessionSnapshot } from "../src/mcp/ty
 const originalHost = process.env.HUNK_MCP_HOST;
 const originalPort = process.env.HUNK_MCP_PORT;
 const originalDisable = process.env.HUNK_MCP_DISABLE;
+const originalUnsafeRemote = process.env.HUNK_MCP_UNSAFE_ALLOW_REMOTE;
 const originalConsoleError = console.error;
 
 function createRegistration(): HunkSessionRegistration {
@@ -74,10 +75,40 @@ afterEach(() => {
     process.env.HUNK_MCP_DISABLE = originalDisable;
   }
 
+  if (originalUnsafeRemote === undefined) {
+    delete process.env.HUNK_MCP_UNSAFE_ALLOW_REMOTE;
+  } else {
+    process.env.HUNK_MCP_UNSAFE_ALLOW_REMOTE = originalUnsafeRemote;
+  }
+
   console.error = originalConsoleError;
 });
 
 describe("Hunk MCP client", () => {
+  test("logs one actionable warning when MCP is configured for a non-loopback host without opt-in", async () => {
+    process.env.HUNK_MCP_HOST = "0.0.0.0";
+    process.env.HUNK_MCP_PORT = "47657";
+    delete process.env.HUNK_MCP_UNSAFE_ALLOW_REMOTE;
+    delete process.env.HUNK_MCP_DISABLE;
+
+    const messages: string[] = [];
+    console.error = (...args: unknown[]) => {
+      messages.push(args.map((value) => String(value)).join(" "));
+    };
+
+    const client = new HunkHostClient(createRegistration(), createSnapshot());
+
+    try {
+      client.start();
+      await waitUntil("non-loopback MCP warning", () => messages.length === 1);
+
+      expect(messages[0]).toContain("[hunk:mcp] Hunk MCP refuses to bind 0.0.0.0:47657 because the daemon is local-only by default.");
+      expect(messages[0]).toContain("HUNK_MCP_UNSAFE_ALLOW_REMOTE=1");
+    } finally {
+      client.stop();
+    }
+  }, 10_000);
+
   test("logs one actionable warning when a non-Hunk listener owns the MCP port", async () => {
     const conflictingListener = createServer((_request, response) => {
       response.writeHead(404, { "content-type": "text/plain" });
