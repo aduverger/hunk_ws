@@ -23,15 +23,16 @@ npm i -g hunkdiff
 Requirements:
 
 - Node.js 18+
+- Currently supported on macOS and Linux
 - Git is recommended for most workflows
 
-## Basic usage
+## Usage
+
+### Basics
 
 ```bash
-hunk                                # show help
-hunk --version                      # show the installed version
-hunk diff before.ts after.ts        # compare two files directly
-git diff --no-color | hunk patch -  # review a patch from stdin
+hunk           # show help
+hunk --version # get version
 ```
 
 ### Working with Git
@@ -41,6 +42,13 @@ hunk diff         # review current repo changes
 hunk diff --staged
 hunk show         # review the latest commit
 hunk show HEAD~1  # review an earlier commit
+```
+
+### Working with raw files/patches
+
+```bash
+hunk diff before.ts after.ts        # compare two files directly
+git diff --no-color | hunk patch -  # review a patch from stdin
 ```
 
 ## Feature comparison
@@ -90,23 +98,27 @@ Ready-to-run demo diffs live in [`examples/`](examples/README.md).
 
 Each example includes the exact command to run from the repository root.
 
-## Advanced features
+## Config
 
-- `hunk patch [file|-]` opens patch files or patch stdin
-- `hunk pager` opens Hunk for diff-like stdin and falls back to plain-text paging otherwise
-- `hunk diff --agent-context <file>` loads inline agent rationale from a JSON sidecar
-- `hunk mcp serve` runs the local MCP daemon for agent-to-diff communication
-- Hunk reads config from `~/.config/hunk/config.toml` and `.hunk/config.toml`
+Hunk reads config from:
 
-Minimal config example:
+- `~/.config/hunk/config.toml`
+- `.hunk/config.toml`
+
+Example:
 
 ```toml
-theme = "midnight"
-mode = "auto"
+theme = "midnight" # midnight, graphite, paper, ember
+mode = "auto"      # auto, split, stack
 line_numbers = true
 wrap_lines = false
 agent_notes = false
 ```
+
+## Advanced workflows
+
+- `hunk diff --agent-context <file>` loads inline agent rationale from a JSON sidecar
+- `hunk mcp serve` runs the local MCP daemon for agent-to-diff communication
 
 ## Performance notes
 
