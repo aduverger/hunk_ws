@@ -235,6 +235,63 @@ describe("parseCli", () => {
     });
   });
 
+  test("parses session comment list with file filter", async () => {
+    const parsed = await parseCli([
+      "bun",
+      "hunk",
+      "session",
+      "comment",
+      "list",
+      "session-1",
+      "--file",
+      "README.md",
+      "--json",
+    ]);
+
+    expect(parsed).toEqual({
+      kind: "session",
+      action: "comment-list",
+      selector: { sessionId: "session-1" },
+      filePath: "README.md",
+      output: "json",
+    });
+  });
+
+  test("parses session comment rm", async () => {
+    const parsed = await parseCli(["bun", "hunk", "session", "comment", "rm", "session-1", "comment-1"]);
+
+    expect(parsed).toEqual({
+      kind: "session",
+      action: "comment-rm",
+      selector: { sessionId: "session-1" },
+      commentId: "comment-1",
+      output: "text",
+    });
+  });
+
+  test("parses session comment clear", async () => {
+    const parsed = await parseCli([
+      "bun",
+      "hunk",
+      "session",
+      "comment",
+      "clear",
+      "session-1",
+      "--file",
+      "README.md",
+      "--yes",
+    ]);
+
+    expect(parsed).toEqual({
+      kind: "session",
+      action: "comment-clear",
+      selector: { sessionId: "session-1" },
+      filePath: "README.md",
+      confirmed: true,
+      output: "text",
+    });
+  });
+
   test("rejects session commands without an explicit target", async () => {
     await expect(parseCli(["bun", "hunk", "session", "get"])).rejects.toThrow(
       "Specify one live Hunk session with <session-id> or --repo <path>.",
@@ -257,6 +314,12 @@ describe("parseCli", () => {
         "103",
       ]),
     ).rejects.toThrow("Specify exactly one navigation target");
+  });
+
+  test("rejects session comment clear without confirmation", async () => {
+    await expect(
+      parseCli(["bun", "hunk", "session", "comment", "clear", "session-1"]),
+    ).rejects.toThrow("Pass --yes to clear live comments.");
   });
 
   test("parses stash show mode", async () => {

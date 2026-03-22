@@ -147,6 +147,24 @@ agent_notes = false
   - Hunk keeps the daemon loopback-only by default
   - if you intentionally need remote access, set `HUNK_MCP_UNSAFE_ALLOW_REMOTE=1` and choose a non-loopback `HUNK_MCP_HOST`
 
+### Live session control CLI
+
+`hunk session ...` is the human/script interface to the same local daemon that MCP uses for live review sessions.
+
+Use explicit session targeting with either a live `<session-id>` or `--repo <path>` when exactly one live session matches that repo root.
+
+```bash
+hunk session list
+hunk session context --repo .
+hunk session navigate --repo . --file README.md --hunk 2
+hunk session comment add --repo . --file README.md --new-line 103 --summary "Frame this as MCP-first"
+hunk session comment list --repo .
+hunk session comment rm --repo . mcp:1234
+hunk session comment clear --repo . --file README.md --yes
+```
+
+The session CLI works against live session comments only. It does not edit `.hunk/latest.json`.
+
 ## Performance notes
 
 Hunk spends more startup time than plain diff output tools because it launches an interactive UI with syntax highlighting, navigation state, and optional agent context. In exchange, it is optimized for reviewing a full changeset instead of printing static diff text and exiting.

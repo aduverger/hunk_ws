@@ -129,11 +129,39 @@ export interface SessionCommentAddCommandInput {
   reveal: boolean;
 }
 
+export interface SessionCommentListCommandInput {
+  kind: "session";
+  action: "comment-list";
+  output: SessionCommandOutput;
+  selector: SessionSelectorInput;
+  filePath?: string;
+}
+
+export interface SessionCommentRemoveCommandInput {
+  kind: "session";
+  action: "comment-rm";
+  output: SessionCommandOutput;
+  selector: SessionSelectorInput;
+  commentId: string;
+}
+
+export interface SessionCommentClearCommandInput {
+  kind: "session";
+  action: "comment-clear";
+  output: SessionCommandOutput;
+  selector: SessionSelectorInput;
+  filePath?: string;
+  confirmed: boolean;
+}
+
 export type SessionCommandInput =
   | SessionListCommandInput
   | SessionGetCommandInput
   | SessionNavigateCommandInput
-  | SessionCommentAddCommandInput;
+  | SessionCommentAddCommandInput
+  | SessionCommentListCommandInput
+  | SessionCommentRemoveCommandInput
+  | SessionCommentClearCommandInput;
 
 export interface GitCommandInput {
   kind: "git";

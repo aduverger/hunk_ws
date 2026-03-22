@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DiffFile } from "../../core/types";
 import { buildLiveComment, findDiffFileByPath, findHunkIndexForLine, hunkLineRange } from "../../core/liveComments";
 import { HunkHostClient } from "../../mcp/client";
-import type { LiveComment, SessionServerMessage } from "../../mcp/types";
+import type { LiveComment, SessionLiveCommentSummary, SessionServerMessage } from "../../mcp/types";
 
 /** Bridge one live Hunk review session to the local MCP daemon. */
 export function useHunkSessionBridge({
@@ -25,6 +25,7 @@ export function useHunkSessionBridge({
   showAgentNotes: boolean;
 }) {
   const [liveCommentsByFileId, setLiveCommentsByFileId] = useState<Record<string, LiveComment[]>>({});
+  const liveCommentsByFileIdRef = useRef<Record<string, LiveComment[]>>({});
 
   const buildSelectedHunkSummary = useCallback((file: DiffFile, hunkIndex: number) => {
     const hunk = file.metadata.hunks[hunkIndex];
@@ -84,7 +85,7 @@ export function useHunkSessionBridge({
       }
 
       const commentId = `mcp:${message.requestId}`;
-      const liveComment = buildLiveComment(message.input, commentId, new Date().toISOString());
+      const liveComment = buildLiveComment(message.input, commentId, new Date().toISOString(), hunkIndex);
 
       setLiveCommentsByFileId((current) => ({
         ...current,
@@ -109,6 +110,85 @@ export function useHunkSessionBridge({
   );
 
   useEffect(() => {
+    liveCommentsByFileIdRef.current = liveCommentsByFileId;
+  }, [liveCommentsByFileId]);
+
+  const removeIncomingComment = useCallback(
+    async (message: Extract<SessionServerMessage, { command: "remove_comment" }>) => {
+      const current = liveCommentsByFileIdRef.current;
+      let removed = false;
+      let remainingCommentCount = 0;
+      const next: Record<string, LiveComment[]> = {};
+
+      for (const [fileId, comments] of Object.entries(current)) {
+        const filtered = comments.filter((comment) => comment.id !== message.input.commentId);
+        if (filtered.length !== comments.length) {
+          removed = true;
+        }
+
+        if (filtered.length > 0) {
+          next[fileId] = filtered;
+          remainingCommentCount += filtered.length;
+        }
+      }
+
+      if (!removed) {
+        throw new Error(`No live comment matches id ${message.input.commentId}.`);
+      }
+
+      setLiveCommentsByFileId(next);
+      return {
+        commentId: message.input.commentId,
+        removed: true,
+        remainingCommentCount,
+      };
+    },
+    [],
+  );
+
+  const clearIncomingComments = useCallback(
+    async (message: Extract<SessionServerMessage, { command: "clear_comments" }>) => {
+      const current = liveCommentsByFileIdRef.current;
+      let removedCount = 0;
+      let remainingCommentCount = 0;
+
+      if (message.input.filePath) {
+        const file = findDiffFileByPath(files, message.input.filePath);
+        if (!file) {
+          throw new Error(`No visible diff file matches ${message.input.filePath}.`);
+        }
+
+        const next: Record<string, LiveComment[]> = {};
+        for (const [fileId, comments] of Object.entries(current)) {
+          if (fileId === file.id) {
+            removedCount = comments.length;
+            continue;
+          }
+
+          next[fileId] = comments;
+          remainingCommentCount += comments.length;
+        }
+
+        if (removedCount > 0) {
+          setLiveCommentsByFileId(next);
+        }
+      } else {
+        removedCount = Object.values(current).reduce((sum, comments) => sum + comments.length, 0);
+        if (removedCount > 0) {
+          setLiveCommentsByFileId({});
+        }
+      }
+
+      return {
+        removedCount,
+        remainingCommentCount,
+        filePath: message.input.filePath,
+      };
+    },
+    [files],
+  );
+
+  useEffect(() => {
     if (!hostClient) {
       return;
     }
@@ -116,12 +196,32 @@ export function useHunkSessionBridge({
     hostClient.setBridge({
       applyComment: applyIncomingComment,
       navigateToHunk: navigateToHunkSelection,
+      removeComment: removeIncomingComment,
+      clearComments: clearIncomingComments,
     });
 
     return () => {
       hostClient.setBridge(null);
     };
-  }, [applyIncomingComment, hostClient, navigateToHunkSelection]);
+  }, [applyIncomingComment, clearIncomingComments, hostClient, navigateToHunkSelection, removeIncomingComment]);
+
+  const liveCommentSummaries = useMemo<SessionLiveCommentSummary[]>(
+    () =>
+      files.flatMap((file) =>
+        (liveCommentsByFileId[file.id] ?? []).map((comment) => ({
+          commentId: comment.id,
+          filePath: file.path,
+          hunkIndex: comment.hunkIndex,
+          side: comment.side,
+          line: comment.line,
+          summary: comment.summary,
+          rationale: comment.rationale,
+          author: comment.author,
+          createdAt: comment.createdAt,
+        })),
+      ),
+    [files, liveCommentsByFileId],
+  );
 
   const liveCommentCount = useMemo(
     () => Object.values(liveCommentsByFileId).reduce((sum, notes) => sum + notes.length, 0),
@@ -139,9 +239,10 @@ export function useHunkSessionBridge({
       selectedHunkNewRange: selectedRange?.newRange,
       showAgentNotes,
       liveCommentCount,
+      liveComments: liveCommentSummaries,
       updatedAt: new Date().toISOString(),
     });
-  }, [currentHunk, hostClient, liveCommentCount, selectedFile?.id, selectedFile?.path, selectedHunkIndex, showAgentNotes]);
+  }, [currentHunk, hostClient, liveCommentCount, liveCommentSummaries, selectedFile?.id, selectedFile?.path, selectedHunkIndex, showAgentNotes]);
 
   return {
     liveCommentsByFileId,

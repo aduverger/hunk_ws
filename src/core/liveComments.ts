@@ -28,12 +28,21 @@ export function findHunkIndexForLine(file: DiffFile, side: DiffSide, line: numbe
 }
 
 /** Convert one incoming MCP comment command into a live annotation. */
-export function buildLiveComment(input: CommentToolInput, commentId: string, createdAt: string): LiveComment {
+export function buildLiveComment(
+  input: CommentToolInput,
+  commentId: string,
+  createdAt: string,
+  hunkIndex: number,
+): LiveComment {
   return {
     id: commentId,
     source: "mcp",
     author: input.author,
     createdAt,
+    filePath: input.filePath,
+    hunkIndex,
+    side: input.side,
+    line: input.line,
     summary: input.summary,
     rationale: input.rationale,
     oldRange: input.side === "old" ? [input.line, input.line] : undefined,

@@ -45,6 +45,7 @@ export function createInitialSessionSnapshot(bootstrap: AppBootstrap): HunkSessi
     selectedHunkNewRange: firstRange?.newRange,
     showAgentNotes: bootstrap.initialShowAgentNotes ?? false,
     liveCommentCount: 0,
+    liveComments: [],
     updatedAt: new Date().toISOString(),
   };
 }

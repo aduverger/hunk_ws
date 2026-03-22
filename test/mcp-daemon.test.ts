@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { HunkDaemonState, resolveSessionTarget } from "../src/mcp/daemonState";
-import type { AppliedCommentResult, HunkSessionRegistration, HunkSessionSnapshot, ListedSession, NavigatedSelectionResult } from "../src/mcp/types";
+import type {
+  AppliedCommentResult,
+  ClearedCommentsResult,
+  HunkSessionRegistration,
+  HunkSessionSnapshot,
+  ListedSession,
+  NavigatedSelectionResult,
+  RemovedCommentResult,
+  SessionLiveCommentSummary,
+} from "../src/mcp/types";
 
 function createListedSession(overrides: Partial<ListedSession> = {}): ListedSession {
   return {
@@ -28,6 +37,7 @@ function createListedSession(overrides: Partial<ListedSession> = {}): ListedSess
       selectedHunkIndex: 0,
       showAgentNotes: false,
       liveCommentCount: 0,
+      liveComments: [],
       updatedAt: "2026-03-22T00:00:00.000Z",
     },
     ...overrides,
@@ -64,7 +74,21 @@ function createSnapshot(overrides: Partial<HunkSessionSnapshot> = {}): HunkSessi
     selectedHunkIndex: 0,
     showAgentNotes: false,
     liveCommentCount: 0,
+    liveComments: [],
     updatedAt: "2026-03-22T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function createLiveComment(overrides: Partial<SessionLiveCommentSummary> = {}): SessionLiveCommentSummary {
+  return {
+    commentId: "comment-1",
+    filePath: "src/example.ts",
+    hunkIndex: 0,
+    side: "new",
+    line: 4,
+    summary: "Review note",
+    createdAt: "2026-03-22T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -108,6 +132,30 @@ describe("Hunk MCP daemon state", () => {
         }),
       }),
     );
+  });
+
+  test("lists live comments from snapshot state and can filter by file", () => {
+    const state = new HunkDaemonState();
+    const socket = {
+      send() {},
+    };
+
+    state.registerSession(
+      socket,
+      createRegistration(),
+      createSnapshot({
+        liveCommentCount: 2,
+        liveComments: [
+          createLiveComment(),
+          createLiveComment({ commentId: "comment-2", filePath: "src/other.ts", line: 9, summary: "Other" }),
+        ],
+      }),
+    );
+
+    expect(state.listComments({ sessionId: "session-1" })).toHaveLength(2);
+    expect(state.listComments({ sessionId: "session-1" }, { filePath: "src/example.ts" })).toEqual([
+      expect.objectContaining({ commentId: "comment-1" }),
+    ]);
   });
 
   test("routes a comment command to the live session and resolves the async result", async () => {
@@ -186,6 +234,82 @@ describe("Hunk MCP daemon state", () => {
         oldRange: [1, 2],
         newRange: [1, 4],
       },
+    };
+
+    state.handleCommandResult({
+      requestId: outgoing.requestId,
+      ok: true,
+      result,
+    });
+
+    await expect(pending).resolves.toEqual(result);
+  });
+
+  test("routes remove-comment commands to the live session and resolves the async result", async () => {
+    const state = new HunkDaemonState();
+    const sent: string[] = [];
+    const socket = {
+      send(data: string) {
+        sent.push(data);
+      },
+    };
+
+    state.registerSession(socket, createRegistration(), createSnapshot());
+
+    const pending = state.sendRemoveComment({
+      sessionId: "session-1",
+      commentId: "comment-1",
+    });
+
+    expect(sent).toHaveLength(1);
+    const outgoing = JSON.parse(sent[0]!) as {
+      requestId: string;
+      command: string;
+    };
+    expect(outgoing.command).toBe("remove_comment");
+
+    const result: RemovedCommentResult = {
+      commentId: "comment-1",
+      removed: true,
+      remainingCommentCount: 0,
+    };
+
+    state.handleCommandResult({
+      requestId: outgoing.requestId,
+      ok: true,
+      result,
+    });
+
+    await expect(pending).resolves.toEqual(result);
+  });
+
+  test("routes clear-comments commands to the live session and resolves the async result", async () => {
+    const state = new HunkDaemonState();
+    const sent: string[] = [];
+    const socket = {
+      send(data: string) {
+        sent.push(data);
+      },
+    };
+
+    state.registerSession(socket, createRegistration(), createSnapshot());
+
+    const pending = state.sendClearComments({
+      sessionId: "session-1",
+      filePath: "src/example.ts",
+    });
+
+    expect(sent).toHaveLength(1);
+    const outgoing = JSON.parse(sent[0]!) as {
+      requestId: string;
+      command: string;
+    };
+    expect(outgoing.command).toBe("clear_comments");
+
+    const result: ClearedCommentsResult = {
+      removedCount: 2,
+      remainingCommentCount: 0,
+      filePath: "src/example.ts",
     };
 
     state.handleCommandResult({

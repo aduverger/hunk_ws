@@ -33,6 +33,18 @@ const navigateToHunkSchema = sessionSelectorSchema.extend({
   },
 );
 
+const listCommentsSchema = sessionSelectorSchema.extend({
+  filePath: z.string().optional().describe("Optional diff file path to filter live comments."),
+});
+
+const removeCommentSchema = sessionSelectorSchema.extend({
+  commentId: z.string().describe("Stable live comment id to remove."),
+});
+
+const clearCommentsSchema = sessionSelectorSchema.extend({
+  filePath: z.string().optional().describe("Optional diff file path to clear only one file's live comments."),
+});
+
 function formatToolJson(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
@@ -181,6 +193,63 @@ function createHunkMcpServer(state: HunkDaemonState) {
         ...input,
         reveal: input.reveal ?? true,
       });
+
+      return {
+        content: textContent(formatToolJson(result)),
+        structuredContent: {
+          result,
+        },
+      };
+    }) as any,
+  );
+
+  server.registerTool(
+    "list_comments",
+    {
+      title: "List live Hunk comments",
+      description: "List live inline review comments currently attached to a Hunk session.",
+      inputSchema: listCommentsSchema as any,
+    } as any,
+    (async (input: { sessionId?: string; repoRoot?: string; filePath?: string }) => {
+      const comments = state.listComments({ sessionId: input.sessionId, repoRoot: input.repoRoot }, { filePath: input.filePath });
+
+      return {
+        content: textContent(formatToolJson({ comments })),
+        structuredContent: {
+          comments,
+        },
+      };
+    }) as any,
+  );
+
+  server.registerTool(
+    "remove_comment",
+    {
+      title: "Remove one live Hunk comment",
+      description: "Remove one live inline review comment from a Hunk session by comment id.",
+      inputSchema: removeCommentSchema as any,
+    } as any,
+    (async (input: { sessionId?: string; repoRoot?: string; commentId: string }) => {
+      const result = await state.sendRemoveComment(input);
+
+      return {
+        content: textContent(formatToolJson(result)),
+        structuredContent: {
+          result,
+        },
+      };
+    }) as any,
+  );
+
+  server.registerTool(
+    "clear_comments",
+    {
+      title: "Clear live Hunk comments",
+      description: "Clear live inline review comments from a Hunk session, optionally limited to one file.",
+      inputSchema: clearCommentsSchema as any,
+    } as any,
+    (async (input: { sessionId?: string; repoRoot?: string; filePath?: string }) => {
+      const result = await state.sendClearComments(input);
 
       return {
         content: textContent(formatToolJson(result)),

@@ -42,6 +42,7 @@ export interface HunkSessionSnapshot {
   selectedHunkNewRange?: [number, number];
   showAgentNotes: boolean;
   liveCommentCount: number;
+  liveComments: SessionLiveCommentSummary[];
   updatedAt: string;
 }
 
@@ -72,6 +73,22 @@ export interface LiveComment extends AgentAnnotation {
   source: "mcp";
   author?: string;
   createdAt: string;
+  filePath: string;
+  hunkIndex: number;
+  side: DiffSide;
+  line: number;
+}
+
+export interface SessionLiveCommentSummary {
+  commentId: string;
+  filePath: string;
+  hunkIndex: number;
+  side: DiffSide;
+  line: number;
+  summary: string;
+  rationale?: string;
+  author?: string;
+  createdAt: string;
 }
 
 export interface AppliedCommentResult {
@@ -90,6 +107,18 @@ export interface NavigatedSelectionResult {
   selectedHunk?: SelectedHunkSummary;
 }
 
+export interface RemovedCommentResult {
+  commentId: string;
+  removed: boolean;
+  remainingCommentCount: number;
+}
+
+export interface ClearedCommentsResult {
+  removedCount: number;
+  remainingCommentCount: number;
+  filePath?: string;
+}
+
 export interface ListedSessionFile extends SessionFileSummary {
   selected: boolean;
 }
@@ -106,7 +135,7 @@ export interface SelectedSessionContext {
   liveCommentCount: number;
 }
 
-export type SessionCommandResult = AppliedCommentResult | NavigatedSelectionResult;
+export type SessionCommandResult = AppliedCommentResult | NavigatedSelectionResult | RemovedCommentResult | ClearedCommentsResult;
 
 export type SessionClientMessage =
   | {
@@ -136,6 +165,18 @@ export type SessionClientMessage =
       error: string;
     };
 
+export interface ListCommentsToolInput extends SessionTargetInput {
+  filePath?: string;
+}
+
+export interface RemoveCommentToolInput extends SessionTargetInput {
+  commentId: string;
+}
+
+export interface ClearCommentsToolInput extends SessionTargetInput {
+  filePath?: string;
+}
+
 export type SessionServerMessage =
   | {
       type: "command";
@@ -148,6 +189,18 @@ export type SessionServerMessage =
       requestId: string;
       command: "navigate_to_hunk";
       input: NavigateToHunkToolInput;
+    }
+  | {
+      type: "command";
+      requestId: string;
+      command: "remove_comment";
+      input: RemoveCommentToolInput;
+    }
+  | {
+      type: "command";
+      requestId: string;
+      command: "clear_comments";
+      input: ClearCommentsToolInput;
     };
 
 export interface ListedSession {

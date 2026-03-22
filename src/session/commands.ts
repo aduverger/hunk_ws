@@ -5,13 +5,23 @@ import type {
   SessionCommandInput,
   SessionCommandOutput,
   SessionCommentAddCommandInput,
-  SessionGetCommandInput,
+  SessionCommentClearCommandInput,
+  SessionCommentListCommandInput,
+  SessionCommentRemoveCommandInput,
   SessionNavigateCommandInput,
   SessionSelectorInput,
 } from "../core/types";
 import { isHunkDaemonHealthy, isLoopbackPortReachable } from "../mcp/daemonLauncher";
 import { resolveHunkMcpConfig } from "../mcp/config";
-import type { AppliedCommentResult, ListedSession, NavigatedSelectionResult, SelectedSessionContext } from "../mcp/types";
+import type {
+  AppliedCommentResult,
+  ClearedCommentsResult,
+  ListedSession,
+  NavigatedSelectionResult,
+  RemovedCommentResult,
+  SelectedSessionContext,
+  SessionLiveCommentSummary,
+} from "../mcp/types";
 
 interface HunkDaemonCliClient {
   connect(): Promise<void>;
@@ -21,6 +31,9 @@ interface HunkDaemonCliClient {
   getSelectedContext(selector: SessionSelectorInput): Promise<SelectedSessionContext>;
   navigateToHunk(input: SessionNavigateCommandInput): Promise<NavigatedSelectionResult>;
   addComment(input: SessionCommentAddCommandInput): Promise<AppliedCommentResult>;
+  listComments(input: SessionCommentListCommandInput): Promise<SessionLiveCommentSummary[]>;
+  removeComment(input: SessionCommentRemoveCommandInput): Promise<RemovedCommentResult>;
+  clearComments(input: SessionCommentClearCommandInput): Promise<ClearedCommentsResult>;
 }
 
 function extractToolValue<ResultType>(
@@ -141,6 +154,52 @@ class McpHunkDaemonCliClient implements HunkDaemonCliClient {
 
     return comment;
   }
+
+  async listComments(input: SessionCommentListCommandInput) {
+    const result = await this.client.callTool({
+      name: "list_comments",
+      arguments: {
+        ...input.selector,
+        filePath: input.filePath,
+      },
+    });
+
+    return extractToolValue<SessionLiveCommentSummary[]>(result, "comments") ?? [];
+  }
+
+  async removeComment(input: SessionCommentRemoveCommandInput) {
+    const result = await this.client.callTool({
+      name: "remove_comment",
+      arguments: {
+        ...input.selector,
+        commentId: input.commentId,
+      },
+    });
+
+    const removed = extractToolValue<RemovedCommentResult>(result, "result");
+    if (!removed) {
+      throw new Error("The Hunk daemon returned no remove-comment result.");
+    }
+
+    return removed;
+  }
+
+  async clearComments(input: SessionCommentClearCommandInput) {
+    const result = await this.client.callTool({
+      name: "clear_comments",
+      arguments: {
+        ...input.selector,
+        filePath: input.filePath,
+      },
+    });
+
+    const cleared = extractToolValue<ClearedCommentsResult>(result, "result");
+    if (!cleared) {
+      throw new Error("The Hunk daemon returned no clear-comments result.");
+    }
+
+    return cleared;
+  }
 }
 
 function stringifyJson(value: unknown) {
@@ -226,6 +285,30 @@ function formatCommentOutput(selector: SessionSelectorInput, result: AppliedComm
   return `Added live comment ${result.commentId} on ${result.filePath}:${result.line} (${result.side}) in hunk ${result.hunkIndex + 1} for ${formatSelector(selector)}.\n`;
 }
 
+function formatCommentListOutput(selector: SessionSelectorInput, comments: SessionLiveCommentSummary[]) {
+  if (comments.length === 0) {
+    return `No live comments for ${formatSelector(selector)}.\n`;
+  }
+
+  return `${comments
+    .map((comment) => [
+      `${comment.commentId}  ${comment.filePath}:${comment.line} (${comment.side})`,
+      `  hunk: ${comment.hunkIndex + 1}`,
+      `  summary: ${comment.summary}`,
+      ...(comment.author ? [`  author: ${comment.author}`] : []),
+    ].join("\n"))
+    .join("\n\n")}\n`;
+}
+
+function formatRemoveCommentOutput(selector: SessionSelectorInput, result: RemovedCommentResult) {
+  return `Removed live comment ${result.commentId} from ${formatSelector(selector)}. Remaining comments: ${result.remainingCommentCount}.\n`;
+}
+
+function formatClearCommentsOutput(selector: SessionSelectorInput, result: ClearedCommentsResult) {
+  const scope = result.filePath ? `${result.filePath} in ${formatSelector(selector)}` : formatSelector(selector);
+  return `Cleared ${result.removedCount} live comments from ${scope}. Remaining comments: ${result.remainingCommentCount}.\n`;
+}
+
 function normalizeRepoRoot(selector: SessionSelectorInput) {
   if (!selector.repoRoot) {
     return selector;
@@ -299,6 +382,27 @@ export async function runSessionCommand(input: SessionCommandInput) {
           selector: normalizeRepoRoot(input.selector),
         });
         return renderOutput(input.output, { result }, () => formatCommentOutput(input.selector, result));
+      }
+      case "comment-list": {
+        const comments = await client.listComments({
+          ...input,
+          selector: normalizeRepoRoot(input.selector),
+        });
+        return renderOutput(input.output, { comments }, () => formatCommentListOutput(input.selector, comments));
+      }
+      case "comment-rm": {
+        const result = await client.removeComment({
+          ...input,
+          selector: normalizeRepoRoot(input.selector),
+        });
+        return renderOutput(input.output, { result }, () => formatRemoveCommentOutput(input.selector, result));
+      }
+      case "comment-clear": {
+        const result = await client.clearComments({
+          ...input,
+          selector: normalizeRepoRoot(input.selector),
+        });
+        return renderOutput(input.output, { result }, () => formatClearCommentsOutput(input.selector, result));
       }
     }
   } finally {

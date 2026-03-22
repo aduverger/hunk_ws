@@ -1,8 +1,10 @@
 import type {
   AppliedCommentResult,
+  ClearedCommentsResult,
   HunkSessionRegistration,
   HunkSessionSnapshot,
   NavigatedSelectionResult,
+  RemovedCommentResult,
   SessionClientMessage,
   SessionCommandResult,
   SessionServerMessage,
@@ -18,6 +20,8 @@ const HEARTBEAT_INTERVAL_MS = 10_000;
 interface HunkAppBridge {
   applyComment: (message: Extract<SessionServerMessage, { command: "comment" }>) => Promise<AppliedCommentResult>;
   navigateToHunk: (message: Extract<SessionServerMessage, { command: "navigate_to_hunk" }>) => Promise<NavigatedSelectionResult>;
+  removeComment: (message: Extract<SessionServerMessage, { command: "remove_comment" }>) => Promise<RemovedCommentResult>;
+  clearComments: (message: Extract<SessionServerMessage, { command: "clear_comments" }>) => Promise<ClearedCommentsResult>;
 }
 
 /** Keep one running Hunk TUI session registered with the local MCP daemon. */
@@ -260,6 +264,10 @@ export class HunkHostClient {
         return this.bridge.applyComment(message);
       case "navigate_to_hunk":
         return this.bridge.navigateToHunk(message);
+      case "remove_comment":
+        return this.bridge.removeComment(message);
+      case "clear_comments":
+        return this.bridge.clearComments(message);
     }
   }
 

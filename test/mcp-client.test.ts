@@ -38,6 +38,7 @@ function createSnapshot(): HunkSessionSnapshot {
     selectedHunkIndex: 0,
     showAgentNotes: true,
     liveCommentCount: 0,
+    liveComments: [],
     updatedAt: "2026-03-22T00:00:00.000Z",
   };
 }

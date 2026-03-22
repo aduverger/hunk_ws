@@ -392,6 +392,9 @@ async function parseSessionCommand(tokens: string[]): Promise<ParsedCliInput> {
         "  hunk session context --repo <path>",
         "  hunk session navigate <session-id> --file <path> (--hunk <n> | --old-line <n> | --new-line <n>)",
         "  hunk session comment add <session-id> --file <path> (--old-line <n> | --new-line <n>) --summary <text>",
+        "  hunk session comment list <session-id>",
+        "  hunk session comment rm <session-id> <comment-id>",
+        "  hunk session comment clear <session-id> --yes",
       ].join("\n") + "\n",
     };
   }
@@ -492,86 +495,188 @@ async function parseSessionCommand(tokens: string[]): Promise<ParsedCliInput> {
       return {
         kind: "help",
         text: [
-          "Usage: hunk session comment add (<session-id> | --repo <path>) --file <path> (--old-line <n> | --new-line <n>) --summary <text>",
-          "",
-          "Attach one live inline review note to a diff line.",
+          "Usage:",
+          "  hunk session comment add (<session-id> | --repo <path>) --file <path> (--old-line <n> | --new-line <n>) --summary <text>",
+          "  hunk session comment list (<session-id> | --repo <path>) [--file <path>]",
+          "  hunk session comment rm (<session-id> | --repo <path>) <comment-id>",
+          "  hunk session comment clear (<session-id> | --repo <path>) [--file <path>] --yes",
         ].join("\n") + "\n",
       };
     }
 
-    if (commentSubcommand !== "add") {
-      throw new Error("Only `hunk session comment add` is supported.");
+    if (commentSubcommand === "add") {
+      const command = new Command("session comment add")
+        .description("attach one live inline review note")
+        .argument("[sessionId]")
+        .requiredOption("--file <path>", "diff file path as shown by Hunk")
+        .requiredOption("--summary <text>", "short review note")
+        .option("--repo <path>", "target the live session whose repo root matches this path")
+        .option("--old-line <n>", "1-based line number on the old side", parsePositiveInt)
+        .option("--new-line <n>", "1-based line number on the new side", parsePositiveInt)
+        .option("--rationale <text>", "optional longer explanation")
+        .option("--author <name>", "optional author label")
+        .option("--reveal", "jump to and reveal the note")
+        .option("--no-reveal", "add the note without moving focus")
+        .option("--json", "emit structured JSON");
+
+      let parsedSessionId: string | undefined;
+      let parsedOptions: {
+        repo?: string;
+        file: string;
+        summary: string;
+        oldLine?: number;
+        newLine?: number;
+        rationale?: string;
+        author?: string;
+        reveal?: boolean;
+        json?: boolean;
+      } = {
+        file: "",
+        summary: "",
+      };
+
+      command.action((sessionId: string | undefined, options: {
+        repo?: string;
+        file: string;
+        summary: string;
+        oldLine?: number;
+        newLine?: number;
+        rationale?: string;
+        author?: string;
+        reveal?: boolean;
+        json?: boolean;
+      }) => {
+        parsedSessionId = sessionId;
+        parsedOptions = options;
+      });
+
+      if (commentRest.includes("--help") || commentRest.includes("-h")) {
+        return { kind: "help", text: `${command.helpInformation().trimEnd()}\n` };
+      }
+
+      await parseStandaloneCommand(command, commentRest);
+
+      const selectors = [parsedOptions.oldLine !== undefined, parsedOptions.newLine !== undefined].filter(Boolean);
+      if (selectors.length !== 1) {
+        throw new Error("Specify exactly one comment target: --old-line <n> or --new-line <n>.");
+      }
+
+      return {
+        kind: "session",
+        action: "comment-add",
+        output: resolveJsonOutput(parsedOptions),
+        selector: resolveExplicitSessionSelector(parsedSessionId, parsedOptions.repo),
+        filePath: parsedOptions.file,
+        side: parsedOptions.oldLine !== undefined ? "old" : "new",
+        line: parsedOptions.oldLine ?? parsedOptions.newLine ?? 0,
+        summary: parsedOptions.summary,
+        rationale: parsedOptions.rationale,
+        author: parsedOptions.author,
+        reveal: parsedOptions.reveal ?? true,
+      };
     }
 
-    const command = new Command("session comment add")
-      .description("attach one live inline review note")
-      .argument("[sessionId]")
-      .requiredOption("--file <path>", "diff file path as shown by Hunk")
-      .requiredOption("--summary <text>", "short review note")
-      .option("--repo <path>", "target the live session whose repo root matches this path")
-      .option("--old-line <n>", "1-based line number on the old side", parsePositiveInt)
-      .option("--new-line <n>", "1-based line number on the new side", parsePositiveInt)
-      .option("--rationale <text>", "optional longer explanation")
-      .option("--author <name>", "optional author label")
-      .option("--reveal", "jump to and reveal the note")
-      .option("--no-reveal", "add the note without moving focus")
-      .option("--json", "emit structured JSON");
+    if (commentSubcommand === "list") {
+      const command = new Command("session comment list")
+        .description("list live inline review notes")
+        .argument("[sessionId]")
+        .option("--repo <path>", "target the live session whose repo root matches this path")
+        .option("--file <path>", "filter comments to one diff file")
+        .option("--json", "emit structured JSON");
 
-    let parsedSessionId: string | undefined;
-    let parsedOptions: {
-      repo?: string;
-      file: string;
-      summary: string;
-      oldLine?: number;
-      newLine?: number;
-      rationale?: string;
-      author?: string;
-      reveal?: boolean;
-      json?: boolean;
-    } = {
-      file: "",
-      summary: "",
-    };
+      let parsedSessionId: string | undefined;
+      let parsedOptions: { repo?: string; file?: string; json?: boolean } = {};
 
-    command.action((sessionId: string | undefined, options: {
-      repo?: string;
-      file: string;
-      summary: string;
-      oldLine?: number;
-      newLine?: number;
-      rationale?: string;
-      author?: string;
-      reveal?: boolean;
-      json?: boolean;
-    }) => {
-      parsedSessionId = sessionId;
-      parsedOptions = options;
-    });
+      command.action((sessionId: string | undefined, options: { repo?: string; file?: string; json?: boolean }) => {
+        parsedSessionId = sessionId;
+        parsedOptions = options;
+      });
 
-    if (commentRest.includes("--help") || commentRest.includes("-h")) {
-      return { kind: "help", text: `${command.helpInformation().trimEnd()}\n` };
+      if (commentRest.includes("--help") || commentRest.includes("-h")) {
+        return { kind: "help", text: `${command.helpInformation().trimEnd()}\n` };
+      }
+
+      await parseStandaloneCommand(command, commentRest);
+
+      return {
+        kind: "session",
+        action: "comment-list",
+        output: resolveJsonOutput(parsedOptions),
+        selector: resolveExplicitSessionSelector(parsedSessionId, parsedOptions.repo),
+        filePath: parsedOptions.file,
+      };
     }
 
-    await parseStandaloneCommand(command, commentRest);
+    if (commentSubcommand === "rm") {
+      const command = new Command("session comment rm")
+        .description("remove one live inline review note")
+        .argument("[sessionId]")
+        .argument("<commentId>")
+        .option("--repo <path>", "target the live session whose repo root matches this path")
+        .option("--json", "emit structured JSON");
 
-    const selectors = [parsedOptions.oldLine !== undefined, parsedOptions.newLine !== undefined].filter(Boolean);
-    if (selectors.length !== 1) {
-      throw new Error("Specify exactly one comment target: --old-line <n> or --new-line <n>.");
+      let parsedSessionId: string | undefined;
+      let parsedCommentId = "";
+      let parsedOptions: { repo?: string; json?: boolean } = {};
+
+      command.action((sessionId: string | undefined, commentId: string, options: { repo?: string; json?: boolean }) => {
+        parsedSessionId = sessionId;
+        parsedCommentId = commentId;
+        parsedOptions = options;
+      });
+
+      if (commentRest.includes("--help") || commentRest.includes("-h")) {
+        return { kind: "help", text: `${command.helpInformation().trimEnd()}\n` };
+      }
+
+      await parseStandaloneCommand(command, commentRest);
+
+      return {
+        kind: "session",
+        action: "comment-rm",
+        output: resolveJsonOutput(parsedOptions),
+        selector: resolveExplicitSessionSelector(parsedSessionId, parsedOptions.repo),
+        commentId: parsedCommentId,
+      };
     }
 
-    return {
-      kind: "session",
-      action: "comment-add",
-      output: resolveJsonOutput(parsedOptions),
-      selector: resolveExplicitSessionSelector(parsedSessionId, parsedOptions.repo),
-      filePath: parsedOptions.file,
-      side: parsedOptions.oldLine !== undefined ? "old" : "new",
-      line: parsedOptions.oldLine ?? parsedOptions.newLine ?? 0,
-      summary: parsedOptions.summary,
-      rationale: parsedOptions.rationale,
-      author: parsedOptions.author,
-      reveal: parsedOptions.reveal ?? true,
-    };
+    if (commentSubcommand === "clear") {
+      const command = new Command("session comment clear")
+        .description("clear live inline review notes")
+        .argument("[sessionId]")
+        .option("--repo <path>", "target the live session whose repo root matches this path")
+        .option("--file <path>", "clear only one diff file's comments")
+        .option("--yes", "confirm destructive live comment clearing")
+        .option("--json", "emit structured JSON");
+
+      let parsedSessionId: string | undefined;
+      let parsedOptions: { repo?: string; file?: string; yes?: boolean; json?: boolean } = {};
+
+      command.action((sessionId: string | undefined, options: { repo?: string; file?: string; yes?: boolean; json?: boolean }) => {
+        parsedSessionId = sessionId;
+        parsedOptions = options;
+      });
+
+      if (commentRest.includes("--help") || commentRest.includes("-h")) {
+        return { kind: "help", text: `${command.helpInformation().trimEnd()}\n` };
+      }
+
+      await parseStandaloneCommand(command, commentRest);
+      if (!parsedOptions.yes) {
+        throw new Error("Pass --yes to clear live comments.");
+      }
+
+      return {
+        kind: "session",
+        action: "comment-clear",
+        output: resolveJsonOutput(parsedOptions),
+        selector: resolveExplicitSessionSelector(parsedSessionId, parsedOptions.repo),
+        filePath: parsedOptions.file,
+        confirmed: true,
+      };
+    }
+
+    throw new Error("Supported comment subcommands are add, list, rm, and clear.");
   }
 
   throw new Error(`Unknown session command: ${subcommand}`);

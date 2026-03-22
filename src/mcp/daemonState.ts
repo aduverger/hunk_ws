@@ -1,14 +1,20 @@
 import { randomUUID } from "node:crypto";
 import type {
   AppliedCommentResult,
+  ClearedCommentsResult,
+  ClearCommentsToolInput,
   CommentToolInput,
   HunkSessionRegistration,
   HunkSessionSnapshot,
   ListedSession,
+  ListCommentsToolInput,
   NavigateToHunkToolInput,
   NavigatedSelectionResult,
+  RemoveCommentToolInput,
+  RemovedCommentResult,
   SelectedSessionContext,
   SessionCommandResult,
+  SessionLiveCommentSummary,
   SessionServerMessage,
   SessionTargetInput,
 } from "./types";
@@ -141,6 +147,17 @@ export class HunkDaemonState {
     };
   }
 
+  listComments(selector: SessionTargetSelector, filter: { filePath?: string } = {}) {
+    const session = this.getSession(selector);
+    const comments = session.snapshot.liveComments;
+
+    if (!filter.filePath) {
+      return comments;
+    }
+
+    return comments.filter((comment) => comment.filePath === filter.filePath);
+  }
+
   getPendingCommandCount() {
     return this.pendingCommands.size;
   }
@@ -240,6 +257,24 @@ export class HunkDaemonState {
       "navigate_to_hunk",
       input,
       "Timed out waiting for the Hunk session to navigate to the requested hunk.",
+    );
+  }
+
+  sendRemoveComment(input: RemoveCommentToolInput) {
+    return this.sendCommand<RemovedCommentResult, "remove_comment">(
+      { sessionId: input.sessionId, repoRoot: input.repoRoot },
+      "remove_comment",
+      input,
+      "Timed out waiting for the Hunk session to remove the requested comment.",
+    );
+  }
+
+  sendClearComments(input: ClearCommentsToolInput) {
+    return this.sendCommand<ClearedCommentsResult, "clear_comments">(
+      { sessionId: input.sessionId, repoRoot: input.repoRoot },
+      "clear_comments",
+      input,
+      "Timed out waiting for the Hunk session to clear the requested comments.",
     );
   }
 

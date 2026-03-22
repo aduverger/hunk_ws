@@ -82,12 +82,17 @@ describe("live comment helpers", () => {
       },
       "comment-1",
       "2026-03-22T00:00:00.000Z",
+      0,
     );
 
     expect(comment).toMatchObject({
       id: "comment-1",
       source: "mcp",
       author: "Pi",
+      filePath: "src/example.ts",
+      hunkIndex: 0,
+      side: "new",
+      line: 4,
       summary: "Note",
       rationale: "Why this matters",
       newRange: [4, 4],
