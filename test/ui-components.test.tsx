@@ -181,7 +181,6 @@ describe("UI components", () => {
           label: `M ${file.path}`,
           description: `+${file.stats.additions}  -${file.stats.deletions}${file.agent ? "  agent" : ""}`,
         }))}
-        focused={true}
         scrollRef={createRef()}
         selectedFileId="alpha"
         textWidth={24}

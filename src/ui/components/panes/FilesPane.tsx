@@ -7,7 +7,6 @@ import { FileListItem } from "./FileListItem";
 /** Render the file navigation sidebar. */
 export function FilesPane({
   entries,
-  focused,
   scrollRef,
   selectedFileId,
   textWidth,
@@ -16,7 +15,6 @@ export function FilesPane({
   onSelectFile,
 }: {
   entries: FileListEntry[];
-  focused: boolean;
   scrollRef: RefObject<ScrollBoxRenderable | null>;
   selectedFileId?: string;
   textWidth: number;
@@ -40,7 +38,7 @@ export function FilesPane({
         ref={scrollRef}
         width="100%"
         height="100%"
-        focused={focused}
+        focused={false}
         scrollY={true}
         viewportCulling={true}
         rootOptions={{ backgroundColor: theme.panel }}

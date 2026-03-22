@@ -122,31 +122,26 @@ function createWrapBootstrap(): AppBootstrap {
   };
 }
 
-function createFileScrollBootstrap(): AppBootstrap {
-  const files = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"].map((name, index) =>
-    createDiffFile(
-      name,
-      `${name}.ts`,
-      `export const ${name}Marker = ${index + 1};\n`,
-      `export const ${name}Marker = ${index + 2};\nexport const ${name}Added = true;\n`,
-    ),
-  );
+function createLineScrollBootstrap(pager = false): AppBootstrap {
+  const before = Array.from({ length: 18 }, (_, index) => `export const line${String(index + 1).padStart(2, "0")} = ${index + 1};`).join("\n") + "\n";
+  const after = Array.from({ length: 18 }, (_, index) => `export const line${String(index + 1).padStart(2, "0")} = ${index + 101};`).join("\n") + "\n";
 
   return {
     input: {
       kind: "git",
       staged: false,
       options: {
-        mode: "auto",
+        mode: "split",
+        pager,
       },
     },
     changeset: {
-      id: "changeset:app-file-scroll",
+      id: "changeset:app-line-scroll",
       sourceLabel: "repo",
       title: "repo working tree",
-      files,
+      files: [createDiffFile("scroll", "scroll.ts", before, after, true)],
     },
-    initialMode: "auto",
+    initialMode: "split",
     initialTheme: "midnight",
   };
 }
@@ -158,11 +153,6 @@ async function flush(setup: Awaited<ReturnType<typeof testRender>>) {
     await setup.renderOnce();
   });
 }
-
-function lineIndexOf(frame: string, needle: string) {
-  return frame.split("\n").findIndex((line) => line.includes(needle));
-}
-
 
 describe("App interactions", () => {
   test("keyboard shortcuts toggle notes, line numbers, and hunk metadata", async () => {
@@ -320,7 +310,7 @@ describe("App interactions", () => {
     }
   });
 
-  test("file navigation changes which file can surface agent notes", async () => {
+  test("arrow keys keep the current file selected for agent notes", async () => {
     const setup = await testRender(<App bootstrap={createBootstrap()} />, { width: 240, height: 24 });
 
     try {
@@ -335,16 +325,9 @@ describe("App interactions", () => {
       });
       await flush(setup);
 
-      let frame = setup.captureCharFrame();
-      expect(frame).not.toContain("Annotation for alpha.ts");
-
-      await act(async () => {
-        await setup.mockInput.pressArrow("up");
-      });
-      await flush(setup);
-
-      frame = setup.captureCharFrame();
+      const frame = setup.captureCharFrame();
       expect(frame).toContain("Annotation for alpha.ts");
+      expect(frame).toContain("Why alpha.ts changed");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -352,33 +335,73 @@ describe("App interactions", () => {
     }
   });
 
-  test("arrow-key file navigation scrolls the review pane to the selected file hunk", async () => {
-    const setup = await testRender(<App bootstrap={createFileScrollBootstrap()} />, { width: 280, height: 12 });
+  test("arrow keys scroll the review pane line by line", async () => {
+    const setup = await testRender(<App bootstrap={createLineScrollBootstrap()} />, { width: 220, height: 12 });
 
     try {
       await flush(setup);
 
-      for (let index = 0; index < 4; index += 1) {
+      const initialFrame = setup.captureCharFrame();
+      expect(initialFrame).toContain("line01 = 101");
+      expect(initialFrame).not.toContain("line08 = 108");
+
+      for (let index = 0; index < 6; index += 1) {
         await act(async () => {
           await setup.mockInput.pressArrow("down");
         });
         await flush(setup);
       }
 
+      let frame = setup.captureCharFrame();
+      expect(frame).toContain("line08 = 108");
+      expect(frame).not.toContain("line01 = 101");
+
+      for (let index = 0; index < 6; index += 1) {
+        await act(async () => {
+          await setup.mockInput.pressArrow("up");
+        });
+        await flush(setup);
+      }
+
+      frame = setup.captureCharFrame();
+      expect(frame).toContain("line01 = 101");
+    } finally {
       await act(async () => {
-        await Bun.sleep(80);
-        await setup.renderOnce();
+        setup.renderer.destroy();
       });
+    }
+  });
 
-      const frame = setup.captureCharFrame();
-      expect(frame).toContain("M epsilon.ts");
-      expect(frame).toContain("epsilon.ts");
-      expect(frame).toContain("▌@@ -1,1 +1,2 @@");
-      expect(frame).not.toContain("alphaMarker");
+  test("pager mode arrow keys also scroll line by line", async () => {
+    const setup = await testRender(<App bootstrap={createLineScrollBootstrap(true)} />, { width: 220, height: 8 });
 
-      const selectedHunkLine = lineIndexOf(frame, "▌@@ -1,1 +1,2 @@");
-      expect(selectedHunkLine).toBeGreaterThanOrEqual(0);
-      expect(selectedHunkLine).toBeLessThanOrEqual(8);
+    try {
+      await flush(setup);
+
+      const initialFrame = setup.captureCharFrame();
+      expect(initialFrame).toContain("line01 = 101");
+      expect(initialFrame).not.toContain("line08 = 108");
+
+      for (let index = 0; index < 3; index += 1) {
+        await act(async () => {
+          await setup.mockInput.pressArrow("down");
+        });
+        await flush(setup);
+      }
+
+      let frame = setup.captureCharFrame();
+      expect(frame).toContain("line08 = 108");
+      expect(frame).not.toContain("line01 = 101");
+
+      for (let index = 0; index < 3; index += 1) {
+        await act(async () => {
+          await setup.mockInput.pressArrow("up");
+        });
+        await flush(setup);
+      }
+
+      frame = setup.captureCharFrame();
+      expect(frame).toContain("line01 = 101");
     } finally {
       await act(async () => {
         setup.renderer.destroy();

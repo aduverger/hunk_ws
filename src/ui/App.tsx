@@ -196,25 +196,9 @@ export function App({
     setSelectedHunkIndex(nextHunkIndex);
   };
 
-  /** Scroll the main review pane by a viewport fraction or whole-content jump. */
-  const scrollDiff = (delta: number, unit: "viewport" | "content" = "viewport") => {
+  /** Scroll the main review pane by line steps, viewport fractions, or whole-content jumps. */
+  const scrollDiff = (delta: number, unit: "step" | "viewport" | "content" = "viewport") => {
     diffScrollRef.current?.scrollBy(delta, unit);
-  };
-
-  /** Move file selection within the currently filtered sidebar list. */
-  const moveFile = (delta: number) => {
-    if (filteredFiles.length === 0 || !selectedFile) {
-      return;
-    }
-
-    const currentIndex = filteredFiles.findIndex((file) => file.id === selectedFile.id);
-    const nextIndex = clamp(currentIndex + delta, 0, filteredFiles.length - 1);
-    const nextFile = filteredFiles[nextIndex];
-    if (!nextFile) {
-      return;
-    }
-
-    jumpToFile(nextFile.id);
   };
 
   /** Cycle only through files that have agent context attached. */
@@ -629,12 +613,12 @@ export function App({
       }
 
       if (stepDownKey) {
-        scrollDiff(1 / 5, "viewport");
+        scrollDiff(1, "step");
         return;
       }
 
       if (stepUpKey) {
-        scrollDiff(-1 / 5, "viewport");
+        scrollDiff(-1, "step");
         return;
       }
 
@@ -754,13 +738,13 @@ export function App({
       return;
     }
 
-    if (focusArea === "files" && key.name === "up") {
-      moveFile(-1);
+    if (key.name === "up") {
+      scrollDiff(-1, "step");
       return;
     }
 
-    if (focusArea === "files" && key.name === "down") {
-      moveFile(1);
+    if (key.name === "down") {
+      scrollDiff(1, "step");
       return;
     }
 
@@ -880,7 +864,6 @@ export function App({
           <>
             <FilesPane
               entries={fileEntries}
-              focused={focusArea === "files"}
               scrollRef={filesScrollRef}
               selectedFileId={selectedFile?.id}
               textWidth={filesTextWidth}

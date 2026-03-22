@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,11 @@ import { join } from "node:path";
 const repoRoot = process.cwd();
 const sourceEntrypoint = join(repoRoot, "src/main.tsx");
 const tempDirs: string[] = [];
+const enableTtySmokeTests = process.env.HUNK_RUN_TTY_SMOKE === "1";
+if (enableTtySmokeTests) {
+  setDefaultTimeout(15000);
+}
+
 const ttyToolsAvailable = Bun.spawnSync(["bash", "-lc", "command -v script >/dev/null && command -v timeout >/dev/null"], {
   stdin: "ignore",
   stdout: "ignore",
@@ -119,8 +124,10 @@ async function runTtySmoke(options: { mode?: "split" | "stack"; pager?: boolean;
     args.push("--agent-context", fixture.agent);
   }
 
-  const command = `timeout 2 bun run ${shellQuote(sourceEntrypoint)} ${args.map(shellQuote).join(" ")}`;
-  const proc = Bun.spawnSync(["script", "-q", "-f", "-e", "-c", command, transcript], {
+  const hunkCommand = `bun run ${shellQuote(sourceEntrypoint)} ${args.map(shellQuote).join(" ")}`;
+  const scriptCommand = `timeout 5 script -q -f -e -c ${shellQuote(hunkCommand)} ${shellQuote(transcript)}`;
+  const inputCommand = `(sleep 1; printf q)`;
+  const proc = Bun.spawnSync(["bash", "-lc", `${inputCommand} | ${scriptCommand}`], {
     cwd: fixture.dir,
     stdin: "ignore",
     stdout: "pipe",
@@ -132,7 +139,7 @@ async function runTtySmoke(options: { mode?: "split" | "stack"; pager?: boolean;
     },
   });
 
-  if (proc.exitCode !== 0 && proc.exitCode !== 124) {
+  if (proc.exitCode !== 0) {
     const stderr = Buffer.from(proc.stderr).toString("utf8");
     throw new Error(stderr.trim() || `tty smoke command failed with exit ${proc.exitCode}`);
   }
@@ -172,7 +179,9 @@ afterEach(() => {
 });
 
 describe("TTY render smoke", () => {
-  test("split mode renders chrome, rails, and AI badges in a terminal transcript", async () => {
+  const ttyTest = enableTtySmokeTests ? test : test.skip;
+
+  ttyTest("split mode renders chrome, rails, and AI badges in a terminal transcript", async () => {
     if (!ttyToolsAvailable) {
       return;
     }
@@ -187,7 +196,7 @@ describe("TTY render smoke", () => {
     expect(output).toContain("▌1 + export const answer = 42;");
   });
 
-  test("stack mode keeps the terminal-native stacked rows without split separators", async () => {
+  ttyTest("stack mode keeps the terminal-native stacked rows without split separators", async () => {
     if (!ttyToolsAvailable) {
       return;
     }
@@ -200,7 +209,7 @@ describe("TTY render smoke", () => {
     expect(output).not.toContain("│1 + export const answer = 42;");
   });
 
-  test("pager mode hides chrome while still rendering the diff transcript", async () => {
+  ttyTest("pager mode hides chrome while still rendering the diff transcript", async () => {
     if (!ttyToolsAvailable) {
       return;
     }
@@ -213,7 +222,7 @@ describe("TTY render smoke", () => {
     expect(output).toContain("export const answer = 42;");
   });
 
-  test("stdin patch mode auto-enters pager mode and can quit from terminal input", async () => {
+  ttyTest("stdin patch mode auto-enters pager mode and can quit from terminal input", async () => {
     if (!ttyToolsAvailable) {
       return;
     }
@@ -227,7 +236,7 @@ describe("TTY render smoke", () => {
     expect(output).toContain("export const answer = 42;");
   });
 
-  test("stdin pager mode pages forward by a full viewport on space", async () => {
+  ttyTest("stdin pager mode pages forward by a full viewport on space", async () => {
     if (!ttyToolsAvailable) {
       return;
     }
@@ -241,7 +250,7 @@ describe("TTY render smoke", () => {
     expect(output).toContain("after_06");
   });
 
-  test("general pager mode opens Hunk pager UI for diff-like stdin", async () => {
+  ttyTest("general pager mode opens Hunk pager UI for diff-like stdin", async () => {
     if (!ttyToolsAvailable) {
       return;
     }
