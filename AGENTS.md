@@ -50,9 +50,8 @@ CLI input
 - `[` and `]` navigate hunks across the full review stream. Do not reintroduce `j`/`k` hunk navigation unless the user asks.
 - Agent context belongs beside the code, not hidden in a separate mode or workflow.
 - Agent notes are hunk-specific: show notes for the selected hunk, render them in the diff flow near the annotated row, and keep a clear spatial relationship to the code they explain.
-- When making code changes in this repo, also refresh `.hunk/latest.json` so the next review can load agent rationale with `hunk diff --agent-context .hunk/latest.json`.
-- Keep `.hunk/latest.json` concise and review-oriented: one changeset summary, file summaries in narrative order, and a few hunk-level annotations with real rationale.
-- File order in `.hunk/latest.json` is intentional, but the visible note UI should stay hunk-note driven rather than showing generic file or changeset explainer cards.
+- If you choose to use a local sidecar such as `.hunk/latest.json`, keep it concise and review-oriented: one changeset summary, file summaries in narrative order, and a few hunk-level annotations with real rationale.
+- If a local sidecar is present, its file order is intentional, but the visible note UI should stay hunk-note driven rather than showing generic file or changeset explainer cards.
 - If newly created files should appear in `hunk diff` before commit, use `git add -N <paths>` so they show up in the review stream without staging content.
 
 ## commands
@@ -81,6 +80,6 @@ CLI input
 
 ## repo notes
 
-- `.hunk/latest.json` is ignored on purpose. Update it when you change code, but do not commit it.
+- `.hunk/latest.json` is ignored on purpose. Use it only if you want temporary local review context, and do not commit it.
 - Do not auto-commit after making changes. Leave edits uncommitted so the user can review them in `hunk`, and only commit when the user explicitly asks.
 - Keep this doc short and architectural. Fresh-context agents can discover file paths themselves.

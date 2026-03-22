@@ -78,9 +78,8 @@ For more CLI entrypoints, read [references/commands.md](references/commands.md).
 
 When using Hunk for agent changes:
 - prefer a real TTY or tmux session over redirected stdout captures
-- use `hunk diff --agent-context .hunk/latest.json` when the repo has fresh review notes
-- refresh `.hunk/latest.json` after code changes if the repo expects it
-- keep `.hunk/latest.json` concise and review-oriented
+- if a repo already has a fresh local sidecar, you can load it with `hunk diff --agent-context <file>`
+- treat `.hunk/latest.json` as an optional local convention, not required repo hygiene
 - if new files should show up before commit, use `git add -N <path>`
 
 ## What this skill should steer Pi toward

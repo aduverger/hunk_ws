@@ -55,10 +55,10 @@ git diff --no-color | hunk patch -
 ### Review with agent rationale sidecar
 
 ```bash
-hunk diff --agent-context .hunk/latest.json
+hunk diff --agent-context path/to/context.json
 ```
 
-Use this when the repo keeps `.hunk/latest.json` fresh for review. Keep that file concise, narrative, and hunk-oriented.
+Use this when you already have a sidecar file for local review context. `.hunk/latest.json` is one optional convention, not a required repo workflow.
 
 ## TTY guidance
 
