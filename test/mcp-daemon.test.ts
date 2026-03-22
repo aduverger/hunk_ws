@@ -34,7 +34,7 @@ function createListedSession(overrides: Partial<ListedSession> = {}): ListedSess
   };
 }
 
-function createRegistration(): HunkSessionRegistration {
+function createRegistration(overrides: Partial<HunkSessionRegistration> = {}): HunkSessionRegistration {
   return {
     sessionId: "session-1",
     pid: 123,
@@ -53,10 +53,11 @@ function createRegistration(): HunkSessionRegistration {
         hunkCount: 1,
       },
     ],
+    ...overrides,
   };
 }
 
-function createSnapshot(): HunkSessionSnapshot {
+function createSnapshot(overrides: Partial<HunkSessionSnapshot> = {}): HunkSessionSnapshot {
   return {
     selectedFileId: "file-1",
     selectedFilePath: "src/example.ts",
@@ -64,6 +65,7 @@ function createSnapshot(): HunkSessionSnapshot {
     showAgentNotes: false,
     liveCommentCount: 0,
     updatedAt: "2026-03-22T00:00:00.000Z",
+    ...overrides,
   };
 }
 
@@ -140,5 +142,83 @@ describe("Hunk MCP daemon state", () => {
     state.unregisterSocket(socket);
 
     await expect(pending).rejects.toThrow("disconnected");
+  });
+
+  test("rejects commands immediately when the live session socket cannot accept them", async () => {
+    const state = new HunkDaemonState();
+    const socket = {
+      send() {
+        throw new Error("socket closed");
+      },
+    };
+
+    state.registerSession(socket, createRegistration(), createSnapshot());
+
+    await expect(
+      state.sendComment({
+        sessionId: "session-1",
+        filePath: "src/example.ts",
+        side: "new",
+        line: 4,
+        summary: "Review note",
+      }),
+    ).rejects.toThrow("socket closed");
+    expect(state.getPendingCommandCount()).toBe(0);
+  });
+
+  test("prunes stale sessions and rejects their in-flight commands", async () => {
+    const state = new HunkDaemonState();
+    const sent: string[] = [];
+    const socket = {
+      send(data: string) {
+        sent.push(data);
+      },
+    };
+
+    state.registerSession(socket, createRegistration(), createSnapshot());
+    const pending = state.sendComment({
+      sessionId: "session-1",
+      filePath: "src/example.ts",
+      side: "new",
+      line: 4,
+      summary: "Review note",
+    });
+
+    expect(sent).toHaveLength(1);
+    const removed = state.pruneStaleSessions({
+      ttlMs: 1,
+      now: Date.now() + 10,
+    });
+
+    expect(removed).toBe(1);
+    expect(state.listSessions()).toHaveLength(0);
+    await expect(pending).rejects.toThrow("stale");
+  });
+
+  test("heartbeats keep an otherwise idle session from being pruned", () => {
+    const state = new HunkDaemonState();
+    const socket = {
+      send() {},
+    };
+
+    state.registerSession(socket, createRegistration(), createSnapshot());
+    const registeredAt = Date.now();
+
+    expect(
+      state.pruneStaleSessions({
+        ttlMs: 50,
+        now: registeredAt + 25,
+      }),
+    ).toBe(0);
+
+    state.markSessionSeen("session-1");
+
+    expect(
+      state.pruneStaleSessions({
+        ttlMs: 50,
+        now: Date.now() + 25,
+      }),
+    ).toBe(0);
+    expect(state.listSessions()).toHaveLength(1);
   });
 });

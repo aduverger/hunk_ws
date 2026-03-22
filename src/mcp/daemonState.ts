@@ -17,11 +17,16 @@ interface SessionEntry {
   snapshot: HunkSessionSnapshot;
   socket: DaemonSessionSocket;
   connectedAt: string;
+  lastSeenAt: string;
 }
 
 export interface SessionTargetSelector {
   sessionId?: string;
   repoRoot?: string;
+}
+
+function describeSessionChoices(sessions: ListedSession[]) {
+  return sessions.map((session) => `${session.sessionId} (${session.title})`).join(", ");
 }
 
 /** Resolve which live Hunk session one external command should target. */
@@ -42,7 +47,10 @@ export function resolveSessionTarget(sessions: ListedSession[], selector: Sessio
     }
 
     if (matches.length > 1) {
-      throw new Error(`Multiple active Hunk sessions match repoRoot ${selector.repoRoot}; specify sessionId instead.`);
+      throw new Error(
+        `Multiple active Hunk sessions match repoRoot ${selector.repoRoot}; specify sessionId instead. ` +
+          `Matches: ${describeSessionChoices(matches)}.`,
+      );
     }
 
     return matches[0]!;
@@ -53,10 +61,13 @@ export function resolveSessionTarget(sessions: ListedSession[], selector: Sessio
   }
 
   if (sessions.length === 0) {
-    throw new Error("No active Hunk sessions are registered with the daemon.");
+    throw new Error("No active Hunk sessions are registered with the daemon. Open Hunk and wait for it to connect.");
   }
 
-  throw new Error("Multiple active Hunk sessions are registered; specify sessionId or repoRoot.");
+  throw new Error(
+    `Multiple active Hunk sessions are registered; specify sessionId or repoRoot. ` +
+      `Sessions: ${describeSessionChoices(sessions)}.`,
+  );
 }
 
 /** Track registered Hunk sessions and route MCP commands onto the correct live TUI instance. */
@@ -87,6 +98,10 @@ export class HunkDaemonState {
     return resolveSessionTarget(this.listSessions(), selector);
   }
 
+  getPendingCommandCount() {
+    return this.pendingCommands.size;
+  }
+
   registerSession(socket: DaemonSessionSocket, registration: HunkSessionRegistration, snapshot: HunkSessionSnapshot) {
     const previousSessionId = this.sessionIdsBySocket.get(socket);
     if (previousSessionId && previousSessionId !== registration.sessionId) {
@@ -99,11 +114,13 @@ export class HunkDaemonState {
       this.rejectPendingCommandsForSession(registration.sessionId, new Error("Hunk session reconnected before the command completed."));
     }
 
+    const now = new Date().toISOString();
     this.sessions.set(registration.sessionId, {
       registration,
       snapshot,
       socket,
-      connectedAt: new Date().toISOString(),
+      connectedAt: now,
+      lastSeenAt: now,
     });
     this.sessionIdsBySocket.set(socket, registration.sessionId);
   }
@@ -117,6 +134,19 @@ export class HunkDaemonState {
     this.sessions.set(sessionId, {
       ...entry,
       snapshot,
+      lastSeenAt: new Date().toISOString(),
+    });
+  }
+
+  markSessionSeen(sessionId: string) {
+    const entry = this.sessions.get(sessionId);
+    if (!entry) {
+      return;
+    }
+
+    this.sessions.set(sessionId, {
+      ...entry,
+      lastSeenAt: new Date().toISOString(),
     });
   }
 
@@ -126,9 +156,30 @@ export class HunkDaemonState {
       return;
     }
 
-    this.sessionIdsBySocket.delete(socket);
-    this.sessions.delete(sessionId);
-    this.rejectPendingCommandsForSession(sessionId, new Error("The targeted Hunk session disconnected."));
+    this.removeSession(sessionId, "The targeted Hunk session disconnected.");
+  }
+
+  pruneStaleSessions({
+    ttlMs,
+    now = Date.now(),
+  }: {
+    ttlMs: number;
+    now?: number;
+  }) {
+    let removed = 0;
+    const cutoff = now - ttlMs;
+
+    for (const [sessionId, entry] of this.sessions.entries()) {
+      const lastSeenAt = Date.parse(entry.lastSeenAt);
+      if (!Number.isFinite(lastSeenAt) || lastSeenAt > cutoff) {
+        continue;
+      }
+
+      this.removeSession(sessionId, "The targeted Hunk session became stale and was removed from the MCP daemon.");
+      removed += 1;
+    }
+
+    return removed;
   }
 
   async sendComment(input: CommentToolInput) {
@@ -159,14 +210,20 @@ export class HunkDaemonState {
         return;
       }
 
-      entry.socket.send(
-        JSON.stringify({
-          type: "command",
-          requestId,
-          command: "comment",
-          input,
-        }),
-      );
+      try {
+        entry.socket.send(
+          JSON.stringify({
+            type: "command",
+            requestId,
+            command: "comment",
+            input,
+          }),
+        );
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pendingCommands.delete(requestId);
+        reject(error instanceof Error ? error : new Error("The targeted Hunk session could not receive the command."));
+      }
     });
   }
 
@@ -185,6 +242,31 @@ export class HunkDaemonState {
     }
 
     pending.reject(new Error(message.error ?? "The Hunk session failed to handle the command."));
+  }
+
+  shutdown(error = new Error("The Hunk MCP daemon shut down.")) {
+    for (const [requestId, pending] of this.pendingCommands.entries()) {
+      clearTimeout(pending.timeout);
+      this.pendingCommands.delete(requestId);
+      pending.reject(error);
+    }
+
+    this.sessionIdsBySocket.clear();
+    this.sessions.clear();
+  }
+
+  private removeSession(sessionId: string, reason: string) {
+    const entry = this.sessions.get(sessionId);
+    if (!entry) {
+      return;
+    }
+
+    this.sessions.delete(sessionId);
+    if (this.sessionIdsBySocket.get(entry.socket) === sessionId) {
+      this.sessionIdsBySocket.delete(entry.socket);
+    }
+
+    this.rejectPendingCommandsForSession(sessionId, new Error(reason));
   }
 
   private rejectPendingCommandsForSession(sessionId: string, error: Error) {

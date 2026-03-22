@@ -1,6 +1,11 @@
 import type { AppliedCommentResult, HunkSessionRegistration, HunkSessionSnapshot, SessionClientMessage, SessionServerMessage } from "./types";
 import { HUNK_SESSION_SOCKET_PATH, resolveHunkMcpConfig } from "./config";
-import { isHunkDaemonHealthy, launchHunkDaemon, waitForHunkDaemonHealth } from "./daemonLauncher";
+import { isHunkDaemonHealthy, isLoopbackPortReachable, launchHunkDaemon, waitForHunkDaemonHealth } from "./daemonLauncher";
+
+const DAEMON_LAUNCH_COOLDOWN_MS = 5_000;
+const DAEMON_STARTUP_TIMEOUT_MS = 3_000;
+const RECONNECT_DELAY_MS = 3_000;
+const HEARTBEAT_INTERVAL_MS = 10_000;
 
 export interface HunkAppBridge {
   applyComment: (message: Extract<SessionServerMessage, { command: "comment" }>) => Promise<AppliedCommentResult>;
@@ -12,9 +17,11 @@ export class HunkHostClient {
   private bridge: HunkAppBridge | null = null;
   private queuedMessages: SessionServerMessage[] = [];
   private reconnectTimer: Timer | null = null;
+  private heartbeatTimer: Timer | null = null;
   private stopped = false;
   private startupPromise: Promise<void> | null = null;
   private lastDaemonLaunchStartedAt = 0;
+  private lastConnectionWarning: string | null = null;
   private readonly config = resolveHunkMcpConfig();
 
   constructor(
@@ -31,9 +38,18 @@ export class HunkHostClient {
       return;
     }
 
-    this.startupPromise = this.ensureDaemonAndConnect().finally(() => {
-      this.startupPromise = null;
-    });
+    this.startupPromise = this.ensureDaemonAndConnect()
+      .catch((error) => {
+        if (this.stopped) {
+          return;
+        }
+
+        this.warnUnavailable(error);
+        this.scheduleReconnect();
+      })
+      .finally(() => {
+        this.startupPromise = null;
+      });
   }
 
   stop() {
@@ -43,6 +59,7 @@ export class HunkHostClient {
       this.reconnectTimer = null;
     }
 
+    this.stopHeartbeat();
     this.websocket?.close();
     this.websocket = null;
   }
@@ -54,19 +71,38 @@ export class HunkHostClient {
 
   private async ensureDaemonAvailable() {
     if (await isHunkDaemonHealthy(this.config)) {
+      this.lastConnectionWarning = null;
       return;
     }
 
-    const launchCooldownMs = 5_000;
-    if (Date.now() - this.lastDaemonLaunchStartedAt < launchCooldownMs) {
-      return;
+    const shouldLaunch = Date.now() - this.lastDaemonLaunchStartedAt >= DAEMON_LAUNCH_COOLDOWN_MS;
+    if (shouldLaunch) {
+      this.lastDaemonLaunchStartedAt = Date.now();
+      launchHunkDaemon();
     }
 
-    this.lastDaemonLaunchStartedAt = Date.now();
-    launchHunkDaemon();
-    await waitForHunkDaemonHealth({
+    const ready = await waitForHunkDaemonHealth({
       config: this.config,
+      timeoutMs: shouldLaunch ? DAEMON_STARTUP_TIMEOUT_MS : 1_500,
     });
+
+    if (ready) {
+      this.lastConnectionWarning = null;
+      return;
+    }
+
+    const portReachable = await isLoopbackPortReachable(this.config);
+    if (portReachable) {
+      throw new Error(
+        `Hunk MCP port ${this.config.host}:${this.config.port} is already in use by another process. ` +
+          `Stop the conflicting process or set HUNK_MCP_PORT to a different loopback port.`,
+      );
+    }
+
+    throw new Error(
+      `Timed out waiting for the Hunk MCP daemon on ${this.config.host}:${this.config.port}. ` +
+        `Hunk will retry in the background.`,
+    );
   }
 
   setBridge(bridge: HunkAppBridge | null) {
@@ -93,6 +129,8 @@ export class HunkHostClient {
 
     websocket.onopen = () => {
       this.lastDaemonLaunchStartedAt = 0;
+      this.lastConnectionWarning = null;
+      this.startHeartbeat();
       this.send({
         type: "register",
         registration: this.registration,
@@ -117,7 +155,11 @@ export class HunkHostClient {
     };
 
     websocket.onclose = () => {
-      this.websocket = null;
+      if (this.websocket === websocket) {
+        this.websocket = null;
+      }
+
+      this.stopHeartbeat();
       if (!this.stopped) {
         this.scheduleReconnect();
       }
@@ -128,16 +170,39 @@ export class HunkHostClient {
     };
   }
 
-  private scheduleReconnect() {
+  private scheduleReconnect(delayMs = RECONNECT_DELAY_MS) {
     if (this.reconnectTimer || this.stopped) {
       return;
     }
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.ensureDaemonAndConnect();
-    }, 3_000);
+      this.start();
+    }, delayMs);
     this.reconnectTimer.unref?.();
+  }
+
+  private startHeartbeat() {
+    if (this.heartbeatTimer) {
+      return;
+    }
+
+    this.heartbeatTimer = setInterval(() => {
+      this.send({
+        type: "heartbeat",
+        sessionId: this.registration.sessionId,
+      });
+    }, HEARTBEAT_INTERVAL_MS);
+    this.heartbeatTimer.unref?.();
+  }
+
+  private stopHeartbeat() {
+    if (!this.heartbeatTimer) {
+      return;
+    }
+
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
   }
 
   private send(message: SessionClientMessage) {
@@ -183,5 +248,15 @@ export class HunkHostClient {
     for (const message of queued) {
       await this.handleServerMessage(message);
     }
+  }
+
+  private warnUnavailable(error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown Hunk MCP connection error.";
+    if (message === this.lastConnectionWarning) {
+      return;
+    }
+
+    this.lastConnectionWarning = message;
+    console.error(`[hunk:mcp] ${message}`);
   }
 }

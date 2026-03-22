@@ -72,6 +72,10 @@ export type SessionClientMessage =
       snapshot: HunkSessionSnapshot;
     }
   | {
+      type: "heartbeat";
+      sessionId: string;
+    }
+  | {
       type: "command-result";
       requestId: string;
       ok: true;

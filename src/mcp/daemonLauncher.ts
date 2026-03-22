@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { connect } from "node:net";
 import { resolveHunkMcpConfig, type ResolvedHunkMcpConfig } from "./config";
 
 const SCRIPT_ENTRYPOINT_PATTERN = /[\\/]|\.(?:[cm]?js|tsx?)$/;
@@ -43,6 +44,36 @@ export async function isHunkDaemonHealthy(config: ResolvedHunkMcpConfig = resolv
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** Check whether some local process is already accepting TCP connections on the daemon port. */
+export function isLoopbackPortReachable(
+  config: Pick<ResolvedHunkMcpConfig, "host" | "port"> = resolveHunkMcpConfig(),
+  timeoutMs = 500,
+) {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const socket = connect({
+      host: config.host,
+      port: config.port,
+    });
+
+    const finish = (value: boolean) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      socket.destroy();
+      resolve(value);
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.unref?.();
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+  });
 }
 
 /** Wait briefly for a just-launched daemon to become reachable on its health endpoint. */

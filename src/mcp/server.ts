@@ -7,6 +7,9 @@ import { HUNK_MCP_PATH, HUNK_SESSION_SOCKET_PATH, resolveHunkMcpConfig } from ".
 import { HunkDaemonState } from "./daemonState";
 import type { SessionClientMessage } from "./types";
 
+const STALE_SESSION_TTL_MS = 45_000;
+const STALE_SESSION_SWEEP_INTERVAL_MS = 15_000;
+
 interface McpTransportEntry {
   server: McpServer;
   transport: WebStandardStreamableHTTPServerTransport;
@@ -23,6 +26,23 @@ function textContent(text: string) {
       text,
     },
   ];
+}
+
+function formatDaemonServeError(error: unknown, host: string, port: number) {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("eaddrinuse")
+    || normalized.includes("address already in use")
+    || normalized.includes(`is port ${port} in use?`)
+  ) {
+    return new Error(
+      `Hunk MCP daemon could not bind ${host}:${port} because the port is already in use. ` +
+        `Stop the conflicting process or set HUNK_MCP_PORT to a different loopback port.`,
+    );
+  }
+
+  return new Error(`Failed to start the Hunk MCP daemon on ${host}:${port}: ${message}`);
 }
 
 function createHunkMcpServer(state: HunkDaemonState) {
@@ -121,116 +141,159 @@ export function serveHunkMcpServer() {
   const config = resolveHunkMcpConfig();
   const state = new HunkDaemonState();
   const transports = new Map<string, McpTransportEntry>();
+  const startedAt = Date.now();
+  let shuttingDown = false;
 
-  const server = Bun.serve<{ sessionId?: string }>({
-    hostname: config.host,
-    port: config.port,
-    fetch: async (request, bunServer) => {
-      const url = new URL(request.url);
+  const sweepTimer = setInterval(() => {
+    state.pruneStaleSessions({ ttlMs: STALE_SESSION_TTL_MS });
+  }, STALE_SESSION_SWEEP_INTERVAL_MS);
+  sweepTimer.unref?.();
 
-      if (url.pathname === "/health") {
-        return Response.json({
-          ok: true,
-          pid: process.pid,
-          transport: `${config.httpOrigin}${HUNK_MCP_PATH}`,
-          sessionSocket: `${config.wsOrigin}${HUNK_SESSION_SOCKET_PATH}`,
-          sessions: state.listSessions().length,
-        });
-      }
+  let server: ReturnType<typeof Bun.serve<{ sessionId?: string }>>;
+  try {
+    server = Bun.serve<{ sessionId?: string }>({
+      hostname: config.host,
+      port: config.port,
+      fetch: async (request, bunServer) => {
+        const url = new URL(request.url);
 
-      if (url.pathname === HUNK_SESSION_SOCKET_PATH) {
-        if (bunServer.upgrade(request, { data: {} })) {
-          return undefined;
+        if (url.pathname === "/health") {
+          state.pruneStaleSessions({ ttlMs: STALE_SESSION_TTL_MS });
+          return Response.json({
+            ok: true,
+            pid: process.pid,
+            startedAt: new Date(startedAt).toISOString(),
+            uptimeMs: Date.now() - startedAt,
+            transport: `${config.httpOrigin}${HUNK_MCP_PATH}`,
+            sessionSocket: `${config.wsOrigin}${HUNK_SESSION_SOCKET_PATH}`,
+            sessions: state.listSessions().length,
+            pendingCommands: state.getPendingCommandCount(),
+            staleSessionTtlMs: STALE_SESSION_TTL_MS,
+          });
         }
 
-        return new Response("Expected websocket upgrade.", { status: 426 });
-      }
+        if (url.pathname === HUNK_SESSION_SOCKET_PATH) {
+          if (bunServer.upgrade(request, { data: {} })) {
+            return undefined;
+          }
 
-      if (url.pathname !== HUNK_MCP_PATH) {
-        return new Response("Not found.", { status: 404 });
-      }
+          return new Response("Expected websocket upgrade.", { status: 426 });
+        }
 
-      const headerSessionId = request.headers.get("mcp-session-id") ?? undefined;
-      const parsedBody = request.method === "POST" ? await request.json() : undefined;
+        if (url.pathname !== HUNK_MCP_PATH) {
+          return new Response("Not found.", { status: 404 });
+        }
 
-      if (headerSessionId && transports.has(headerSessionId)) {
-        const entry = transports.get(headerSessionId)!;
-        return entry.transport.handleRequest(request, { parsedBody });
-      }
+        const headerSessionId = request.headers.get("mcp-session-id") ?? undefined;
+        const parsedBody = request.method === "POST" ? await request.json() : undefined;
 
-      if (!headerSessionId && request.method === "POST" && isInitializeRequest(parsedBody)) {
-        let transport: WebStandardStreamableHTTPServerTransport;
-        let transportEntry: McpTransportEntry;
+        if (headerSessionId && transports.has(headerSessionId)) {
+          const entry = transports.get(headerSessionId)!;
+          return entry.transport.handleRequest(request, { parsedBody });
+        }
 
-        transport = new WebStandardStreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-          enableJsonResponse: true,
-          onsessioninitialized: (sessionId) => {
-            transports.set(sessionId, transportEntry);
+        if (!headerSessionId && request.method === "POST" && isInitializeRequest(parsedBody)) {
+          let transport: WebStandardStreamableHTTPServerTransport;
+          let transportEntry: McpTransportEntry;
+
+          transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true,
+            onsessioninitialized: (sessionId) => {
+              transports.set(sessionId, transportEntry);
+            },
+            onsessionclosed: (sessionId) => {
+              const entry = transports.get(sessionId);
+              if (entry) {
+                void entry.server.close();
+                transports.delete(sessionId);
+              }
+            },
+          });
+
+          const mcpServer = createHunkMcpServer(state);
+          transportEntry = {
+            server: mcpServer,
+            transport,
+          };
+
+          await mcpServer.connect(transport);
+          return transport.handleRequest(request, { parsedBody });
+        }
+
+        return Response.json(
+          {
+            jsonrpc: "2.0",
+            error: {
+              code: -32000,
+              message: "Bad Request: No valid MCP session id provided.",
+            },
+            id: null,
           },
-          onsessionclosed: (sessionId) => {
-            const entry = transports.get(sessionId);
-            if (entry) {
-              void entry.server.close();
-              transports.delete(sessionId);
-            }
+          {
+            status: 400,
           },
-        });
-
-        const mcpServer = createHunkMcpServer(state);
-        transportEntry = {
-          server: mcpServer,
-          transport,
-        };
-
-        await mcpServer.connect(transport);
-        return transport.handleRequest(request, { parsedBody });
-      }
-
-      return Response.json(
-        {
-          jsonrpc: "2.0",
-          error: {
-            code: -32000,
-            message: "Bad Request: No valid MCP session id provided.",
-          },
-          id: null,
-        },
-        {
-          status: 400,
-        },
-      );
-    },
-    websocket: {
-      message: (socket, message) => {
-        if (typeof message !== "string") {
-          return;
-        }
-
-        let parsed: SessionClientMessage;
-        try {
-          parsed = JSON.parse(message) as SessionClientMessage;
-        } catch {
-          return;
-        }
-
-        switch (parsed.type) {
-          case "register":
-            state.registerSession(socket, parsed.registration, parsed.snapshot);
-            break;
-          case "snapshot":
-            state.updateSnapshot(parsed.sessionId, parsed.snapshot);
-            break;
-          case "command-result":
-            state.handleCommandResult(parsed);
-            break;
-        }
+        );
       },
-      close: (socket) => {
-        state.unregisterSocket(socket);
+      websocket: {
+        message: (socket, message) => {
+          if (typeof message !== "string") {
+            return;
+          }
+
+          let parsed: SessionClientMessage;
+          try {
+            parsed = JSON.parse(message) as SessionClientMessage;
+          } catch {
+            return;
+          }
+
+          switch (parsed.type) {
+            case "register":
+              state.registerSession(socket, parsed.registration, parsed.snapshot);
+              break;
+            case "snapshot":
+              state.updateSnapshot(parsed.sessionId, parsed.snapshot);
+              break;
+            case "heartbeat":
+              state.markSessionSeen(parsed.sessionId);
+              break;
+            case "command-result":
+              state.handleCommandResult(parsed);
+              break;
+          }
+        },
+        close: (socket) => {
+          state.unregisterSocket(socket);
+        },
       },
-    },
-  });
+    });
+  } catch (error) {
+    clearInterval(sweepTimer);
+    throw formatDaemonServeError(error, config.host, config.port);
+  }
+
+  const shutdown = () => {
+    if (shuttingDown) {
+      return;
+    }
+
+    shuttingDown = true;
+    clearInterval(sweepTimer);
+    process.off("SIGINT", shutdown);
+    process.off("SIGTERM", shutdown);
+
+    state.shutdown();
+    for (const [sessionId, entry] of transports.entries()) {
+      void entry.server.close();
+      transports.delete(sessionId);
+    }
+
+    server.stop(true);
+  };
+
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
 
   console.log(`Hunk MCP daemon listening on ${config.httpOrigin}${HUNK_MCP_PATH}`);
   console.log(`Hunk session websocket listening on ${config.wsOrigin}${HUNK_SESSION_SOCKET_PATH}`);
