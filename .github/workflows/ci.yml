@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'assets/**'
+      - 'LICENSE'
 
 concurrency:
   group: main-ci-${{ github.workflow }}-${{ github.ref }}

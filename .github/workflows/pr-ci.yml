@@ -2,6 +2,11 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'assets/**'
+      - 'LICENSE'
 
 concurrency:
   group: pr-ci-${{ github.workflow }}-${{ github.ref }}
