@@ -47,16 +47,16 @@ export function getPlatformPackageSpecByName(packageName: string) {
   return PLATFORM_PACKAGE_MATRIX.find((candidate) => candidate.packageName === packageName);
 }
 
-/** Return the Hunk package spec that matches the current machine. */
-export function getHostPlatformPackageSpec() {
-  const normalizedPlatform = normalizeHostPlatform(os.platform());
+/** Resolve the published package spec for a given Node platform/architecture pair. */
+export function getPlatformPackageSpecForHost(platform: NodeJS.Platform, arch: NodeJS.Architecture) {
+  const normalizedPlatform = normalizeHostPlatform(platform);
   if (!normalizedPlatform) {
-    throw new Error(`Unsupported host platform for prebuilt packaging: ${os.platform()}`);
+    throw new Error(`Unsupported host platform for prebuilt packaging: ${platform}`);
   }
 
-  const normalizedArch = normalizeHostArch(os.arch());
+  const normalizedArch = normalizeHostArch(arch);
   if (!normalizedArch) {
-    throw new Error(`Unsupported host architecture for prebuilt packaging: ${os.arch()}`);
+    throw new Error(`Unsupported host architecture for prebuilt packaging: ${arch}`);
   }
 
   const spec = PLATFORM_PACKAGE_MATRIX.find((candidate) => candidate.os === normalizedPlatform && candidate.cpu === normalizedArch);
@@ -65,6 +65,11 @@ export function getHostPlatformPackageSpec() {
   }
 
   return spec;
+}
+
+/** Return the Hunk package spec that matches the current machine. */
+export function getHostPlatformPackageSpec() {
+  return getPlatformPackageSpecForHost(os.platform(), os.arch());
 }
 
 /** Build the optional dependency map for the top-level hunkdiff package. */
