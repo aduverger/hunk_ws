@@ -10,6 +10,9 @@ export interface DaemonLaunchCommand {
   args: string[];
 }
 
+/** Detect Bun's virtual filesystem prefix used inside compiled single-file executables. */
+const BUNFS_PREFIX = "/$bunfs/";
+
 /** Resolve how the current Hunk process should launch a sibling `hunk mcp serve` daemon. */
 export function resolveDaemonLaunchCommand(
   argv = process.argv,
@@ -17,24 +20,23 @@ export function resolveDaemonLaunchCommand(
 ): DaemonLaunchCommand {
   const entrypoint = argv[1];
 
+  // Bun-compiled single-file executables report argv as
+  //   ["bun", "/$bunfs/root/<name>", ...userArgs]
+  // with execPath pointing to the real binary on disk.
+  // Detect the virtual $bunfs path and use execPath directly.
+  if (entrypoint && entrypoint.startsWith(BUNFS_PREFIX)) {
+    return {
+      command: execPath,
+      args: ["mcp", "serve"],
+    };
+  }
+
   // Running from source or a JS wrapper (bun src/main.tsx, node bin/hunk.cjs):
   // reuse the runtime + script entrypoint.
   if (entrypoint && !entrypoint.startsWith("-") && SCRIPT_ENTRYPOINT_PATTERN.test(entrypoint)) {
     return {
       command: execPath,
       args: [entrypoint, "mcp", "serve"],
-    };
-  }
-
-  // Bun-compiled single-file executables set process.execPath to the Bun
-  // runtime embedded inside the binary, not the binary itself.  When
-  // argv[0] differs from execPath, it is the actual compiled binary the
-  // user invoked — use that to spawn the daemon.
-  const invokedBinary = argv[0];
-  if (invokedBinary && invokedBinary !== execPath) {
-    return {
-      command: invokedBinary,
-      args: ["mcp", "serve"],
     };
   }
 

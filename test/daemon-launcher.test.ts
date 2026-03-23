@@ -26,16 +26,13 @@ describe("MCP daemon launcher", () => {
     });
   });
 
-  test("uses argv[0] for Bun-compiled binaries where execPath is the embedded runtime", () => {
-    // In Bun single-file executables, process.execPath is the Bun runtime
-    // inside the binary, while argv[0] is the actual compiled binary path.
+  test("uses execPath for Bun-compiled binaries where argv contains $bunfs virtual paths", () => {
+    // In Bun single-file executables, argv is ["bun", "/$bunfs/root/<name>", ...userArgs]
+    // and execPath is the real binary on disk.
     expect(
       resolveDaemonLaunchCommand(
-        [
-          "/usr/local/lib/node_modules/hunkdiff/node_modules/hunkdiff-darwin-arm64/bin/hunk",
-          "show",
-        ],
-        "/usr/local/lib/node_modules/hunkdiff/node_modules/hunkdiff-darwin-arm64/bin/hunk___bun",
+        ["bun", "/$bunfs/root/hunk", "show"],
+        "/usr/local/lib/node_modules/hunkdiff/node_modules/hunkdiff-darwin-arm64/bin/hunk",
       ),
     ).toEqual({
       command: "/usr/local/lib/node_modules/hunkdiff/node_modules/hunkdiff-darwin-arm64/bin/hunk",
