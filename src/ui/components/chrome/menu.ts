@@ -70,11 +70,11 @@ function menuEntryText(entry: Extract<MenuEntry, { kind: "item" }>) {
   return `${check}${entry.label}${hint}`;
 }
 
-/** Compute a dropdown width that fits its longest entry with a small floor. */
+/** Compute a dropdown content width that fits its longest entry with a little breathing room. */
 export function menuWidth(entries: MenuEntry[]) {
   return Math.max(
-    18,
-    ...entries.map((entry) => (entry.kind === "separator" ? 6 : menuEntryText(entry).length)),
+    20,
+    ...entries.map((entry) => (entry.kind === "separator" ? 6 : menuEntryText(entry).length + 2)),
   );
 }
 

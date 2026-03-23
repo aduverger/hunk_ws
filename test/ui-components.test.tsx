@@ -593,6 +593,7 @@ describe("UI components", () => {
         activeMenuItemIndex={0}
         activeMenuSpec={{ id: "view", left: 2, width: 6, label: "View" }}
         activeMenuWidth={24}
+        terminalWidth={30}
         theme={theme}
         onHoverItem={() => {}}
         onSelectItem={() => {}}
@@ -611,6 +612,33 @@ describe("UI components", () => {
     expect(frame).toContain("l");
     expect(frame).toContain("w");
     expect(frame).toContain("m");
+  });
+
+  test("MenuDropdown repositions wide menus to stay inside the terminal", async () => {
+    const theme = resolveTheme("midnight", null);
+    const frame = await captureFrame(
+      <MenuDropdown
+        activeMenuId="agent"
+        activeMenuEntries={[
+          { kind: "item", label: "Next annotated file", action: () => {} },
+          { kind: "item", label: "Previous annotated file", action: () => {} },
+        ]}
+        activeMenuItemIndex={0}
+        activeMenuSpec={{ id: "agent", left: 22, width: 7, label: "Agent" }}
+        activeMenuWidth={30}
+        terminalWidth={34}
+        theme={theme}
+        onHoverItem={() => {}}
+        onSelectItem={() => {}}
+      />,
+      34,
+      6,
+    );
+
+    expect(frame).toContain("Next annotated file");
+    expect(frame).toContain("Previous annotated file");
+    expect(frame).toContain("┐");
+    expect(frame).toContain("┘");
   });
 
   test("StatusBar renders filter mode affordance", async () => {

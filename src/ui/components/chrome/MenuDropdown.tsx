@@ -39,6 +39,7 @@ export function MenuDropdown({
   activeMenuItemIndex,
   activeMenuSpec,
   activeMenuWidth,
+  terminalWidth,
   theme,
   onHoverItem,
   onSelectItem,
@@ -48,17 +49,21 @@ export function MenuDropdown({
   activeMenuItemIndex: number;
   activeMenuSpec: MenuSpec;
   activeMenuWidth: number;
+  terminalWidth: number;
   theme: AppTheme;
   onHoverItem: (index: number) => void;
   onSelectItem: (entry: Extract<MenuEntry, { kind: "item" }>) => void;
 }) {
+  const clampedWidth = Math.min(activeMenuWidth, Math.max(22, terminalWidth - 2));
+  const clampedLeft = Math.max(1, Math.min(activeMenuSpec.left, terminalWidth - clampedWidth - 1));
+
   return (
     <box
       style={{
         position: "absolute",
         top: 1,
-        left: activeMenuSpec.left,
-        width: activeMenuWidth,
+        left: clampedLeft,
+        width: clampedWidth,
         height: activeMenuEntries.length + 2,
         zIndex: 40,
         border: true,
@@ -73,9 +78,7 @@ export function MenuDropdown({
             key={`${activeMenuId}:separator:${index}`}
             style={{ height: 1, paddingLeft: 1, paddingRight: 1 }}
           >
-            <text fg={theme.border}>
-              {padText("-".repeat(activeMenuWidth - 4), activeMenuWidth - 2)}
-            </text>
+            <text fg={theme.border}>{padText("-".repeat(clampedWidth - 4), clampedWidth - 2)}</text>
           </box>
         ) : (
           <box
@@ -90,7 +93,7 @@ export function MenuDropdown({
             onMouseOver={() => onHoverItem(index)}
             onMouseUp={() => onSelectItem(entry)}
           >
-            {renderMenuLine(entry, activeMenuWidth - 2, theme, activeMenuItemIndex === index)}
+            {renderMenuLine(entry, clampedWidth - 2, theme, activeMenuItemIndex === index)}
           </box>
         ),
       )}
