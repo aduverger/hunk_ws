@@ -1,18 +1,17 @@
 <img width="384" height="384" alt="image" src="https://github.com/user-attachments/assets/85c5ba93-9de1-4757-87ae-4520b8fd659f" />
 
-# hunk - TUI diff tool that's AI-friendly
+# hunk
+
+Hunk is a review-first terminal diff viewer for agent-authored changesets, built on [OpenTUI](https://github.com/anomalyco/opentui) and [Pierre diffs](https://www.npmjs.com/package/@pierre/diffs).
 
 [![CI status](https://img.shields.io/github/actions/workflow/status/modem-dev/hunk/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/modem-dev/hunk/actions/workflows/ci.yml?branch=main)
 [![Latest release](https://img.shields.io/github/v/release/modem-dev/hunk?style=for-the-badge)](https://github.com/modem-dev/hunk/releases)
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
-Hunk is a desktop-inspired terminal diff viewer for reviewing agent-authored changesets.
-
-- AI annotations
-- full-screen multi-file review stream
-- keyboard & mouse support
-- split, stacked, and responsive auto layouts
-- Git pager and difftool integration
+- multi-file review stream with sidebar navigation
+- inline AI and agent annotations beside the code
+- split, stack, and responsive auto layouts
+- keyboard, mouse, pager, and Git difftool support
 
 <table>
  <tr>
@@ -24,7 +23,7 @@ Hunk is a desktop-inspired terminal diff viewer for reviewing agent-authored cha
    <td width="40%" align="center">
      <img width="508" height="920" alt="image" src="https://github.com/user-attachments/assets/44c542a2-0a09-41cd-b264-fbd942e92f06" />
      <br />
-     <sub>Stacked view and mouse-selectable menus
+     <sub>Stacked view and mouse-selectable menus</sub>
    </td>
  </tr>
 </table>
@@ -38,19 +37,19 @@ npm i -g hunkdiff
 Requirements:
 
 - Node.js 18+
-- Currently supported on macOS and Linux
-- Git is recommended for most workflows
+- macOS or Linux
+- Git recommended for most workflows
 
-## Usage
-
-### Basics
+## Quick start
 
 ```bash
 hunk           # show help
-hunk --version # get version
+hunk --version # print the installed version
 ```
 
 ### Working with Git
+
+Hunk mirrors Git's diff-style commands, but opens the changeset in a review UI instead of plain text.
 
 ```bash
 hunk diff         # review current repo changes
@@ -59,7 +58,7 @@ hunk show         # review the latest commit
 hunk show HEAD~1  # review an earlier commit
 ```
 
-### Working with raw files/patches
+### Working with raw files and patches
 
 ```bash
 hunk diff before.ts after.ts        # compare two files directly
@@ -68,26 +67,23 @@ git diff --no-color | hunk patch -  # review a patch from stdin
 
 ## Feature comparison
 
-| Capability                                                  | hunk | difftastic | delta | diff |
-| ----------------------------------------------------------- | ---- | ---------- | ----- | ---- |
-| Dedicated interactive review UI                             | ✅   | ❌         | ❌    | ❌   |
-| Multi-file review stream with navigation sidebar            | ✅   | ❌         | ❌    | ❌   |
-| Agent / AI rationale sidecar                                | ✅   | ❌         | ❌    | ❌   |
-| Split diffs                                                 | ✅   | ✅         | ✅    | ✅   |
-| Stacked diffs                                               | ✅   | ✅         | ✅    | ✅   |
-| Auto responsive layouts                                     | ✅   | ❌         | ❌    | ❌   |
-| Themes                                                      | ✅   | ❌         | ✅    | ❌   |
-| Syntax highlighting                                         | ✅   | ✅         | ✅    | ❌   |
-| Syntax-aware / structural diffing                           | ❌   | ✅         | ❌    | ❌   |
-| Mouse support inside the diff viewer                        | ✅   | ❌         | ❌    | ❌   |
-| Runtime toggles for wrapping / line numbers / hunk metadata | ✅   | ❌         | ❌    | ❌   |
-| Pager-compatible mode                                       | ✅   | ✅         | ✅    | ✅   |
+| Capability                         | hunk | difftastic | delta | diff-so-fancy | diff |
+| ---------------------------------- | ---- | ---------- | ----- | ------------- | ---- |
+| Review-first interactive UI        | ✅   | ❌         | ❌    | ❌            | ❌   |
+| Multi-file review stream + sidebar | ✅   | ❌         | ❌    | ❌            | ❌   |
+| Inline agent / AI annotations      | ✅   | ❌         | ❌    | ❌            | ❌   |
+| Responsive auto split/stack layout | ✅   | ❌         | ❌    | ❌            | ❌   |
+| Mouse support inside the viewer    | ✅   | ❌         | ❌    | ❌            | ❌   |
+| Runtime view toggles               | ✅   | ❌         | ❌    | ❌            | ❌   |
+| Syntax highlighting                | ✅   | ✅         | ✅    | ❌            | ❌   |
+| Structural diffing                 | ❌   | ✅         | ❌    | ❌            | ❌   |
+| Pager-compatible mode              | ✅   | ✅         | ✅    | ✅            | ✅   |
+
+Hunk is optimized for reviewing a full changeset interactively.
 
 ## Git integration
 
-You can set Hunk as your Git pager so `git diff` and `git show` open in Hunk automatically.
-
-From the terminal:
+Set Hunk as your Git pager so `git diff` and `git show` open in Hunk automatically:
 
 ```bash
 git config --global core.pager "hunk pager"
@@ -100,7 +96,7 @@ Or in your Git config:
     pager = hunk pager
 ```
 
-If you’d rather keep Git’s default `diff` and `show` behavior, you can add optional aliases instead:
+If you want to keep Git's default pager and add opt-in aliases instead:
 
 ```bash
 git config --global alias.hdiff "-c core.pager=\"hunk pager\" diff"
@@ -112,20 +108,6 @@ git config --global alias.hshow "-c core.pager=\"hunk pager\" show"
 Ready-to-run demo diffs live in [`examples/`](examples/README.md).
 
 Each example includes the exact command to run from the repository root.
-
-## Agent skill
-
-Hunk ships a bundled agent skill named `hunk-review` in `skills/hunk-review/SKILL.md`.
-
-It is written as a self-contained skill for skill-aware coding agents. The skill teaches an agent to:
-
-- briefly explain what Hunk is
-- prefer `hunk session ...` when a live Hunk review window already exists
-- inspect current review focus before navigating blindly
-- use `hunk session reload` to swap what an existing live session is showing
-- leave concise inline review comments tied to real diff lines
-
-If your coding agent supports packaged or repo-local skills, point it at this repository or copy the `skills/hunk-review/` directory into that agent's skill search path.
 
 ## Config
 
@@ -144,20 +126,15 @@ wrap_lines = false
 agent_notes = false
 ```
 
-## Advanced workflows
+## Live sessions and agent workflows
 
-- `hunk diff --agent-context <file>` loads inline agent rationale from a JSON sidecar
-- `hunk mcp serve` runs the local Hunk session daemon and websocket broker for manual startup or debugging
-  - normal Hunk sessions auto-start/register with it by default
-  - coding agents should usually interact through `hunk session ...`, not by managing the daemon directly
-  - Hunk keeps the daemon loopback-only by default
-  - if you intentionally need remote access, set `HUNK_MCP_UNSAFE_ALLOW_REMOTE=1` and choose a non-loopback `HUNK_MCP_HOST`
+Hunk can load inline rationale from a sidecar and lets you steer a live review window from another terminal or agent process.
 
-### Live session control CLI
+- `hunk diff --agent-context <file>` or `hunk patch --agent-context <file>` shows inline agent rationale beside the diff
+- `hunk session ...` inspects, navigates, reloads, and annotates a running Hunk session
+- `skills/hunk-review/SKILL.md` helps coding agents steer a live Hunk review and write inline Hunk annotations
 
-`hunk session ...` is the user-facing and agent-facing interface to Hunk's local live review session daemon.
-
-Use explicit session targeting with either a live `<session-id>` or `--repo <path>` when exactly one live session matches that repo root.
+Normal Hunk sessions start and register with the local loopback session daemon automatically. In most cases, use `hunk session ...` and ignore `hunk mcp serve`.
 
 ```bash
 hunk session list
@@ -165,19 +142,15 @@ hunk session context --repo .
 hunk session navigate --repo . --file README.md --hunk 2
 hunk session reload --repo . -- diff
 hunk session reload --repo . -- show HEAD~1 -- README.md
-hunk session comment add --repo . --file README.md --new-line 103 --summary "Frame this as MCP-first"
+hunk session comment add --repo . --file README.md --new-line 103 --summary "Tighten this wording"
 hunk session comment list --repo .
 hunk session comment rm --repo . <comment-id>
 hunk session comment clear --repo . --file README.md --yes
 ```
 
-`hunk session reload ... -- <hunk command>` swaps the live session to a new `diff`, `show`, or other reviewable Hunk input without opening a new TUI window.
+`hunk session reload ... -- <hunk command>` swaps what a live session is showing without opening a new TUI window.
 
-The session CLI can inspect, navigate, annotate, and reload a live session, but it does not edit `.hunk/latest.json`.
-
-## Performance notes
-
-Hunk spends more startup time than plain diff output tools because it launches an interactive UI with syntax highlighting, navigation state, and optional agent context. In exchange, it is optimized for reviewing a full changeset instead of printing static diff text and exiting.
+Use `hunk mcp serve` only for manual startup or debugging of the local session daemon.
 
 ## Contributing
 
