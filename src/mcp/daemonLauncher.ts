@@ -17,10 +17,24 @@ export function resolveDaemonLaunchCommand(
 ): DaemonLaunchCommand {
   const entrypoint = argv[1];
 
+  // Running from source or a JS wrapper (bun src/main.tsx, node bin/hunk.cjs):
+  // reuse the runtime + script entrypoint.
   if (entrypoint && !entrypoint.startsWith("-") && SCRIPT_ENTRYPOINT_PATTERN.test(entrypoint)) {
     return {
       command: execPath,
       args: [entrypoint, "mcp", "serve"],
+    };
+  }
+
+  // Bun-compiled single-file executables set process.execPath to the Bun
+  // runtime embedded inside the binary, not the binary itself.  When
+  // argv[0] differs from execPath, it is the actual compiled binary the
+  // user invoked — use that to spawn the daemon.
+  const invokedBinary = argv[0];
+  if (invokedBinary && invokedBinary !== execPath) {
+    return {
+      command: invokedBinary,
+      args: ["mcp", "serve"],
     };
   }
 

@@ -26,6 +26,23 @@ describe("MCP daemon launcher", () => {
     });
   });
 
+  test("uses argv[0] for Bun-compiled binaries where execPath is the embedded runtime", () => {
+    // In Bun single-file executables, process.execPath is the Bun runtime
+    // inside the binary, while argv[0] is the actual compiled binary path.
+    expect(
+      resolveDaemonLaunchCommand(
+        [
+          "/usr/local/lib/node_modules/hunkdiff/node_modules/hunkdiff-darwin-arm64/bin/hunk",
+          "show",
+        ],
+        "/usr/local/lib/node_modules/hunkdiff/node_modules/hunkdiff-darwin-arm64/bin/hunk___bun",
+      ),
+    ).toEqual({
+      command: "/usr/local/lib/node_modules/hunkdiff/node_modules/hunkdiff-darwin-arm64/bin/hunk",
+      args: ["mcp", "serve"],
+    });
+  });
+
   test("detects whether some process is already listening on the daemon port", async () => {
     const listener = createServer(() => undefined);
     await new Promise<void>((resolve, reject) => {
