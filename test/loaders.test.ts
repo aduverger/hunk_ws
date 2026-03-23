@@ -119,6 +119,36 @@ describe("loadAppBootstrap", () => {
     expect(bootstrap.changeset.files[0]?.stats.additions).toBeGreaterThan(0);
   });
 
+  test("reports a friendly error when git review runs outside a repository", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hunk-nonrepo-"));
+    tempDirs.push(dir);
+
+    await expect(
+      loadFromRepo(dir, {
+        kind: "git",
+        staged: false,
+        options: { mode: "auto" },
+      }),
+    ).rejects.toThrow("`hunk diff` must be run inside a Git repository.");
+  });
+
+  test("reports a friendly error when diff cannot resolve a range", async () => {
+    const dir = createTempRepo("hunk-git-missing-range-");
+
+    writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
+    git(dir, "add", "alpha.ts");
+    git(dir, "commit", "-m", "initial");
+
+    await expect(
+      loadFromRepo(dir, {
+        kind: "git",
+        range: "HEAD~999",
+        staged: false,
+        options: { mode: "auto" },
+      }),
+    ).rejects.toThrow("`hunk diff HEAD~999` could not resolve Git revision or range `HEAD~999`.");
+  });
+
   test("uses agent sidecar file order for the review stream", async () => {
     const dir = createTempRepo("hunk-git-");
 
@@ -235,6 +265,22 @@ describe("loadAppBootstrap", () => {
     expect(previous.changeset.files.map((file) => file.path)).toEqual(["alpha.ts"]);
   });
 
+  test("reports a friendly error when show cannot resolve a ref", async () => {
+    const dir = createTempRepo("hunk-show-missing-ref-");
+
+    writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
+    git(dir, "add", "alpha.ts");
+    git(dir, "commit", "-m", "initial");
+
+    await expect(
+      loadFromRepo(dir, {
+        kind: "show",
+        ref: "HEAD~999",
+        options: { mode: "auto" },
+      }),
+    ).rejects.toThrow("`hunk show HEAD~999` could not resolve Git ref `HEAD~999`.");
+  });
+
   test("loads show output limited by pathspec", async () => {
     const dir = createTempRepo("hunk-show-pathspec-");
 
@@ -275,6 +321,40 @@ describe("loadAppBootstrap", () => {
 
     expect(bootstrap.changeset.files.map((file) => file.path)).toEqual(["alpha.ts"]);
     expect(bootstrap.changeset.title).toContain("stash");
+  });
+
+  test("reports a friendly error when no stash entries exist", async () => {
+    const dir = createTempRepo("hunk-stash-empty-");
+
+    writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
+    git(dir, "add", "alpha.ts");
+    git(dir, "commit", "-m", "initial");
+
+    await expect(
+      loadFromRepo(dir, {
+        kind: "stash-show",
+        options: { mode: "auto" },
+      }),
+    ).rejects.toThrow("`hunk stash show` could not find a stash entry to show.");
+  });
+
+  test("reports a friendly error when a stash ref does not exist", async () => {
+    const dir = createTempRepo("hunk-stash-missing-ref-");
+
+    writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
+    git(dir, "add", "alpha.ts");
+    git(dir, "commit", "-m", "initial");
+
+    writeFileSync(join(dir, "alpha.ts"), "export const alpha = 2;\n");
+    git(dir, "stash", "push", "-m", "update alpha");
+
+    await expect(
+      loadFromRepo(dir, {
+        kind: "stash-show",
+        ref: "stash@{99}",
+        options: { mode: "auto" },
+      }),
+    ).rejects.toThrow("`hunk stash show stash@{99}` could not resolve stash entry `stash@{99}`.");
   });
 
   test("treats malformed inline patch text as an empty review instead of throwing", async () => {

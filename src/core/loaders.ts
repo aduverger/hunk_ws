@@ -7,6 +7,7 @@ import {
 } from "@pierre/diffs";
 import { createTwoFilesPatch } from "diff";
 import { findAgentFileContext, loadAgentContext } from "./agent";
+import { resolveGitRepoRoot, runGitText } from "./git";
 import type {
   AppBootstrap,
   AgentContext,
@@ -20,25 +21,6 @@ import type {
   ShowCommandInput,
   StashShowCommandInput,
 } from "./types";
-
-/** Run a command synchronously and return stdout as text. */
-function spawnText(cmd: string[], cwd = process.cwd()) {
-  const proc = Bun.spawnSync(cmd, {
-    cwd,
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const stdout = Buffer.from(proc.stdout).toString("utf8");
-  const stderr = Buffer.from(proc.stderr).toString("utf8");
-
-  if (proc.exitCode !== 0) {
-    throw new Error(stderr.trim() || `Command failed: ${cmd.join(" ")}`);
-  }
-
-  return stdout;
-}
 
 /** Return the final path segment for display-oriented labels. */
 function basename(path: string) {
@@ -295,7 +277,7 @@ function appendPathspecs(args: string[], pathspecs?: string[]) {
 
 /** Build a changeset from the current repository working tree or a git range. */
 async function loadGitChangeset(input: GitCommandInput, agentContext: AgentContext | null) {
-  const repoRoot = spawnText(["git", "rev-parse", "--show-toplevel"]).trim();
+  const repoRoot = resolveGitRepoRoot(input);
   const repoName = basename(repoRoot);
   const args = ["git", "diff", "--no-ext-diff", "--find-renames", "--no-color"];
 
@@ -309,7 +291,7 @@ async function loadGitChangeset(input: GitCommandInput, agentContext: AgentConte
 
   appendPathspecs(args, input.pathspecs);
 
-  const patchText = spawnText(args);
+  const patchText = runGitText({ input, args: args.slice(1) });
   const title = input.staged
     ? `${repoName} staged changes`
     : input.range
@@ -321,7 +303,7 @@ async function loadGitChangeset(input: GitCommandInput, agentContext: AgentConte
 
 /** Build a changeset from `git show`, suppressing commit-message chrome so only the patch feeds the UI. */
 async function loadShowChangeset(input: ShowCommandInput, agentContext: AgentContext | null) {
-  const repoRoot = spawnText(["git", "rev-parse", "--show-toplevel"]).trim();
+  const repoRoot = resolveGitRepoRoot(input);
   const repoName = basename(repoRoot);
   const args = ["git", "show", "--format=", "--no-ext-diff", "--find-renames", "--no-color"];
 
@@ -332,7 +314,7 @@ async function loadShowChangeset(input: ShowCommandInput, agentContext: AgentCon
   appendPathspecs(args, input.pathspecs);
 
   return normalizePatchChangeset(
-    spawnText(args),
+    runGitText({ input, args: args.slice(1) }),
     input.ref ? `${repoName} show ${input.ref}` : `${repoName} show HEAD`,
     repoRoot,
     agentContext,
@@ -344,7 +326,7 @@ async function loadStashShowChangeset(
   input: StashShowCommandInput,
   agentContext: AgentContext | null,
 ) {
-  const repoRoot = spawnText(["git", "rev-parse", "--show-toplevel"]).trim();
+  const repoRoot = resolveGitRepoRoot(input);
   const repoName = basename(repoRoot);
   const args = ["git", "stash", "show", "-p", "--find-renames", "--no-color"];
 
@@ -353,7 +335,7 @@ async function loadStashShowChangeset(
   }
 
   return normalizePatchChangeset(
-    spawnText(args),
+    runGitText({ input, args: args.slice(1) }),
     input.ref ? `${repoName} stash ${input.ref}` : `${repoName} stash`,
     repoRoot,
     agentContext,

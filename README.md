@@ -29,9 +29,6 @@ Hunk is a desktop-inspired terminal diff viewer for reviewing agent-authored cha
  </tr>
 </table>
 
-
-
-
 ## Install
 
 ```bash
