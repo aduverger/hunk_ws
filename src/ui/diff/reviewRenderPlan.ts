@@ -5,17 +5,17 @@ import type { DiffRow } from "./pierre";
 
 const EMPTY_VISIBLE_AGENT_NOTES: VisibleAgentNote[] = [];
 
-interface SelectedInlineNote {
+type DiffLineRow = Extract<DiffRow, { type: "split-line" | "stack-line" }>;
+
+interface PrimaryVisibleInlineNote {
   anchorKey: string;
   anchorSide?: "old" | "new";
-  coveredRowKeys: Set<string>;
-  endGuideAfterKey: string;
+  guidedRowKeys: Set<string>;
+  endGuideAfterKey?: string;
   note: VisibleAgentNote;
   noteCount: number;
   noteIndex: number;
 }
-
-type DiffLineRow = Extract<DiffRow, { type: "split-line" | "stack-line" }>;
 
 export type PlannedReviewRow =
   | {
@@ -45,6 +45,16 @@ export type PlannedReviewRow =
       hunkIndex: number;
       side: "old" | "new";
     };
+
+function hunkRows(rows: DiffRow[], hunkIndex: number) {
+  return rows.filter((row) => row.hunkIndex === hunkIndex);
+}
+
+function hunkLineRows(rows: DiffRow[], hunkIndex: number) {
+  return hunkRows(rows, hunkIndex).filter(
+    (row): row is DiffLineRow => row.type === "split-line" || row.type === "stack-line",
+  );
+}
 
 /** Check whether a rendered diff row visually covers the note anchor line. */
 function rowMatchesNote(row: DiffLineRow, annotation: AgentAnnotation) {
@@ -92,62 +102,81 @@ function rowOverlapsAnnotation(row: DiffLineRow, annotation: AgentAnnotation) {
   );
 }
 
-/** Resolve the rendered diff row before which the visible inline note should appear. */
+/**
+ * Resolve the rendered diff row before which the inline note should appear.
+ * Range-less notes intentionally anchor beside the first code row in the hunk,
+ * not above the hunk header metadata.
+ */
 function findInlineNoteAnchorRow(
   rows: DiffRow[],
   annotation: AgentAnnotation,
   selectedHunkIndex: number,
 ) {
-  const selectedHunkRows = rows.filter((row) => row.hunkIndex === selectedHunkIndex);
-  const lineRows = selectedHunkRows.filter(
-    (row): row is DiffLineRow => row.type === "split-line" || row.type === "stack-line",
-  );
+  const selectedHunkRows = hunkRows(rows, selectedHunkIndex);
+  const lineRows = hunkLineRows(rows, selectedHunkIndex);
   const headerRow = selectedHunkRows.find((row) => row.type === "hunk-header");
 
   return lineRows.find((row) => rowMatchesNote(row, annotation)) ?? lineRows[0] ?? headerRow;
 }
 
-/** Return the one visible note, plus the diff rows that should show its guide rail. */
-function buildSelectedInlineNote(
+/**
+ * The render plan shows at most one inline note at a time.
+ * The first entry in visibleAgentNotes is the primary visible note, while
+ * noteIndex/noteCount preserve its position within the current visible list.
+ */
+function selectPrimaryVisibleNote(visibleAgentNotes: VisibleAgentNote[]) {
+  if (visibleAgentNotes.length === 0) {
+    return null;
+  }
+
+  return {
+    note: visibleAgentNotes[0]!,
+    noteIndex: 0,
+    noteCount: visibleAgentNotes.length,
+  };
+}
+
+/** Return the primary visible note, plus the diff rows that should show its guide rail. */
+function buildPrimaryVisibleInlineNote(
   rows: DiffRow[],
   visibleAgentNotes: VisibleAgentNote[],
   selectedHunkIndex: number,
 ) {
-  if (visibleAgentNotes.length === 0 || selectedHunkIndex < 0) {
+  if (selectedHunkIndex < 0) {
     return null;
   }
 
-  const note = visibleAgentNotes[0]!;
-  const anchorRow = findInlineNoteAnchorRow(rows, note.annotation, selectedHunkIndex);
+  const selectedNote = selectPrimaryVisibleNote(visibleAgentNotes);
+  if (!selectedNote) {
+    return null;
+  }
+
+  const anchorRow = findInlineNoteAnchorRow(rows, selectedNote.note.annotation, selectedHunkIndex);
   if (!anchorRow) {
     return null;
   }
 
-  const selectedHunkLineRows = rows.filter(
-    (row): row is DiffLineRow =>
-      row.hunkIndex === selectedHunkIndex &&
-      (row.type === "split-line" || row.type === "stack-line"),
-  );
+  const selectedHunkLineRows = hunkLineRows(rows, selectedHunkIndex);
+  const anchorSide = annotationAnchor(selectedNote.note.annotation)?.side;
   const coveredRows = selectedHunkLineRows.filter((row) =>
-    rowOverlapsAnnotation(row, note.annotation),
+    rowOverlapsAnnotation(row, selectedNote.note.annotation),
   );
   const fallbackGuideRow =
-    anchorRow.type === "split-line" || anchorRow.type === "stack-line"
+    anchorSide && (anchorRow.type === "split-line" || anchorRow.type === "stack-line")
       ? anchorRow
-      : selectedHunkLineRows[0];
+      : undefined;
   const guideRows =
     coveredRows.length > 0 ? coveredRows : fallbackGuideRow ? [fallbackGuideRow] : [];
-  const endGuideAfterKey = guideRows.at(-1)?.key ?? anchorRow.key;
 
   return {
     anchorKey: anchorRow.key,
-    anchorSide: annotationAnchor(note.annotation)?.side,
-    coveredRowKeys: new Set(guideRows.map((row) => row.key)),
-    endGuideAfterKey,
-    note,
-    noteIndex: 0,
-    noteCount: visibleAgentNotes.length,
-  } satisfies SelectedInlineNote;
+    anchorSide,
+    guidedRowKeys: new Set(guideRows.map((row) => row.key)),
+    endGuideAfterKey: guideRows.at(-1)?.key,
+    note: selectedNote.note,
+    noteIndex: selectedNote.noteIndex,
+    noteCount: selectedNote.noteCount,
+  } satisfies PrimaryVisibleInlineNote;
 }
 
 function rowCanAnchorHunk(row: DiffRow, showHunkHeaders: boolean) {
@@ -158,7 +187,11 @@ function rowCanAnchorHunk(row: DiffRow, showHunkHeaders: boolean) {
   return row.type !== "collapsed" && row.type !== "hunk-header";
 }
 
-/** Build the explicit presentational row plan for one file diff body. */
+/**
+ * Build the explicit presentational row plan for one file diff body.
+ * The plan always preserves diff-row order and may insert one inline note plus
+ * one trailing guide cap for the primary visible note.
+ */
 export function buildReviewRenderPlan({
   fileId,
   rows,
@@ -172,7 +205,11 @@ export function buildReviewRenderPlan({
   showHunkHeaders: boolean;
   visibleAgentNotes?: VisibleAgentNote[];
 }) {
-  const selectedInlineNote = buildSelectedInlineNote(rows, visibleAgentNotes, selectedHunkIndex);
+  const primaryVisibleNote = buildPrimaryVisibleInlineNote(
+    rows,
+    visibleAgentNotes,
+    selectedHunkIndex,
+  );
   const plannedRows: PlannedReviewRow[] = [];
   const anchoredHunks = new Set<number>();
 
@@ -185,17 +222,17 @@ export function buildReviewRenderPlan({
       anchoredHunks.add(row.hunkIndex);
     }
 
-    if (selectedInlineNote?.anchorKey === row.key) {
+    if (primaryVisibleNote?.anchorKey === row.key) {
       plannedRows.push({
         kind: "inline-note",
-        key: `inline-note:${selectedInlineNote.note.id}:${row.key}`,
+        key: `inline-note:${primaryVisibleNote.note.id}:${row.key}`,
         fileId,
         hunkIndex: row.hunkIndex,
-        annotationId: selectedInlineNote.note.id,
-        annotation: selectedInlineNote.note.annotation,
-        anchorSide: selectedInlineNote.anchorSide,
-        noteCount: selectedInlineNote.noteCount,
-        noteIndex: selectedInlineNote.noteIndex,
+        annotationId: primaryVisibleNote.note.id,
+        annotation: primaryVisibleNote.note.annotation,
+        anchorSide: primaryVisibleNote.anchorSide,
+        noteCount: primaryVisibleNote.noteCount,
+        noteIndex: primaryVisibleNote.noteIndex,
       });
     }
 
@@ -206,18 +243,18 @@ export function buildReviewRenderPlan({
       hunkIndex: row.hunkIndex,
       row,
       anchorId,
-      noteGuideSide: selectedInlineNote?.coveredRowKeys.has(row.key)
-        ? selectedInlineNote.anchorSide
+      noteGuideSide: primaryVisibleNote?.guidedRowKeys.has(row.key)
+        ? primaryVisibleNote.anchorSide
         : undefined,
     });
 
-    if (selectedInlineNote?.endGuideAfterKey === row.key && selectedInlineNote.anchorSide) {
+    if (primaryVisibleNote?.anchorSide && primaryVisibleNote.endGuideAfterKey === row.key) {
       plannedRows.push({
         kind: "note-guide-cap",
-        key: `note-guide-cap:${selectedInlineNote.note.id}:${row.key}`,
+        key: `note-guide-cap:${primaryVisibleNote.note.id}:${row.key}`,
         fileId,
         hunkIndex: row.hunkIndex,
-        side: selectedInlineNote.anchorSide,
+        side: primaryVisibleNote.anchorSide,
       });
     }
   }

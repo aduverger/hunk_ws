@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { parseDiffFromFile } from "@pierre/diffs";
 import type { DiffFile } from "../src/core/types";
+import type { PlannedReviewRow } from "../src/ui/diff/reviewRenderPlan";
 import { resolveTheme } from "../src/ui/themes";
 
 const { buildSplitRows, buildStackRows } = await import("../src/ui/diff/pierre");
 const { buildReviewRenderPlan } = await import("../src/ui/diff/reviewRenderPlan");
+
+function lines(...values: string[]) {
+  return `${values.join("\n")}\n`;
+}
 
 function createDiffFile(id: string, path: string, before: string, after: string): DiffFile {
   const metadata = parseDiffFromFile(
@@ -44,6 +49,25 @@ function createDiffFile(id: string, path: string, before: string, after: string)
   };
 }
 
+function firstInlineNote(plannedRows: PlannedReviewRow[]) {
+  return plannedRows.find((row) => row.kind === "inline-note");
+}
+
+function inlineNoteAnchorRow(plannedRows: PlannedReviewRow[]) {
+  const noteIndex = plannedRows.findIndex((row) => row.kind === "inline-note");
+  return noteIndex >= 0 ? plannedRows[noteIndex + 1] : undefined;
+}
+
+function guidedSplitLineNumbers(plannedRows: PlannedReviewRow[], side: "old" | "new") {
+  return plannedRows.flatMap((row) => {
+    if (row.kind !== "diff-row" || row.noteGuideSide !== side || row.row.type !== "split-line") {
+      return [];
+    }
+
+    return [side === "new" ? row.row.right.lineNumber : row.row.left.lineNumber];
+  });
+}
+
 describe("review render plan", () => {
   test("inserts an inline note before the anchor row and continues the guide through the covered range", () => {
     const theme = resolveTheme("midnight", null);
@@ -71,10 +95,15 @@ describe("review render plan", () => {
       ],
     });
 
-    const noteIndex = plannedRows.findIndex((row) => row.kind === "inline-note");
-    expect(noteIndex).toBeGreaterThan(0);
+    const note = firstInlineNote(plannedRows);
+    expect(note?.kind).toBe("inline-note");
+    if (note?.kind === "inline-note") {
+      expect(note.anchorSide).toBe("new");
+      expect(note.noteCount).toBe(1);
+      expect(note.noteIndex).toBe(0);
+    }
 
-    const anchoredRow = plannedRows[noteIndex + 1];
+    const anchoredRow = inlineNoteAnchorRow(plannedRows);
     expect(anchoredRow?.kind).toBe("diff-row");
     if (anchoredRow?.kind === "diff-row") {
       expect(anchoredRow.row.type).toBe("split-line");
@@ -83,28 +112,99 @@ describe("review render plan", () => {
       }
     }
 
-    const guidedRows = plannedRows.filter(
-      (row) => row.kind === "diff-row" && row.noteGuideSide === "new",
-    );
-    expect(guidedRows).toHaveLength(2);
-    expect(
-      guidedRows.map((row) =>
-        row.kind === "diff-row" && row.row.type === "split-line" ? row.row.right.lineNumber : null,
-      ),
-    ).toEqual([2, 3]);
+    expect(guidedSplitLineNumbers(plannedRows, "new")).toEqual([2, 3]);
 
-    const capIndex = plannedRows.findIndex((row) => row.kind === "note-guide-cap");
-    expect(capIndex).toBeGreaterThan(noteIndex);
-    expect(plannedRows[capIndex - 1]?.kind).toBe("diff-row");
+    const cap = plannedRows.find((row) => row.kind === "note-guide-cap");
+    expect(cap?.kind).toBe("note-guide-cap");
+    if (cap?.kind === "note-guide-cap") {
+      expect(cap.side).toBe("new");
+    }
   });
 
-  test("assigns hunk anchor ids from the first visible row when hunk headers are hidden", () => {
+  test("anchors deletion-only notes to old-side rows and guides the old column", () => {
+    const theme = resolveTheme("midnight", null);
+    const file = createDiffFile(
+      "deleted",
+      "deleted.ts",
+      lines("export const removed = true;", "export const kept = 1;"),
+      lines("export const kept = 1;"),
+    );
+    const rows = buildSplitRows(file, null, theme);
+    const plannedRows = buildReviewRenderPlan({
+      fileId: file.id,
+      rows,
+      selectedHunkIndex: 0,
+      showHunkHeaders: true,
+      visibleAgentNotes: [
+        {
+          id: "annotation:deleted:0:0",
+          annotation: {
+            oldRange: [1, 1],
+            summary: "Explain the removed line",
+            rationale: "Deletion notes should visually anchor on the old side.",
+          },
+        },
+      ],
+    });
+
+    const note = firstInlineNote(plannedRows);
+    expect(note?.kind).toBe("inline-note");
+    if (note?.kind === "inline-note") {
+      expect(note.anchorSide).toBe("old");
+    }
+
+    const anchoredRow = inlineNoteAnchorRow(plannedRows);
+    expect(anchoredRow?.kind).toBe("diff-row");
+    if (anchoredRow?.kind === "diff-row") {
+      expect(anchoredRow.row.type).toBe("split-line");
+      if (anchoredRow.row.type === "split-line") {
+        expect(anchoredRow.row.left.lineNumber).toBe(1);
+        expect(anchoredRow.row.right.lineNumber).toBeUndefined();
+      }
+    }
+
+    expect(guidedSplitLineNumbers(plannedRows, "old")).toEqual([1]);
+
+    const cap = plannedRows.find((row) => row.kind === "note-guide-cap");
+    expect(cap?.kind).toBe("note-guide-cap");
+    if (cap?.kind === "note-guide-cap") {
+      expect(cap.side).toBe("old");
+    }
+  });
+
+  test("assigns hunk anchor ids from the first visible row for every hunk when hunk headers are hidden", () => {
     const theme = resolveTheme("midnight", null);
     const file = createDiffFile(
       "beta",
       "beta.ts",
-      "export const beta = 1;\n",
-      "export const beta = 2;\nexport const gamma = true;\n",
+      lines(
+        "export const line1 = 1;",
+        "export const line2 = 2;",
+        "export const line3 = 3;",
+        "export const line4 = 4;",
+        "export const line5 = 5;",
+        "export const line6 = 6;",
+        "export const line7 = 7;",
+        "export const line8 = 8;",
+        "export const line9 = 9;",
+        "export const line10 = 10;",
+        "export const line11 = 11;",
+        "export const line12 = 12;",
+      ),
+      lines(
+        "export const line1 = 1;",
+        "export const line2 = 200;",
+        "export const line3 = 3;",
+        "export const line4 = 4;",
+        "export const line5 = 5;",
+        "export const line6 = 6;",
+        "export const line7 = 7;",
+        "export const line8 = 8;",
+        "export const line9 = 9;",
+        "export const line10 = 10;",
+        "export const line11 = 1100;",
+        "export const line12 = 12;",
+      ),
     );
     const rows = buildSplitRows(file, null, theme);
     const plannedRows = buildReviewRenderPlan({
@@ -115,12 +215,17 @@ describe("review render plan", () => {
       visibleAgentNotes: [],
     });
 
-    const anchorRow = plannedRows.find((row) => row.kind === "diff-row" && row.anchorId);
-    expect(anchorRow?.kind).toBe("diff-row");
-    if (anchorRow?.kind === "diff-row") {
-      expect(anchorRow.row.type).toBe("split-line");
-      expect(anchorRow.anchorId).toBe(`diff-hunk:${file.id}:0`);
-    }
+    const anchorRows = plannedRows.filter(
+      (row): row is Extract<PlannedReviewRow, { kind: "diff-row" }> =>
+        row.kind === "diff-row" && row.anchorId !== undefined,
+    );
+
+    expect(anchorRows).toHaveLength(2);
+    expect(anchorRows.map((row) => row.anchorId)).toEqual([
+      `diff-hunk:${file.id}:0`,
+      `diff-hunk:${file.id}:1`,
+    ]);
+    expect(anchorRows.every((row) => row.row.type === "split-line")).toBe(true);
   });
 
   test("anchors range-less notes to the first visible line row without guide rows", () => {
@@ -148,17 +253,127 @@ describe("review render plan", () => {
       ],
     });
 
-    const noteIndex = plannedRows.findIndex((row) => row.kind === "inline-note");
-    expect(noteIndex).toBe(1);
+    const note = firstInlineNote(plannedRows);
+    expect(note?.kind).toBe("inline-note");
+    if (note?.kind === "inline-note") {
+      expect(note.anchorSide).toBeUndefined();
+    }
+
     expect(plannedRows.some((row) => row.kind === "note-guide-cap")).toBe(false);
     expect(
       plannedRows.some((row) => row.kind === "diff-row" && row.noteGuideSide !== undefined),
     ).toBe(false);
 
-    const anchoredRow = plannedRows[noteIndex + 1];
+    const anchoredRow = inlineNoteAnchorRow(plannedRows);
     expect(anchoredRow?.kind).toBe("diff-row");
     if (anchoredRow?.kind === "diff-row") {
       expect(anchoredRow.row.type).toBe("stack-line");
     }
+  });
+
+  test("keeps note placement scoped to the selected hunk in multi-hunk diffs", () => {
+    const theme = resolveTheme("midnight", null);
+    const file = createDiffFile(
+      "multi",
+      "multi.ts",
+      lines(
+        "export const line1 = 1;",
+        "export const line2 = 2;",
+        "export const line3 = 3;",
+        "export const line4 = 4;",
+        "export const line5 = 5;",
+        "export const line6 = 6;",
+        "export const line7 = 7;",
+        "export const line8 = 8;",
+        "export const line9 = 9;",
+        "export const line10 = 10;",
+        "export const line11 = 11;",
+        "export const line12 = 12;",
+      ),
+      lines(
+        "export const line1 = 1;",
+        "export const line2 = 200;",
+        "export const line3 = 3;",
+        "export const line4 = 4;",
+        "export const line5 = 5;",
+        "export const line6 = 6;",
+        "export const line7 = 7;",
+        "export const line8 = 8;",
+        "export const line9 = 9;",
+        "export const line10 = 10;",
+        "export const line11 = 1100;",
+        "export const line12 = 12;",
+      ),
+    );
+    const rows = buildSplitRows(file, null, theme);
+    const plannedRows = buildReviewRenderPlan({
+      fileId: file.id,
+      rows,
+      selectedHunkIndex: 1,
+      showHunkHeaders: true,
+      visibleAgentNotes: [
+        {
+          id: "annotation:multi:1:0",
+          annotation: {
+            newRange: [11, 11],
+            summary: "Explain the later change",
+            rationale: "The note should attach to the second hunk only.",
+          },
+        },
+      ],
+    });
+
+    const anchoredRow = inlineNoteAnchorRow(plannedRows);
+    expect(anchoredRow?.kind).toBe("diff-row");
+    if (anchoredRow?.kind === "diff-row") {
+      expect(anchoredRow.hunkIndex).toBe(1);
+      expect(anchoredRow.row.type).toBe("split-line");
+      if (anchoredRow.row.type === "split-line") {
+        expect(anchoredRow.row.right.lineNumber).toBe(11);
+      }
+    }
+  });
+
+  test("renders only the first visible note while preserving visible note count metadata", () => {
+    const theme = resolveTheme("midnight", null);
+    const file = createDiffFile(
+      "counted",
+      "counted.ts",
+      "export const value = 1;\n",
+      "export const value = 2;\nexport const added = true;\n",
+    );
+    const rows = buildSplitRows(file, null, theme);
+    const plannedRows = buildReviewRenderPlan({
+      fileId: file.id,
+      rows,
+      selectedHunkIndex: 0,
+      showHunkHeaders: true,
+      visibleAgentNotes: [
+        {
+          id: "annotation:counted:0:0",
+          annotation: {
+            newRange: [2, 2],
+            summary: "First visible note",
+          },
+        },
+        {
+          id: "annotation:counted:0:1",
+          annotation: {
+            newRange: [1, 1],
+            summary: "Second visible note",
+          },
+        },
+      ],
+    });
+
+    const inlineNotes = plannedRows.filter(
+      (row): row is Extract<PlannedReviewRow, { kind: "inline-note" }> =>
+        row.kind === "inline-note",
+    );
+
+    expect(inlineNotes).toHaveLength(1);
+    expect(inlineNotes[0]?.annotationId).toBe("annotation:counted:0:0");
+    expect(inlineNotes[0]?.noteIndex).toBe(0);
+    expect(inlineNotes[0]?.noteCount).toBe(2);
   });
 });
