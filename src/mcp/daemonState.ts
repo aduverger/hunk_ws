@@ -9,6 +9,8 @@ import type {
   ListedSession,
   NavigateToHunkToolInput,
   NavigatedSelectionResult,
+  ReloadSessionToolInput,
+  ReloadedSessionResult,
   RemoveCommentToolInput,
   RemovedCommentResult,
   SelectedSessionContext,
@@ -267,6 +269,16 @@ export class HunkDaemonState {
     );
   }
 
+  sendReloadSession(input: ReloadSessionToolInput) {
+    return this.sendCommand<ReloadedSessionResult, "reload_session">(
+      { sessionId: input.sessionId, repoRoot: input.repoRoot },
+      "reload_session",
+      input,
+      "Timed out waiting for the Hunk session to reload the requested contents.",
+      30_000,
+    );
+  }
+
   sendRemoveComment(input: RemoveCommentToolInput) {
     return this.sendCommand<RemovedCommentResult, "remove_comment">(
       { sessionId: input.sessionId, repoRoot: input.repoRoot },
@@ -326,6 +338,7 @@ export class HunkDaemonState {
     command: CommandName,
     input: Extract<SessionServerMessage, { command: CommandName }>["input"],
     timeoutMessage: string,
+    timeoutMs = 15_000,
   ) {
     const session = resolveSessionTarget(this.listSessions(), selector);
     const requestId = randomUUID();
@@ -334,7 +347,7 @@ export class HunkDaemonState {
       const timeout = setTimeout(() => {
         this.pendingCommands.delete(requestId);
         reject(new Error(timeoutMessage));
-      }, 15_000);
+      }, timeoutMs);
 
       this.pendingCommands.set(requestId, {
         sessionId: session.sessionId,

@@ -49,6 +49,7 @@ function createClient(overrides: Partial<HunkDaemonCliClient>): HunkDaemonCliCli
         "get",
         "context",
         "navigate",
+        "reload",
         "comment-add",
         "comment-list",
         "comment-rm",
@@ -82,6 +83,15 @@ function createClient(overrides: Partial<HunkDaemonCliClient>): HunkDaemonCliCli
       fileId: "file-1",
       filePath: "README.md",
       hunkIndex: 0,
+    }),
+    reloadSession: async () => ({
+      sessionId: "session-1",
+      inputKind: "show",
+      title: "repo show HEAD~1",
+      sourceLabel: "/repo",
+      fileCount: 1,
+      selectedFilePath: "README.md",
+      selectedHunkIndex: 0,
     }),
     addComment: async () => ({
       commentId: "comment-1",
@@ -193,6 +203,57 @@ describe("session command compatibility checks", () => {
     expect(createdClients).toEqual(["stale-capabilities", "fresh-context"]);
   });
 
+  test("runs reload commands through the daemon and returns the replacement session summary", async () => {
+    setSessionCommandTestHooks({
+      createClient: () =>
+        createClient({
+          reloadSession: async (input) => {
+            expect(input.selector).toEqual({ sessionId: "session-1" });
+            expect(input.nextInput).toEqual({
+              kind: "show",
+              ref: "HEAD~1",
+              options: {},
+            });
+
+            return {
+              sessionId: "session-1",
+              inputKind: "show",
+              title: "repo show HEAD~1",
+              sourceLabel: "/repo",
+              fileCount: 1,
+              selectedFilePath: "README.md",
+              selectedHunkIndex: 0,
+            };
+          },
+        }),
+      resolveDaemonAvailability: async () => true,
+    });
+
+    const output = await runSessionCommand({
+      kind: "session",
+      action: "reload",
+      selector: { sessionId: "session-1" },
+      nextInput: {
+        kind: "show",
+        ref: "HEAD~1",
+        options: {},
+      },
+      output: "json",
+    } satisfies SessionCommandInput);
+
+    expect(JSON.parse(output)).toEqual({
+      result: {
+        sessionId: "session-1",
+        inputKind: "show",
+        title: "repo show HEAD~1",
+        sourceLabel: "/repo",
+        fileCount: 1,
+        selectedFilePath: "README.md",
+        selectedHunkIndex: 0,
+      },
+    });
+  });
+
   test("does not restart when the daemon already exposes the needed session action", async () => {
     const restartCalls: string[] = [];
 
@@ -206,6 +267,7 @@ describe("session command compatibility checks", () => {
               "get",
               "context",
               "navigate",
+              "reload",
               "comment-add",
               "comment-list",
               "comment-rm",

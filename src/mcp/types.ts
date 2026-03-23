@@ -68,6 +68,10 @@ export interface NavigateToHunkToolInput extends SessionTargetInput {
   line?: number;
 }
 
+export interface ReloadSessionToolInput extends SessionTargetInput {
+  nextInput: CliInput;
+}
+
 export interface LiveComment extends AgentAnnotation {
   id: string;
   source: "mcp";
@@ -119,6 +123,16 @@ export interface ClearedCommentsResult {
   filePath?: string;
 }
 
+export interface ReloadedSessionResult {
+  sessionId: string;
+  inputKind: CliInput["kind"];
+  title: string;
+  sourceLabel: string;
+  fileCount: number;
+  selectedFilePath?: string;
+  selectedHunkIndex: number;
+}
+
 export interface ListedSessionFile extends SessionFileSummary {
   selected: boolean;
 }
@@ -139,7 +153,8 @@ export type SessionCommandResult =
   | AppliedCommentResult
   | NavigatedSelectionResult
   | RemovedCommentResult
-  | ClearedCommentsResult;
+  | ClearedCommentsResult
+  | ReloadedSessionResult;
 
 export type SessionClientMessage =
   | {
@@ -193,6 +208,12 @@ export type SessionServerMessage =
       requestId: string;
       command: "navigate_to_hunk";
       input: NavigateToHunkToolInput;
+    }
+  | {
+      type: "command";
+      requestId: string;
+      command: "reload_session";
+      input: ReloadSessionToolInput;
     }
   | {
       type: "command";

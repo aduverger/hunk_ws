@@ -188,6 +188,79 @@ describe("session CLI", () => {
     }
   });
 
+  test("reload replaces what a live session is showing", async () => {
+    if (!ttyToolsAvailable) {
+      return;
+    }
+
+    const port = 48963;
+    const fixtureA = createFixtureFiles(
+      "reload-alpha",
+      ["export const alpha = 1;"],
+      ["export const alpha = 2;", "export const beta = true;"],
+    );
+    const fixtureB = createFixtureFiles(
+      "reload-beta",
+      ["export const before = 10;"],
+      ["export const after = 20;", "export const extra = 'yes';"],
+    );
+    const session = spawnHunkSession(fixtureA, { port, quitAfterSeconds: 18, timeoutSeconds: 20 });
+
+    try {
+      const listed = await waitUntil("registered live session", () => {
+        const { proc, stdout } = runSessionCli(["list", "--json"], port);
+        if (proc.exitCode !== 0) {
+          return null;
+        }
+
+        const parsed = JSON.parse(stdout) as SessionListJson;
+        return parsed.sessions.length > 0 ? parsed.sessions : null;
+      });
+
+      const sessionId = listed[0]!.sessionId;
+      const reload = runSessionCli(
+        ["reload", sessionId, "--json", "--", "diff", fixtureB.before, fixtureB.after],
+        port,
+      );
+      expect(reload.proc.exitCode).toBe(0);
+      expect(reload.stderr).toBe("");
+      expect(JSON.parse(reload.stdout)).toMatchObject({
+        result: {
+          sessionId,
+          inputKind: "diff",
+          fileCount: 1,
+          selectedFilePath: fixtureB.afterName,
+          selectedHunkIndex: 0,
+        },
+      });
+
+      const reloaded = await waitUntil("reloaded session metadata", () => {
+        const get = runSessionCli(["get", sessionId, "--json"], port);
+        if (get.proc.exitCode !== 0) {
+          return null;
+        }
+
+        const parsed = JSON.parse(get.stdout) as {
+          session?: {
+            inputKind?: string;
+            files?: Array<{ path: string }>;
+          };
+        };
+        return parsed.session?.files?.[0]?.path === fixtureB.afterName ? parsed : null;
+      });
+
+      expect(reloaded).toMatchObject({
+        session: {
+          inputKind: "diff",
+          files: [{ path: fixtureB.afterName }],
+        },
+      });
+    } finally {
+      session.kill();
+      await session.exited;
+    }
+  }, 20_000);
+
   test("navigate and comment add control a live Hunk session", async () => {
     if (!ttyToolsAvailable) {
       return;

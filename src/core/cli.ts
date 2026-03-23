@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { Command } from "commander";
 import type {
+  CliInput,
   CommonOptions,
   HelpCommandInput,
   LayoutMode,
@@ -398,6 +399,24 @@ async function parseDifftoolCommand(tokens: string[], argv: string[]): Promise<P
   };
 }
 
+function requireReloadableCliInput(input: ParsedCliInput): CliInput {
+  if (input.kind === "help" || input.kind === "pager" || input.kind === "mcp-serve") {
+    throw new Error(
+      "Session reload requires a Hunk review command after --, such as `diff` or `show`.",
+    );
+  }
+
+  if (input.kind === "session") {
+    throw new Error("Session reload cannot invoke another session command.");
+  }
+
+  if (input.kind === "patch" && (!input.file || input.file === "-")) {
+    throw new Error("Session reload does not support `patch -` or stdin-backed patch input.");
+  }
+
+  return input;
+}
+
 /** Parse `hunk session ...` as live-session daemon-backed commands. */
 async function parseSessionCommand(tokens: string[]): Promise<ParsedCliInput> {
   const [subcommand, ...rest] = tokens;
@@ -417,6 +436,8 @@ async function parseSessionCommand(tokens: string[]): Promise<ParsedCliInput> {
           "  hunk session context <session-id>",
           "  hunk session context --repo <path>",
           "  hunk session navigate <session-id> --file <path> (--hunk <n> | --old-line <n> | --new-line <n>)",
+          "  hunk session reload <session-id> -- diff [ref] [-- <pathspec...>]",
+          "  hunk session reload <session-id> -- show [ref] [-- <pathspec...>]",
           "  hunk session comment add <session-id> --file <path> (--old-line <n> | --new-line <n>) --summary <text>",
           "  hunk session comment list <session-id>",
           "  hunk session comment rm <session-id> <comment-id>",
@@ -548,6 +569,64 @@ async function parseSessionCommand(tokens: string[]): Promise<ParsedCliInput> {
             ? "new"
             : undefined,
       line: parsedOptions.oldLine ?? parsedOptions.newLine,
+    };
+  }
+
+  if (subcommand === "reload") {
+    const separatorIndex = rest.indexOf("--");
+    const outerTokens = separatorIndex === -1 ? rest : rest.slice(0, separatorIndex);
+
+    const command = new Command("session reload")
+      .description("replace the contents of one live Hunk session")
+      .argument("[sessionId]")
+      .option("--repo <path>", "target the live session whose repo root matches this path")
+      .option("--json", "emit structured JSON");
+
+    let parsedSessionId: string | undefined;
+    let parsedOptions: { repo?: string; json?: boolean } = {};
+
+    command.action((sessionId: string | undefined, options: { repo?: string; json?: boolean }) => {
+      parsedSessionId = sessionId;
+      parsedOptions = options;
+    });
+
+    if (outerTokens.includes("--help") || outerTokens.includes("-h")) {
+      return {
+        kind: "help",
+        text:
+          `${command.helpInformation().trimEnd()}\n\n` +
+          [
+            "Examples:",
+            "  hunk session reload --repo . -- diff",
+            "  hunk session reload --repo . -- diff main...feature -- src/ui",
+            "  hunk session reload --repo . -- show HEAD~1 -- README.md",
+          ].join("\n") +
+          "\n",
+      };
+    }
+
+    if (separatorIndex === -1) {
+      throw new Error(
+        "Pass the replacement Hunk command after `--`, for example `hunk session reload <session-id> -- diff`.",
+      );
+    }
+
+    const nestedTokens = rest.slice(separatorIndex + 1);
+    if (nestedTokens.length === 0) {
+      throw new Error(
+        "Pass the replacement Hunk command after `--`, for example `hunk session reload <session-id> -- diff`.",
+      );
+    }
+
+    await parseStandaloneCommand(command, outerTokens);
+    const nextInput = requireReloadableCliInput(await parseCli(["bun", "hunk", ...nestedTokens]));
+
+    return {
+      kind: "session",
+      action: "reload",
+      output: resolveJsonOutput(parsedOptions),
+      selector: resolveExplicitSessionSelector(parsedSessionId, parsedOptions.repo),
+      nextInput,
     };
   }
 

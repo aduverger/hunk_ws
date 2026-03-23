@@ -7,6 +7,7 @@ import type {
   HunkSessionSnapshot,
   ListedSession,
   NavigatedSelectionResult,
+  ReloadedSessionResult,
   RemovedCommentResult,
   SessionLiveCommentSummary,
 } from "../src/mcp/types";
@@ -251,6 +252,58 @@ describe("Hunk MCP daemon state", () => {
         oldRange: [1, 2],
         newRange: [1, 4],
       },
+    };
+
+    state.handleCommandResult({
+      requestId: outgoing.requestId,
+      ok: true,
+      result,
+    });
+
+    await expect(pending).resolves.toEqual(result);
+  });
+
+  test("routes reload commands to the live session and resolves the async result", async () => {
+    const state = new HunkDaemonState();
+    const sent: string[] = [];
+    const socket = {
+      send(data: string) {
+        sent.push(data);
+      },
+    };
+
+    state.registerSession(socket, createRegistration(), createSnapshot());
+
+    const pending = state.sendReloadSession({
+      sessionId: "session-1",
+      nextInput: {
+        kind: "show",
+        ref: "HEAD~1",
+        options: {},
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const outgoing = JSON.parse(sent[0]!) as {
+      requestId: string;
+      command: string;
+      input: { nextInput: { kind: string; ref?: string; options?: Record<string, unknown> } };
+    };
+    expect(outgoing.command).toBe("reload_session");
+    expect(outgoing.input.nextInput).toEqual({
+      kind: "show",
+      ref: "HEAD~1",
+      options: {},
+    });
+
+    const result: ReloadedSessionResult = {
+      sessionId: "session-1",
+      inputKind: "show",
+      title: "repo show HEAD~1",
+      sourceLabel: "/repo",
+      fileCount: 1,
+      selectedFilePath: "src/example.ts",
+      selectedHunkIndex: 0,
     };
 
     state.handleCommandResult({

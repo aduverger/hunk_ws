@@ -158,13 +158,17 @@ Use explicit session targeting with either a live `<session-id>` or `--repo <pat
 hunk session list
 hunk session context --repo .
 hunk session navigate --repo . --file README.md --hunk 2
+hunk session reload --repo . -- diff
+hunk session reload --repo . -- show HEAD~1 -- README.md
 hunk session comment add --repo . --file README.md --new-line 103 --summary "Frame this as MCP-first"
 hunk session comment list --repo .
 hunk session comment rm --repo . mcp:1234
 hunk session comment clear --repo . --file README.md --yes
 ```
 
-The session CLI works against live session comments only. It does not edit `.hunk/latest.json`.
+`hunk session reload ... -- <hunk command>` swaps the live session to a new `diff`, `show`, or other reviewable Hunk input without opening a new TUI window.
+
+The session CLI can inspect, navigate, annotate, and reload a live session, but it does not edit `.hunk/latest.json`.
 
 ## Performance notes
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DiffFile } from "../../core/types";
+import type { CliInput, DiffFile } from "../../core/types";
 import {
   buildLiveComment,
   findDiffFileByPath,
@@ -7,7 +7,12 @@ import {
   hunkLineRange,
 } from "../../core/liveComments";
 import { HunkHostClient } from "../../mcp/client";
-import type { LiveComment, SessionLiveCommentSummary, SessionServerMessage } from "../../mcp/types";
+import type {
+  LiveComment,
+  ReloadedSessionResult,
+  SessionLiveCommentSummary,
+  SessionServerMessage,
+} from "../../mcp/types";
 
 /** Bridge one live Hunk review session to the local MCP daemon. */
 export function useHunkSessionBridge({
@@ -16,6 +21,7 @@ export function useHunkSessionBridge({
   hostClient,
   jumpToFile,
   openAgentNotes,
+  reloadSession,
   selectedFile,
   selectedHunkIndex,
   showAgentNotes,
@@ -25,6 +31,7 @@ export function useHunkSessionBridge({
   hostClient?: HunkHostClient;
   jumpToFile: (fileId: string, nextHunkIndex?: number) => void;
   openAgentNotes: () => void;
+  reloadSession: (nextInput: CliInput) => Promise<ReloadedSessionResult>;
   selectedFile: DiffFile | undefined;
   selectedHunkIndex: number;
   showAgentNotes: boolean;
@@ -125,6 +132,12 @@ export function useHunkSessionBridge({
     liveCommentsByFileIdRef.current = liveCommentsByFileId;
   }, [liveCommentsByFileId]);
 
+  const reloadIncomingSession = useCallback(
+    async (message: Extract<SessionServerMessage, { command: "reload_session" }>) =>
+      reloadSession(message.input.nextInput),
+    [reloadSession],
+  );
+
   const removeIncomingComment = useCallback(
     async (message: Extract<SessionServerMessage, { command: "remove_comment" }>) => {
       const current = liveCommentsByFileIdRef.current;
@@ -208,6 +221,7 @@ export function useHunkSessionBridge({
     hostClient.setBridge({
       applyComment: applyIncomingComment,
       navigateToHunk: navigateToHunkSelection,
+      reloadSession: reloadIncomingSession,
       removeComment: removeIncomingComment,
       clearComments: clearIncomingComments,
     });
@@ -220,6 +234,7 @@ export function useHunkSessionBridge({
     clearIncomingComments,
     hostClient,
     navigateToHunkSelection,
+    reloadIncomingSession,
     removeIncomingComment,
   ]);
 

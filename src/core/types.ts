@@ -115,6 +115,14 @@ export interface SessionNavigateCommandInput {
   line?: number;
 }
 
+export interface SessionReloadCommandInput {
+  kind: "session";
+  action: "reload";
+  output: SessionCommandOutput;
+  selector: SessionSelectorInput;
+  nextInput: CliInput;
+}
+
 export interface SessionCommentAddCommandInput {
   kind: "session";
   action: "comment-add";
@@ -158,6 +166,7 @@ export type SessionCommandInput =
   | SessionListCommandInput
   | SessionGetCommandInput
   | SessionNavigateCommandInput
+  | SessionReloadCommandInput
   | SessionCommentAddCommandInput
   | SessionCommentListCommandInput
   | SessionCommentRemoveCommandInput

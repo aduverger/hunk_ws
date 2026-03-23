@@ -4,6 +4,7 @@ import type {
   SessionCommentListCommandInput,
   SessionCommentRemoveCommandInput,
   SessionNavigateCommandInput,
+  SessionReloadCommandInput,
   SessionSelectorInput,
 } from "../core/types";
 import type {
@@ -11,6 +12,7 @@ import type {
   ClearedCommentsResult,
   ListedSession,
   NavigatedSelectionResult,
+  ReloadedSessionResult,
   RemovedCommentResult,
   SelectedSessionContext,
   SessionLiveCommentSummary,
@@ -25,6 +27,7 @@ export type SessionDaemonAction =
   | "get"
   | "context"
   | "navigate"
+  | "reload"
   | "comment-add"
   | "comment-list"
   | "comment-rm"
@@ -54,6 +57,11 @@ export type SessionDaemonRequest =
       hunkNumber?: number;
       side?: "old" | "new";
       line?: number;
+    }
+  | {
+      action: "reload";
+      selector: SessionReloadCommandInput["selector"];
+      nextInput: SessionReloadCommandInput["nextInput"];
     }
   | {
       action: "comment-add";
@@ -87,6 +95,7 @@ export type SessionDaemonResponse =
   | { session: ListedSession }
   | { context: SelectedSessionContext }
   | { result: NavigatedSelectionResult }
+  | { result: ReloadedSessionResult }
   | { result: AppliedCommentResult }
   | { comments: SessionLiveCommentSummary[] }
   | { result: RemovedCommentResult }

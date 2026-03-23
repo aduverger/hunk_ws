@@ -4,6 +4,7 @@ import type {
   HunkSessionRegistration,
   HunkSessionSnapshot,
   NavigatedSelectionResult,
+  ReloadedSessionResult,
   RemovedCommentResult,
   SessionClientMessage,
   SessionCommandResult,
@@ -33,6 +34,9 @@ interface HunkAppBridge {
   navigateToHunk: (
     message: Extract<SessionServerMessage, { command: "navigate_to_hunk" }>,
   ) => Promise<NavigatedSelectionResult>;
+  reloadSession: (
+    message: Extract<SessionServerMessage, { command: "reload_session" }>,
+  ) => Promise<ReloadedSessionResult>;
   removeComment: (
     message: Extract<SessionServerMessage, { command: "remove_comment" }>,
   ) => Promise<RemovedCommentResult>;
@@ -54,7 +58,7 @@ export class HunkHostClient {
   private lastConnectionWarning: string | null = null;
 
   constructor(
-    private readonly registration: HunkSessionRegistration,
+    private registration: HunkSessionRegistration,
     private snapshot: HunkSessionSnapshot,
   ) {}
 
@@ -91,6 +95,20 @@ export class HunkHostClient {
     this.stopHeartbeat();
     this.websocket?.close();
     this.websocket = null;
+  }
+
+  getRegistration() {
+    return this.registration;
+  }
+
+  replaceSession(registration: HunkSessionRegistration, snapshot: HunkSessionSnapshot) {
+    this.registration = registration;
+    this.snapshot = snapshot;
+    this.send({
+      type: "register",
+      registration,
+      snapshot,
+    });
   }
 
   private resolveConfig() {
@@ -281,6 +299,8 @@ export class HunkHostClient {
         return this.bridge.applyComment(message);
       case "navigate_to_hunk":
         return this.bridge.navigateToHunk(message);
+      case "reload_session":
+        return this.bridge.reloadSession(message);
       case "remove_comment":
         return this.bridge.removeComment(message);
       case "clear_comments":

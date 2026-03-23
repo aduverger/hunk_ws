@@ -7,6 +7,7 @@ import type {
   SessionCommentListCommandInput,
   SessionCommentRemoveCommandInput,
   SessionNavigateCommandInput,
+  SessionReloadCommandInput,
   SessionSelectorInput,
 } from "../core/types";
 import {
@@ -21,6 +22,7 @@ import type {
   ClearedCommentsResult,
   ListedSession,
   NavigatedSelectionResult,
+  ReloadedSessionResult,
   RemovedCommentResult,
   SelectedSessionContext,
   SessionLiveCommentSummary,
@@ -40,6 +42,7 @@ export interface HunkDaemonCliClient {
   getSession(selector: SessionSelectorInput): Promise<ListedSession>;
   getSelectedContext(selector: SessionSelectorInput): Promise<SelectedSessionContext>;
   navigateToHunk(input: SessionNavigateCommandInput): Promise<NavigatedSelectionResult>;
+  reloadSession(input: SessionReloadCommandInput): Promise<ReloadedSessionResult>;
   addComment(input: SessionCommentAddCommandInput): Promise<AppliedCommentResult>;
   listComments(input: SessionCommentListCommandInput): Promise<SessionLiveCommentSummary[]>;
   removeComment(input: SessionCommentRemoveCommandInput): Promise<RemovedCommentResult>;
@@ -51,6 +54,7 @@ const REQUIRED_ACTION_BY_COMMAND: Record<SessionCommandInput["action"], SessionD
   get: "get",
   context: "context",
   navigate: "navigate",
+  reload: "reload",
   "comment-add": "comment-add",
   "comment-list": "comment-list",
   "comment-rm": "comment-rm",
@@ -149,6 +153,16 @@ class HttpHunkDaemonCliClient implements HunkDaemonCliClient {
         hunkNumber: input.hunkNumber,
         side: input.side,
         line: input.line,
+      })
+    ).result;
+  }
+
+  async reloadSession(input: SessionReloadCommandInput) {
+    return (
+      await this.request<{ result: ReloadedSessionResult }>({
+        action: "reload",
+        selector: input.selector,
+        nextInput: input.nextInput,
       })
     ).result;
   }
@@ -411,6 +425,13 @@ function formatNavigationOutput(selector: SessionSelectorInput, result: Navigate
   return `Focused ${result.filePath} hunk ${result.hunkIndex + 1} in ${formatSelector(selector)}.\n`;
 }
 
+function formatReloadOutput(selector: SessionSelectorInput, result: ReloadedSessionResult) {
+  const selected = result.selectedFilePath
+    ? `${result.selectedFilePath} hunk ${result.selectedHunkIndex + 1}`
+    : "(no files)";
+  return `Reloaded ${formatSelector(selector)} with ${result.title} (${result.fileCount} files). Selected: ${selected}.\n`;
+}
+
 function formatCommentOutput(selector: SessionSelectorInput, result: AppliedCommentResult) {
   return `Added live comment ${result.commentId} on ${result.filePath}:${result.line} (${result.side}) in hunk ${result.hunkIndex + 1} for ${formatSelector(selector)}.\n`;
 }
@@ -521,6 +542,15 @@ export async function runSessionCommand(input: SessionCommandInput) {
       });
       return renderOutput(input.output, { result }, () =>
         formatNavigationOutput(input.selector, result),
+      );
+    }
+    case "reload": {
+      const result = await client.reloadSession({
+        ...input,
+        selector: normalizedSelector!,
+      });
+      return renderOutput(input.output, { result }, () =>
+        formatReloadOutput(input.selector, result),
       );
     }
     case "comment-add": {

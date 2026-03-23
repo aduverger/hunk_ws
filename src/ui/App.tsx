@@ -13,11 +13,19 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
-  useRef,
   useState,
+  useRef,
 } from "react";
-import type { AppBootstrap, LayoutMode } from "../core/types";
+import { resolveConfiguredCliInput } from "../core/config";
+import { loadAppBootstrap } from "../core/loaders";
+import { resolveRuntimeCliInput } from "../core/terminal";
+import type { AppBootstrap, CliInput, LayoutMode } from "../core/types";
 import { HunkHostClient } from "../mcp/client";
+import {
+  createInitialSessionSnapshot,
+  updateSessionRegistration,
+} from "../mcp/sessionRegistration";
+import type { ReloadedSessionResult } from "../mcp/types";
 import { MenuBar } from "./components/chrome/MenuBar";
 import { StatusBar } from "./components/chrome/StatusBar";
 import { DiffPane } from "./components/panes/DiffPane";
@@ -49,14 +57,16 @@ function clamp(value: number, min: number, max: number) {
 }
 
 /** Orchestrate global app state, layout, navigation, and pane coordination. */
-export function App({
+function AppShell({
   bootstrap,
   hostClient,
   onQuit = () => process.exit(0),
+  onReloadSession,
 }: {
   bootstrap: AppBootstrap;
   hostClient?: HunkHostClient;
   onQuit?: () => void;
+  onReloadSession: (nextInput: CliInput) => Promise<ReloadedSessionResult>;
 }) {
   const FILES_MIN_WIDTH = 22;
   const DIFF_MIN_WIDTH = 48;
@@ -112,6 +122,7 @@ export function App({
     hostClient,
     jumpToFile,
     openAgentNotes,
+    reloadSession: onReloadSession,
     selectedFile: baseSelectedFile,
     selectedHunkIndex,
     showAgentNotes,
@@ -839,5 +850,62 @@ export function App({
         </Suspense>
       ) : null}
     </box>
+  );
+}
+
+/** Keep one live Hunk window mounted while allowing daemon-driven session reloads. */
+export function App({
+  bootstrap,
+  hostClient,
+  onQuit = () => process.exit(0),
+}: {
+  bootstrap: AppBootstrap;
+  hostClient?: HunkHostClient;
+  onQuit?: () => void;
+}) {
+  const [activeBootstrap, setActiveBootstrap] = useState(bootstrap);
+  const [shellVersion, setShellVersion] = useState(0);
+
+  const reloadSession = useCallback(
+    async (nextInput: CliInput) => {
+      const runtimeInput = resolveRuntimeCliInput(nextInput);
+      const configuredInput = resolveConfiguredCliInput(runtimeInput).input;
+      const nextBootstrap = await loadAppBootstrap(configuredInput);
+      const nextSnapshot = createInitialSessionSnapshot(nextBootstrap);
+
+      let sessionId = "local-session";
+      if (hostClient) {
+        const nextRegistration = updateSessionRegistration(
+          hostClient.getRegistration(),
+          nextBootstrap,
+        );
+        sessionId = nextRegistration.sessionId;
+        hostClient.replaceSession(nextRegistration, nextSnapshot);
+      }
+
+      setActiveBootstrap(nextBootstrap);
+      setShellVersion((current) => current + 1);
+
+      return {
+        sessionId,
+        inputKind: nextBootstrap.input.kind,
+        title: nextBootstrap.changeset.title,
+        sourceLabel: nextBootstrap.changeset.sourceLabel,
+        fileCount: nextBootstrap.changeset.files.length,
+        selectedFilePath: nextSnapshot.selectedFilePath,
+        selectedHunkIndex: nextSnapshot.selectedHunkIndex,
+      };
+    },
+    [hostClient],
+  );
+
+  return (
+    <AppShell
+      key={shellVersion}
+      bootstrap={activeBootstrap}
+      hostClient={hostClient}
+      onQuit={onQuit}
+      onReloadSession={reloadSession}
+    />
   );
 }

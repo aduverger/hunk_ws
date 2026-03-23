@@ -207,6 +207,40 @@ describe("parseCli", () => {
     });
   });
 
+  test("parses session reload with nested show syntax", async () => {
+    const parsed = await parseCli([
+      "bun",
+      "hunk",
+      "session",
+      "reload",
+      "session-1",
+      "--json",
+      "--",
+      "show",
+      "HEAD~1",
+      "--",
+      "README.md",
+    ]);
+
+    expect(parsed).toMatchObject({
+      kind: "session",
+      action: "reload",
+      selector: { sessionId: "session-1" },
+      nextInput: {
+        kind: "show",
+        ref: "HEAD~1",
+        pathspecs: ["README.md"],
+      },
+      output: "json",
+    });
+  });
+
+  test("rejects session reload without a nested command separator", async () => {
+    await expect(
+      parseCli(["bun", "hunk", "session", "reload", "session-1", "show", "HEAD~1"]),
+    ).rejects.toThrow("Pass the replacement Hunk command after `--`");
+  });
+
   test("parses session comment add", async () => {
     const parsed = await parseCli([
       "bun",

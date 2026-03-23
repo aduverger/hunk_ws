@@ -24,6 +24,24 @@ describe("CLI help output", () => {
     expect(stdout).not.toContain("\u001b[?1049h");
   });
 
+  test("prints session reload help without terminal takeover sequences", () => {
+    const proc = Bun.spawnSync(["bun", "run", "src/main.tsx", "session", "reload", "--help"], {
+      cwd: process.cwd(),
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const stdout = Buffer.from(proc.stdout).toString("utf8");
+    const stderr = Buffer.from(proc.stderr).toString("utf8");
+
+    expect(proc.exitCode).toBe(0);
+    expect(stderr).toBe("");
+    expect(stdout).toContain("Usage: session reload");
+    expect(stdout).toContain("hunk session reload --repo . -- diff");
+    expect(stdout).not.toContain("\u001b[?1049h");
+  });
+
   test("prints the package version for --version without terminal takeover sequences", () => {
     const expectedVersion = require("../package.json").version;
     const proc = Bun.spawnSync(["bun", "run", "src/main.tsx", "--version"], {

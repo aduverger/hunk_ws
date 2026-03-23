@@ -19,6 +19,7 @@ const SUPPORTED_SESSION_ACTIONS: SessionDaemonAction[] = [
   "get",
   "context",
   "navigate",
+  "reload",
   "comment-add",
   "comment-list",
   "comment-rm",
@@ -99,6 +100,14 @@ async function handleSessionApiRequest(state: HunkDaemonState, request: Request)
         };
         break;
       }
+      case "reload":
+        response = {
+          result: await state.sendReloadSession({
+            ...input.selector,
+            nextInput: input.nextInput,
+          }),
+        };
+        break;
       case "comment-add":
         response = {
           result: await state.sendComment({
