@@ -486,13 +486,13 @@ describe("App interactions", () => {
       expect(initialFrame).not.toContain("line08 = 108");
 
       let frame = initialFrame;
-      for (let index = 0; index < 12; index += 1) {
+      for (let index = 0; index < 24; index += 1) {
         await act(async () => {
           await setup.mockInput.pressArrow("down");
         });
         await flush(setup);
         frame = setup.captureCharFrame();
-        if (frame.includes("line08 = 108")) {
+        if (frame.includes("line08 = 108") && !frame.includes("line01 = 101")) {
           break;
         }
       }
@@ -698,7 +698,6 @@ describe("App interactions", () => {
       frame = setup.captureCharFrame();
       expect(frame).not.toContain("M alpha.ts");
       expect(frame).toContain("alpha.ts");
-      expect(frame).not.toContain("drag divider resize");
 
       await act(async () => {
         await setup.mockInput.typeText("s");
@@ -707,7 +706,6 @@ describe("App interactions", () => {
 
       frame = setup.captureCharFrame();
       expect(frame).toContain("M alpha.ts");
-      expect(frame).toContain("drag divider resize");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -726,7 +724,6 @@ describe("App interactions", () => {
 
       let frame = setup.captureCharFrame();
       expect(frame).not.toContain("M alpha.ts");
-      expect(frame).not.toContain("drag divider resize");
 
       await act(async () => {
         await setup.mockInput.typeText("s");
@@ -735,7 +732,6 @@ describe("App interactions", () => {
 
       frame = setup.captureCharFrame();
       expect(frame).toContain("M alpha.ts");
-      expect(frame).toContain("drag divider resize");
 
       await act(async () => {
         await setup.mockInput.typeText("s");
@@ -744,7 +740,6 @@ describe("App interactions", () => {
 
       frame = setup.captureCharFrame();
       expect(frame).not.toContain("M alpha.ts");
-      expect(frame).not.toContain("drag divider resize");
     } finally {
       await act(async () => {
         setup.renderer.destroy();

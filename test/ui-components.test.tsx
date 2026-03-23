@@ -633,18 +633,27 @@ describe("UI components", () => {
     expect(frame).toContain("beta");
   });
 
-  test("HelpDialog renders the keyboard help copy", async () => {
+  test("HelpDialog renders the grouped keyboard help modal", async () => {
     const theme = resolveTheme("midnight", null);
     const frame = await captureFrame(
-      <HelpDialog canRefresh={true} left={2} theme={theme} width={68} onClose={() => {}} />,
+      <HelpDialog
+        canRefresh={true}
+        terminalHeight={20}
+        terminalWidth={76}
+        theme={theme}
+        onClose={() => {}}
+      />,
       76,
-      14,
+      20,
     );
 
-    expect(frame).toContain("Keyboard");
-    expect(frame).toContain("F10 menus");
-    expect(frame).toContain("r reload");
-    expect(frame).toContain("drag the Files/Diff divider");
+    expect(frame).toContain("Keyboard help");
+    expect(frame).toContain("[Esc]");
+    expect(frame).toContain("Navigation");
+    expect(frame).toContain("View");
+    expect(frame).toContain("Review");
+    expect(frame).toContain("F10");
+    expect(frame).toContain("reload / quit");
   });
 
   test("DiffSectionPlaceholder preserves offscreen section chrome without mounting rows", async () => {

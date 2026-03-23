@@ -157,18 +157,15 @@ describe("responsive shell", () => {
 
     expect(full).toContain("M alpha.ts");
     expect(full).not.toContain("Changeset summary");
-    expect(full).toContain("drag divider resize");
     expect(full).toMatch(/▌.*▌/);
 
     expect(medium).not.toContain("Files");
     expect(medium).not.toContain("Changeset summary");
     expect(medium).toMatch(/▌.*▌/);
-    expect(medium).not.toContain("drag divider resize");
 
     expect(tight).not.toContain("Files");
     expect(tight).not.toContain("Changeset summary");
     expect(tight).not.toMatch(/▌.*▌/);
-    expect(tight).not.toContain("drag divider resize");
   });
 
   test("explicit split and stack modes override responsive auto switching", async () => {
@@ -178,12 +175,10 @@ describe("responsive shell", () => {
     expect(forcedSplit).not.toContain("Files");
     expect(forcedSplit).not.toContain("Changeset summary");
     expect(forcedSplit).toMatch(/▌.*▌/);
-    expect(forcedSplit).not.toContain("drag divider resize");
 
     expect(forcedStack).toContain("M alpha.ts");
     expect(forcedStack).not.toContain("Changeset summary");
     expect(forcedStack).not.toMatch(/▌.*▌/);
-    expect(forcedStack).toContain("drag divider resize");
   });
 
   test("pager mode stays responsive while hiding app chrome", async () => {

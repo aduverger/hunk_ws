@@ -508,8 +508,6 @@ function AppShell({
     0,
   );
   const topTitle = `${bootstrap.changeset.title}  +${totalAdditions}  -${totalDeletions}`;
-  const helpWidth = Math.min(68, Math.max(44, terminal.width - 8));
-  const helpLeft = Math.max(1, Math.floor((terminal.width - helpWidth) / 2));
   const filesTextWidth = Math.max(8, clampedFilesPaneWidth - 4);
   const diffContentWidth = Math.max(12, diffPaneWidth - 2);
   const diffHeaderStatsWidth = Math.min(24, Math.max(16, Math.floor(diffContentWidth / 3)));
@@ -856,10 +854,8 @@ function AppShell({
         />
       </box>
 
-      {!pagerMode ? (
+      {!pagerMode && (focusArea === "filter" || Boolean(filter)) ? (
         <StatusBar
-          canRefresh={canRefreshCurrentInput}
-          canResizeDivider={showFilesPane}
           filter={filter}
           filterFocused={focusArea === "filter"}
           terminalWidth={terminal.width}
@@ -892,9 +888,9 @@ function AppShell({
         <Suspense fallback={null}>
           <LazyHelpDialog
             canRefresh={canRefreshCurrentInput}
-            left={helpLeft}
+            terminalHeight={terminal.height}
+            terminalWidth={terminal.width}
             theme={activeTheme}
-            width={helpWidth}
             onClose={() => setShowHelp(false)}
           />
         </Suspense>

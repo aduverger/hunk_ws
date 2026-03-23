@@ -1,10 +1,7 @@
 import type { AppTheme } from "../../themes";
-import { fitText } from "../../lib/text";
 
-/** Render either keyboard hints or the active file filter input. */
+/** Render the active file filter input or current filter summary. */
 export function StatusBar({
-  canRefresh = false,
-  canResizeDivider = false,
   filter,
   filterFocused,
   terminalWidth,
@@ -13,8 +10,6 @@ export function StatusBar({
   onFilterInput,
   onFilterSubmit,
 }: {
-  canRefresh?: boolean;
-  canResizeDivider?: boolean;
   filter: string;
   filterFocused: boolean;
   terminalWidth: number;
@@ -23,28 +18,6 @@ export function StatusBar({
   onFilterInput: (value: string) => void;
   onFilterSubmit: () => void;
 }) {
-  const hintParts = ["F10 menu"];
-  if (canResizeDivider) {
-    hintParts.push("drag divider resize");
-  }
-  if (canRefresh) {
-    hintParts.push("r reload");
-  }
-  hintParts.push(
-    "↑↓ line",
-    "space/b page",
-    "/ filter",
-    "[ ] hunk nav",
-    "1 2 0 layout",
-    "s sidebar",
-    "t theme",
-    "a notes",
-    "l lines",
-    "w wrap",
-    "m meta",
-    "q quit",
-  );
-
   return (
     <box
       style={{
@@ -73,12 +46,7 @@ export function StatusBar({
           />
         </>
       ) : (
-        <text fg={theme.muted}>
-          {fitText(
-            `${hintParts.join("  ")}${filter ? `  filter=${filter}` : ""}`,
-            terminalWidth - 2,
-          )}
-        </text>
+        <text fg={theme.muted}>{`filter=${filter}`}</text>
       )}
     </box>
   );
