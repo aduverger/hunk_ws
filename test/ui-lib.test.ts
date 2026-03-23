@@ -97,11 +97,13 @@ describe("ui helpers", () => {
   test("buildAppMenus creates checked entries from the current shell state", () => {
     const menus = buildAppMenus({
       activeThemeId: "graphite",
+      canRefreshCurrentInput: true,
       focusFiles: () => {},
       focusFilter: () => {},
       layoutMode: "stack",
       moveAnnotatedFile: () => {},
       moveHunk: () => {},
+      refreshCurrentInput: () => {},
       requestQuit: () => {},
       selectLayoutMode: () => {},
       selectThemeId: () => {},
@@ -119,6 +121,11 @@ describe("ui helpers", () => {
       wrapLines: true,
     });
 
+    expect(
+      menus.file
+        .filter((entry): entry is Extract<MenuEntry, { kind: "item" }> => entry.kind === "item")
+        .map((entry) => entry.label),
+    ).toEqual(["Focus files", "Focus filter", "Reload", "Quit"]);
     expect(
       menus.view
         .filter(

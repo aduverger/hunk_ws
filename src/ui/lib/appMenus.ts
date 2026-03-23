@@ -4,11 +4,13 @@ import { THEMES } from "../themes";
 
 export interface BuildAppMenusOptions {
   activeThemeId: string;
+  canRefreshCurrentInput: boolean;
   focusFiles: () => void;
   focusFilter: () => void;
   layoutMode: LayoutMode;
   moveAnnotatedFile: (delta: number) => void;
   moveHunk: (delta: number) => void;
+  refreshCurrentInput: () => void;
   requestQuit: () => void;
   selectLayoutMode: (mode: LayoutMode) => void;
   selectThemeId: (themeId: string) => void;
@@ -29,11 +31,13 @@ export interface BuildAppMenusOptions {
 /** Build the top-level app menus from the current shell state and actions. */
 export function buildAppMenus({
   activeThemeId,
+  canRefreshCurrentInput,
   focusFiles,
   focusFilter,
   layoutMode,
   moveAnnotatedFile,
   moveHunk,
+  refreshCurrentInput,
   requestQuit,
   selectLayoutMode,
   selectThemeId,
@@ -57,28 +61,42 @@ export function buildAppMenus({
     action: () => selectThemeId(theme.id),
   }));
 
+  const fileMenuEntries: MenuEntry[] = [
+    {
+      kind: "item",
+      label: "Focus files",
+      hint: "Tab",
+      action: focusFiles,
+    },
+    {
+      kind: "item",
+      label: "Focus filter",
+      hint: "/",
+      action: focusFilter,
+    },
+  ];
+
+  if (canRefreshCurrentInput) {
+    fileMenuEntries.push({
+      kind: "item",
+      label: "Reload",
+      hint: "r",
+      action: refreshCurrentInput,
+    });
+  }
+
+  fileMenuEntries.push(
+    { kind: "separator" },
+    {
+      kind: "item",
+      label: "Quit",
+      hint: "q",
+      action: requestQuit,
+    },
+  );
+
   return {
-    file: [
-      {
-        kind: "item",
-        label: "Focus files",
-        hint: "Tab",
-        action: focusFiles,
-      },
-      {
-        kind: "item",
-        label: "Focus filter",
-        hint: "/",
-        action: focusFilter,
-      },
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Quit",
-        hint: "q",
-        action: requestQuit,
-      },
-    ],
+    file: fileMenuEntries,
     view: [
       {
         kind: "item",

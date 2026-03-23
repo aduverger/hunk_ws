@@ -2,11 +2,13 @@ import type { AppTheme } from "../../themes";
 
 /** Render the compact keyboard help overlay. */
 export function HelpDialog({
+  canRefresh = false,
   left,
   theme,
   width,
   onClose,
 }: {
+  canRefresh?: boolean;
   left: number;
   theme: AppTheme;
   width: number;
@@ -19,7 +21,7 @@ export function HelpDialog({
         top: 3,
         left,
         width,
-        height: 9,
+        height: canRefresh ? 10 : 9,
         zIndex: 60,
         border: true,
         borderColor: theme.accent,
@@ -33,6 +35,7 @@ export function HelpDialog({
       <text fg={theme.text}>Keyboard</text>
       <text fg={theme.muted}>F10 menus arrows navigate menus Enter select Esc close menu</text>
       <text fg={theme.muted}>1 split 2 stack 0 auto t theme a notes l lines w wrap m meta</text>
+      {canRefresh ? <text fg={theme.muted}>r reload the current diff</text> : null}
       <text fg={theme.muted}>
         ↑/↓ line scroll space next page b previous page Home/End jump [ previous hunk ] next hunk
       </text>

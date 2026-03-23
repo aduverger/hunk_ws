@@ -1,9 +1,13 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { parseDiffFromFile } from "@pierre/diffs";
 import { act } from "react";
 import type { AppBootstrap, DiffFile, LayoutMode } from "../src/core/types";
 
+const { loadAppBootstrap } = await import("../src/core/loaders");
 const { App } = await import("../src/ui/App");
 
 function createDiffFile(
@@ -352,6 +356,7 @@ describe("App interactions", () => {
       }
 
       expect(frame).toContain("Focus files");
+      expect(frame).toContain("Reload");
       expect(frame).toContain("Quit");
 
       await act(async () => {
@@ -374,6 +379,60 @@ describe("App interactions", () => {
       await act(async () => {
         setup.renderer.destroy();
       });
+    }
+  });
+
+  test("reload shortcut reloads the current file diff from disk", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hunk-reload-"));
+    const left = join(dir, "before.ts");
+    const right = join(dir, "after.ts");
+
+    writeFileSync(left, "export const answer = 41;\n");
+    writeFileSync(right, "export const answer = 42;\n");
+
+    const bootstrap = await loadAppBootstrap({
+      kind: "diff",
+      left,
+      right,
+      options: {
+        mode: "split",
+      },
+    });
+
+    const setup = await testRender(<App bootstrap={bootstrap} />, {
+      width: 220,
+      height: 20,
+    });
+
+    try {
+      await flush(setup);
+
+      let frame = setup.captureCharFrame();
+      expect(frame).not.toContain("export const added = true;");
+
+      writeFileSync(right, "export const answer = 42;\nexport const added = true;\n");
+
+      await act(async () => {
+        await setup.mockInput.typeText("r");
+      });
+
+      let refreshed = false;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await flush(setup);
+        frame = setup.captureCharFrame();
+        if (frame.includes("export const added = true;")) {
+          refreshed = true;
+          break;
+        }
+        await Bun.sleep(25);
+      }
+
+      expect(refreshed).toBe(true);
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 

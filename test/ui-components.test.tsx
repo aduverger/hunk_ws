@@ -636,13 +636,14 @@ describe("UI components", () => {
   test("HelpDialog renders the keyboard help copy", async () => {
     const theme = resolveTheme("midnight", null);
     const frame = await captureFrame(
-      <HelpDialog left={2} theme={theme} width={68} onClose={() => {}} />,
+      <HelpDialog canRefresh={true} left={2} theme={theme} width={68} onClose={() => {}} />,
       76,
       14,
     );
 
     expect(frame).toContain("Keyboard");
     expect(frame).toContain("F10 menus");
+    expect(frame).toContain("r reload");
     expect(frame).toContain("drag the Files/Diff divider");
   });
 

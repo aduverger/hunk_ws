@@ -55,6 +55,37 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
+/** Return whether the current input can be reloaded from disk or Git state. */
+function canRefreshInput(input: CliInput) {
+  return input.kind !== "patch" || Boolean(input.file && input.file !== "-");
+}
+
+/** Preserve the active shell view settings when rebuilding the current input. */
+function withCurrentViewOptions(
+  input: CliInput,
+  view: {
+    layoutMode: LayoutMode;
+    themeId: string;
+    showAgentNotes: boolean;
+    showHunkHeaders: boolean;
+    showLineNumbers: boolean;
+    wrapLines: boolean;
+  },
+): CliInput {
+  return {
+    ...input,
+    options: {
+      ...input.options,
+      mode: view.layoutMode,
+      theme: view.themeId,
+      agentNotes: view.showAgentNotes,
+      hunkHeaders: view.showHunkHeaders,
+      lineNumbers: view.showLineNumbers,
+      wrapLines: view.wrapLines,
+    },
+  };
+}
+
 /** Orchestrate global app state, layout, navigation, and pane coordination. */
 function AppShell({
   bootstrap,
@@ -321,6 +352,38 @@ function AppShell({
     jumpToFile(fileId, hunkIndex);
   };
 
+  const canRefreshCurrentInput = canRefreshInput(bootstrap.input);
+
+  /** Rebuild the current diff source while preserving the active shell view options. */
+  const refreshCurrentInput = useCallback(() => {
+    if (!canRefreshCurrentInput) {
+      return;
+    }
+
+    const nextInput = withCurrentViewOptions(bootstrap.input, {
+      layoutMode,
+      themeId,
+      showAgentNotes,
+      showHunkHeaders,
+      showLineNumbers,
+      wrapLines,
+    });
+
+    void onReloadSession(nextInput).catch((error) => {
+      console.error("Failed to reload the current diff.", error);
+    });
+  }, [
+    bootstrap.input,
+    canRefreshCurrentInput,
+    layoutMode,
+    onReloadSession,
+    showAgentNotes,
+    showHunkHeaders,
+    showLineNumbers,
+    themeId,
+    wrapLines,
+  ]);
+
   /** Leave the app through the shell-owned shutdown path. */
   const requestQuit = useCallback(() => {
     onQuit();
@@ -330,11 +393,13 @@ function AppShell({
     () =>
       buildAppMenus({
         activeThemeId: activeTheme.id,
+        canRefreshCurrentInput,
         focusFiles: () => setFocusArea("files"),
         focusFilter: () => setFocusArea("filter"),
         layoutMode,
         moveAnnotatedFile,
         moveHunk,
+        refreshCurrentInput,
         requestQuit,
         selectLayoutMode: setLayoutMode,
         selectThemeId: setThemeId,
@@ -353,9 +418,11 @@ function AppShell({
       }),
     [
       activeTheme.id,
+      canRefreshCurrentInput,
       layoutMode,
       moveAnnotatedFile,
       moveHunk,
+      refreshCurrentInput,
       requestQuit,
       showAgentNotes,
       showHelp,
@@ -645,6 +712,12 @@ function AppShell({
       return;
     }
 
+    if ((key.name === "r" || key.sequence === "r") && canRefreshCurrentInput) {
+      refreshCurrentInput();
+      closeMenu();
+      return;
+    }
+
     if (key.name === "t") {
       const currentIndex = THEMES.findIndex((theme) => theme.id === activeTheme.id);
       const nextIndex = (currentIndex + 1) % THEMES.length;
@@ -785,6 +858,7 @@ function AppShell({
 
       {!pagerMode ? (
         <StatusBar
+          canRefresh={canRefreshCurrentInput}
           canResizeDivider={showFilesPane}
           filter={filter}
           filterFocused={focusArea === "filter"}
@@ -817,6 +891,7 @@ function AppShell({
       {!pagerMode && showHelp ? (
         <Suspense fallback={null}>
           <LazyHelpDialog
+            canRefresh={canRefreshCurrentInput}
             left={helpLeft}
             theme={activeTheme}
             width={helpWidth}

@@ -3,6 +3,7 @@ import { fitText } from "../../lib/text";
 
 /** Render either keyboard hints or the active file filter input. */
 export function StatusBar({
+  canRefresh = false,
   canResizeDivider = false,
   filter,
   filterFocused,
@@ -12,6 +13,7 @@ export function StatusBar({
   onFilterInput,
   onFilterSubmit,
 }: {
+  canRefresh?: boolean;
   canResizeDivider?: boolean;
   filter: string;
   filterFocused: boolean;
@@ -24,6 +26,9 @@ export function StatusBar({
   const hintParts = ["F10 menu"];
   if (canResizeDivider) {
     hintParts.push("drag divider resize");
+  }
+  if (canRefresh) {
+    hintParts.push("r reload");
   }
   hintParts.push(
     "↑↓ line",
