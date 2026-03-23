@@ -34,6 +34,13 @@ bun test
 bun run test:tty-smoke
 ```
 
+Format the JS/TS/JSON codebase:
+
+```bash
+bun run format
+bun run format:check
+```
+
 Build and verify the npm package:
 
 ```bash
