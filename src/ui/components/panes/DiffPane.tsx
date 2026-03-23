@@ -1,9 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type RefObject } from "react";
 import type { AgentAnnotation, DiffFile, LayoutMode } from "../../../core/types";
-import { AgentCard } from "./AgentCard";
-import { annotationLocationLabel, type VisibleAgentNote } from "../../lib/agentAnnotations";
-import { buildAgentPopoverContent, resolveAgentPopoverPlacement } from "../../lib/agentPopover";
+import type { VisibleAgentNote } from "../../lib/agentAnnotations";
 import { diffHunkId, diffSectionId } from "../../lib/ids";
 import type { AppTheme } from "../../themes";
 import { estimateDiffBodyRows, estimateHunkAnchorRow } from "../../lib/sectionHeights";
@@ -11,26 +9,6 @@ import { DiffSection } from "./DiffSection";
 import { DiffSectionPlaceholder } from "./DiffSectionPlaceholder";
 
 const EMPTY_VISIBLE_AGENT_NOTES: VisibleAgentNote[] = [];
-
-function maxLineNumber(file: DiffFile) {
-  return Math.max(file.metadata.additionLines.length, file.metadata.deletionLines.length, 0);
-}
-
-function noteAnchorColumn(
-  file: DiffFile,
-  layout: Exclude<LayoutMode, "auto">,
-  width: number,
-  showLineNumbers: boolean,
-  note: VisibleAgentNote,
-) {
-  if (layout === "split") {
-    return note.annotation.oldRange && !note.annotation.newRange
-      ? 1
-      : Math.max(2, Math.floor(width * 0.58));
-  }
-
-  return showLineNumbers ? Math.max(2, String(maxLineNumber(file)).length + 4) : 2;
-}
 
 /** Render the main multi-file review stream. */
 export function DiffPane({
@@ -167,85 +145,6 @@ export function DiffPane({
     () => files.map((file) => estimateDiffBodyRows(file, layout, showHunkHeaders)),
     [files, layout, showHunkHeaders],
   );
-  const selectedOverlayNote = useMemo(() => {
-    if (!selectedFileId) {
-      return null;
-    }
-
-    const selectedFileIndex = files.findIndex((file) => file.id === selectedFileId);
-    if (selectedFileIndex < 0) {
-      return null;
-    }
-
-    const selectedFile = files[selectedFileIndex]!;
-    const visibleNotes = visibleAgentNotesByFile.get(selectedFileId) ?? EMPTY_VISIBLE_AGENT_NOTES;
-    const note = visibleNotes[0];
-    if (!note) {
-      return null;
-    }
-
-    let sectionTop = 0;
-    for (let index = 0; index < selectedFileIndex; index += 1) {
-      sectionTop += (index > 0 ? 1 : 0) + 1 + (estimatedBodyHeights[index] ?? 0);
-    }
-
-    sectionTop += (selectedFileIndex > 0 ? 1 : 0) + 1;
-    const anchorRowTop =
-      sectionTop + estimateHunkAnchorRow(selectedFile, layout, showHunkHeaders, selectedHunkIndex);
-    const anchorColumn = noteAnchorColumn(
-      selectedFile,
-      layout,
-      diffContentWidth,
-      showLineNumbers,
-      note,
-    );
-    const noteWidth = Math.min(
-      Math.max(34, Math.floor(diffContentWidth * 0.42)),
-      Math.max(12, diffContentWidth - 2),
-    );
-    const locationLabel = annotationLocationLabel(selectedFile, note.annotation);
-    const popover = buildAgentPopoverContent({
-      summary: note.annotation.summary,
-      rationale: note.annotation.rationale,
-      locationLabel,
-      noteIndex: 0,
-      noteCount: visibleNotes.length,
-      width: noteWidth,
-    });
-
-    const contentHeight = files.reduce(
-      (total, file, index) => total + (index > 0 ? 1 : 0) + 1 + (estimatedBodyHeights[index] ?? 0),
-      0,
-    );
-    const placement = resolveAgentPopoverPlacement({
-      anchorColumn,
-      anchorRowTop,
-      anchorRowHeight: 1,
-      contentHeight,
-      noteHeight: popover.height,
-      noteWidth,
-      viewportWidth: diffContentWidth,
-    });
-
-    return {
-      note,
-      noteCount: visibleNotes.length,
-      noteWidth,
-      left: placement.left,
-      top: placement.top,
-      locationLabel,
-    };
-  }, [
-    diffContentWidth,
-    estimatedBodyHeights,
-    files,
-    layout,
-    selectedFileId,
-    selectedHunkIndex,
-    showHunkHeaders,
-    showLineNumbers,
-    visibleAgentNotesByFile,
-  ]);
 
   const visibleViewportFileIds = useMemo(() => {
     const overscanRows = 8;
@@ -427,7 +326,9 @@ export function DiffPane({
                   wrapLines={wrapLines}
                   theme={theme}
                   viewWidth={diffContentWidth}
-                  visibleAgentNotes={EMPTY_VISIBLE_AGENT_NOTES}
+                  visibleAgentNotes={
+                    visibleAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES
+                  }
                   onDismissAgentNote={onDismissAgentNote}
                   onOpenAgentNotesAtHunk={(hunkIndex) => onOpenAgentNotesAtHunk(file.id, hunkIndex)}
                   onSelect={() => onSelectFile(file.id)}
@@ -446,26 +347,6 @@ export function DiffPane({
                 />
               );
             })}
-            {selectedFileId && selectedOverlayNote ? (
-              <box
-                style={{
-                  position: "absolute",
-                  top: selectedOverlayNote.top,
-                  left: selectedOverlayNote.left,
-                  zIndex: 20,
-                }}
-              >
-                <AgentCard
-                  locationLabel={selectedOverlayNote.locationLabel}
-                  noteCount={selectedOverlayNote.noteCount}
-                  rationale={selectedOverlayNote.note.annotation.rationale}
-                  summary={selectedOverlayNote.note.annotation.summary}
-                  theme={theme}
-                  width={selectedOverlayNote.noteWidth}
-                  onClose={() => onDismissAgentNote(selectedOverlayNote.note.id)}
-                />
-              </box>
-            ) : null}
           </box>
         </scrollbox>
       ) : (

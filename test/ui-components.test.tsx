@@ -9,6 +9,7 @@ const { App } = await import("../src/ui/App");
 const { HelpDialog } = await import("../src/ui/components/chrome/HelpDialog");
 const { FilesPane } = await import("../src/ui/components/panes/FilesPane");
 const { AgentCard } = await import("../src/ui/components/panes/AgentCard");
+const { AgentInlineNote } = await import("../src/ui/components/panes/AgentInlineNote");
 const { DiffPane } = await import("../src/ui/components/panes/DiffPane");
 const { MenuDropdown } = await import("../src/ui/components/chrome/MenuDropdown");
 const { StatusBar } = await import("../src/ui/components/chrome/StatusBar");
@@ -285,7 +286,36 @@ describe("UI components", () => {
     expect(lines[7]).toBe("└────────────────────────────────┘");
   });
 
-  test("DiffPane renders hunk notes with file and line labels only", async () => {
+  test("AgentInlineNote renders a connected bordered panel with an indented connector", async () => {
+    const theme = resolveTheme("midnight", null);
+    const frame = await captureFrame(
+      <AgentInlineNote
+        annotation={{
+          newRange: [2, 4],
+          summary: "Summary line",
+          rationale: "Rationale line.",
+        }}
+        anchorSide="new"
+        layout="split"
+        theme={theme}
+        width={96}
+        onClose={() => {}}
+      />,
+      100,
+      6,
+    );
+
+    const lines = frame.split("\n");
+    expect(lines[0]?.trimStart().startsWith("┌")).toBe(true);
+    expect(lines[1]).toContain("AI note · ▶ new 2-4");
+    expect(lines[1]).toContain("[x]");
+    expect(lines[2]).toContain("Summary line");
+    expect(lines[3]).toContain("Rationale line.");
+    expect(lines[4]?.trimStart().startsWith("└")).toBe(true);
+    expect(lines[5]?.trimStart().startsWith("│")).toBe(true);
+  });
+
+  test("DiffPane renders inline hunk notes beneath the anchored diff row", async () => {
     const bootstrap = createBootstrap();
     const theme = resolveTheme("midnight", null);
     const frame = await captureFrame(
@@ -315,17 +345,19 @@ describe("UI components", () => {
       18,
     );
 
-    expect(frame).toContain("AI note");
-    expect(frame).toContain("alpha.ts +2");
+    expect(frame).toContain("AI note · ▶ new 2");
     expect(frame).toContain("Annotation for alpha.ts");
     expect(frame).toContain("Why alpha.ts changed");
+    expect(frame.indexOf("AI note · ▶ new 2")).toBeLessThan(
+      frame.indexOf("2 + export const add = true;"),
+    );
     expect(frame).not.toContain("alpha.ts note");
     expect(frame).not.toContain("review");
     expect(frame).not.toContain("confidence");
     expect(frame).toContain("[x]");
   });
 
-  test("DiffPane shows one framed popover at a time when a hunk has multiple notes", async () => {
+  test("DiffPane shows one inline note at a time when a hunk has multiple notes", async () => {
     const bootstrap = createBootstrap();
     const theme = resolveTheme("midnight", null);
     const file = bootstrap.changeset.files[0]!;
@@ -674,12 +706,13 @@ describe("UI components", () => {
     );
 
     expect(frame).not.toContain("@@ -1,1 +1,2 @@");
-    expect(frame).toContain("AI note");
+    expect(frame).toContain("AI note · hunk");
     expect(frame).toContain("Ungrounded note");
     expect(frame).toContain("Falls back to the first visible");
     expect(frame).toContain("row.");
-    expect(frame).toContain("note-fallback.ts");
-    expect(frame).toContain("1 - export const value = 1;");
+    expect(frame.indexOf("AI note · hunk")).toBeLessThan(
+      frame.indexOf("1 - export const value = 1;"),
+    );
   });
 
   test("PierreDiffView shows contextual messages when there is no selected file or no textual hunks", async () => {

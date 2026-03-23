@@ -712,6 +712,7 @@ function renderRow(
   selected: boolean,
   annotated: boolean,
   anchorId?: string,
+  noteGuideSide?: "old" | "new",
   onOpenAgentNotesAtHunk?: (hunkIndex: number) => void,
 ) {
   let baseRow: ReactNode;
@@ -731,12 +732,13 @@ function renderRow(
       ? renderHeaderRow(row, width, theme, selected, annotated, anchorId, onOpenAgentNotesAtHunk)
       : null;
   } else if (row.type === "split-line") {
+    const outerGuideWidth = noteGuideSide ? 1 : 0;
+    const contentWidth = Math.max(0, width - outerGuideWidth);
     const markerWidth = 1;
     const separatorWidth = 1;
 
-    // Reserve fixed columns for the left rail and center separator slot.
-    // Active-hunk rows recolor that separator slot as the right-side rail without changing width.
-    const usableWidth = Math.max(0, width - markerWidth - separatorWidth);
+    // Reserve fixed columns for the diff rails and center separator slot.
+    const usableWidth = Math.max(0, contentWidth - markerWidth - separatorWidth);
     const leftWidth = Math.max(0, markerWidth + Math.floor(usableWidth / 2));
     const rightWidth = Math.max(0, separatorWidth + usableWidth - Math.floor(usableWidth / 2));
     const leftPrefix = {
@@ -751,8 +753,8 @@ function renderRow(
     };
 
     if (!wrapLines) {
-      baseRow = (
-        <box id={anchorId} style={{ width: "100%", height: 1 }}>
+      const content = (
+        <box style={{ width: contentWidth, height: 1 }}>
           <text>
             {renderSplitCell(
               row.left,
@@ -773,6 +775,19 @@ function renderRow(
               rightPrefix,
             )}
           </text>
+        </box>
+      );
+      const guide = noteGuideSide ? (
+        <box style={{ width: 1, height: 1 }}>
+          <text fg={theme.noteBorder}>│</text>
+        </box>
+      ) : null;
+
+      baseRow = (
+        <box id={anchorId} style={{ width: "100%", height: 1, flexDirection: "row" }}>
+          {noteGuideSide === "old" ? guide : null}
+          {content}
+          {noteGuideSide === "new" ? guide : null}
         </box>
       );
     } else {
@@ -813,27 +828,39 @@ function renderRow(
               gutterText: " ".repeat(rightLayout.gutterWidth),
               spans: [],
             };
+            const guide = noteGuideSide ? (
+              <box style={{ width: 1, height: 1 }}>
+                <text fg={theme.noteBorder}>│</text>
+              </box>
+            ) : null;
 
             return (
-              <box key={`${row.key}:wrap:${index}`} style={{ width: "100%", height: 1 }}>
-                <text>
-                  {renderWrappedSplitCellLine(
-                    leftLine,
-                    leftLayout.palette,
-                    leftContentWidth,
-                    theme,
-                    `${row.key}:left:${index}`,
-                    leftPrefix,
-                  )}
-                  {renderWrappedSplitCellLine(
-                    rightLine,
-                    rightLayout.palette,
-                    rightContentWidth,
-                    theme,
-                    `${row.key}:right:${index}`,
-                    rightPrefix,
-                  )}
-                </text>
+              <box
+                key={`${row.key}:wrap:${index}`}
+                style={{ width: "100%", height: 1, flexDirection: "row" }}
+              >
+                {noteGuideSide === "old" ? guide : null}
+                <box style={{ width: contentWidth, height: 1 }}>
+                  <text>
+                    {renderWrappedSplitCellLine(
+                      leftLine,
+                      leftLayout.palette,
+                      leftContentWidth,
+                      theme,
+                      `${row.key}:left:${index}`,
+                      leftPrefix,
+                    )}
+                    {renderWrappedSplitCellLine(
+                      rightLine,
+                      rightLayout.palette,
+                      rightContentWidth,
+                      theme,
+                      `${row.key}:right:${index}`,
+                      rightPrefix,
+                    )}
+                  </text>
+                </box>
+                {noteGuideSide === "new" ? guide : null}
               </box>
             );
           })}
@@ -841,6 +868,8 @@ function renderRow(
       );
     }
   } else if (row.type === "stack-line") {
+    const outerGuideWidth = noteGuideSide ? 1 : 0;
+    const contentWidth = Math.max(0, width - outerGuideWidth);
     const prefix = {
       text: marker(),
       fg: stackRailColor(row.cell.kind, theme, selected),
@@ -848,12 +877,12 @@ function renderRow(
     };
 
     if (!wrapLines) {
-      baseRow = (
-        <box id={anchorId} style={{ width: "100%", height: 1 }}>
+      const content = (
+        <box style={{ width: contentWidth, height: 1 }}>
           <text>
             {renderStackCell(
               row.cell,
-              width,
+              contentWidth,
               lineNumberDigits,
               showLineNumbers,
               theme,
@@ -863,33 +892,64 @@ function renderRow(
           </text>
         </box>
       );
+      const guide = noteGuideSide ? (
+        <box style={{ width: 1, height: 1 }}>
+          <text fg={theme.noteBorder}>│</text>
+        </box>
+      ) : null;
+
+      baseRow = (
+        <box id={anchorId} style={{ width: "100%", height: 1, flexDirection: "row" }}>
+          {noteGuideSide === "old" ? guide : null}
+          {content}
+          {noteGuideSide === "new" ? guide : null}
+        </box>
+      );
     } else {
       const layout = buildWrappedStackCell(
         row.cell,
-        width,
+        contentWidth,
         lineNumberDigits,
         showLineNumbers,
         prefix.text.length,
         theme,
       );
-      const contentWidth = Math.max(0, width - prefix.text.length - layout.gutterWidth);
+      const wrappedContentWidth = Math.max(
+        0,
+        contentWidth - prefix.text.length - layout.gutterWidth,
+      );
 
       baseRow = (
         <box id={anchorId} style={{ width: "100%", flexDirection: "column" }}>
-          {layout.lines.map((line, index) => (
-            <box key={`${row.key}:wrap:${index}`} style={{ width: "100%", height: 1 }}>
-              <text>
-                {renderWrappedStackCellLine(
-                  line,
-                  layout.palette,
-                  contentWidth,
-                  theme,
-                  `${row.key}:stack:${index}`,
-                  prefix,
-                )}
-              </text>
-            </box>
-          ))}
+          {layout.lines.map((line, index) => {
+            const guide = noteGuideSide ? (
+              <box style={{ width: 1, height: 1 }}>
+                <text fg={theme.noteBorder}>│</text>
+              </box>
+            ) : null;
+
+            return (
+              <box
+                key={`${row.key}:wrap:${index}`}
+                style={{ width: "100%", height: 1, flexDirection: "row" }}
+              >
+                {noteGuideSide === "old" ? guide : null}
+                <box style={{ width: contentWidth, height: 1 }}>
+                  <text>
+                    {renderWrappedStackCellLine(
+                      line,
+                      layout.palette,
+                      wrappedContentWidth,
+                      theme,
+                      `${row.key}:stack:${index}`,
+                      prefix,
+                    )}
+                  </text>
+                </box>
+                {noteGuideSide === "new" ? guide : null}
+              </box>
+            );
+          })}
         </box>
       );
     }
@@ -915,6 +975,7 @@ interface DiffRowViewProps {
   selected: boolean;
   annotated: boolean;
   anchorId?: string;
+  noteGuideSide?: "old" | "new";
   onOpenAgentNotesAtHunk?: (hunkIndex: number) => void;
 }
 
@@ -931,6 +992,7 @@ export const DiffRowView = memo(
     selected,
     annotated,
     anchorId,
+    noteGuideSide,
     onOpenAgentNotesAtHunk,
   }: DiffRowViewProps) {
     return renderRow(
@@ -944,6 +1006,7 @@ export const DiffRowView = memo(
       selected,
       annotated,
       anchorId,
+      noteGuideSide,
       onOpenAgentNotesAtHunk,
     );
   },
@@ -958,7 +1021,8 @@ export const DiffRowView = memo(
       previous.theme === next.theme &&
       previous.selected === next.selected &&
       previous.annotated === next.annotated &&
-      previous.anchorId === next.anchorId
+      previous.anchorId === next.anchorId &&
+      previous.noteGuideSide === next.noteGuideSide
     );
   },
 );

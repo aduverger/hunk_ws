@@ -26,6 +26,10 @@ export interface AppTheme {
   badgeAdded: string;
   badgeRemoved: string;
   badgeNeutral: string;
+  noteBorder: string;
+  noteBackground: string;
+  noteTitleBackground: string;
+  noteTitleText: string;
   syntaxColors: SyntaxColors;
   syntaxStyle: SyntaxStyle;
 }
@@ -106,6 +110,10 @@ export const THEMES: AppTheme[] = [
       badgeAdded: "#88d39b",
       badgeRemoved: "#f0a0a0",
       badgeNeutral: "#a9b4bf",
+      noteBorder: "#c6a0ff",
+      noteBackground: "#241c31",
+      noteTitleBackground: "#322446",
+      noteTitleText: "#f5edff",
     },
     {
       default: "#f2f4f6",
@@ -146,6 +154,10 @@ export const THEMES: AppTheme[] = [
       badgeAdded: "#5ad188",
       badgeRemoved: "#ff8b8b",
       badgeNeutral: "#89a5d3",
+      noteBorder: "#c49bff",
+      noteBackground: "#211a36",
+      noteTitleBackground: "#30234f",
+      noteTitleText: "#f5eeff",
     },
     {
       default: "#e8f1ff",
@@ -186,6 +198,10 @@ export const THEMES: AppTheme[] = [
       badgeAdded: "#3f8d58",
       badgeRemoved: "#b4545b",
       badgeNeutral: "#8e7355",
+      noteBorder: "#7d5bc4",
+      noteBackground: "#efe6ff",
+      noteTitleBackground: "#e3d7ff",
+      noteTitleText: "#462b74",
     },
     {
       default: "#2f2417",
@@ -226,6 +242,10 @@ export const THEMES: AppTheme[] = [
       badgeAdded: "#83d99d",
       badgeRemoved: "#ff9d8f",
       badgeNeutral: "#f1be9d",
+      noteBorder: "#e1a3ff",
+      noteBackground: "#311d36",
+      noteTitleBackground: "#452650",
+      noteTitleText: "#fff0ff",
     },
     {
       default: "#fff0e6",
