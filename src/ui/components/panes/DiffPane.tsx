@@ -1,5 +1,13 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import type { DiffFile, LayoutMode } from "../../../core/types";
 import type { VisibleAgentNote } from "../../lib/agentAnnotations";
 import { diffHunkId, diffSectionId } from "../../lib/ids";
@@ -7,6 +15,7 @@ import type { AppTheme } from "../../themes";
 import { measureDiffSectionMetrics } from "../../lib/sectionHeights";
 import { DiffSection } from "./DiffSection";
 import { DiffSectionPlaceholder } from "./DiffSectionPlaceholder";
+import { VerticalScrollbar, type VerticalScrollbarHandle } from "../scrollbar/VerticalScrollbar";
 
 const EMPTY_VISIBLE_AGENT_NOTES: VisibleAgentNote[] = [];
 
@@ -120,11 +129,19 @@ export function DiffPane({
   // other files can still use placeholders and viewport windowing.
   const windowingEnabled = !wrapLines;
   const [scrollViewport, setScrollViewport] = useState({ top: 0, height: 0 });
+  const scrollbarRef = useRef<VerticalScrollbarHandle>(null);
+  const prevScrollTopRef = useRef(0);
 
   useEffect(() => {
     const updateViewport = () => {
       const nextTop = scrollRef.current?.scrollTop ?? 0;
       const nextHeight = scrollRef.current?.viewport.height ?? 0;
+
+      // Detect scroll activity and show scrollbar
+      if (nextTop !== prevScrollTopRef.current) {
+        scrollbarRef.current?.show();
+        prevScrollTopRef.current = nextTop;
+      }
 
       setScrollViewport((current) =>
         current.top === nextTop && current.height === nextHeight
@@ -218,6 +235,22 @@ export function DiffPane({
     [sectionMetrics],
   );
 
+  // Calculate total content height including separators and headers
+  const totalContentHeight = useMemo(() => {
+    let total = 0;
+    for (let index = 0; index < files.length; index += 1) {
+      // Separator between files (except first)
+      if (index > 0) {
+        total += 1;
+      }
+      // File header
+      total += 1;
+      // File body
+      total += estimatedBodyHeights[index] ?? 0;
+    }
+    return total;
+  }, [files.length, estimatedBodyHeights]);
+
   const visibleWindowedFileIds = useMemo(() => {
     if (!windowingEnabled) {
       return null;
@@ -310,6 +343,14 @@ export function DiffPane({
     wrapLines,
   ]);
 
+  // Configure scroll step size to scroll exactly 1 line per step
+  useEffect(() => {
+    const scrollBox = scrollRef.current;
+    if (scrollBox) {
+      scrollBox.verticalScrollBar.scrollStep = 1;
+    }
+  }, [scrollRef]);
+
   return (
     <box
       style={{
@@ -323,74 +364,85 @@ export function DiffPane({
       }}
     >
       {files.length > 0 ? (
-        <scrollbox
-          ref={scrollRef}
-          width="100%"
-          height="100%"
-          scrollY={true}
-          viewportCulling={true}
-          focused={pagerMode}
-          rootOptions={{ backgroundColor: theme.panel }}
-          wrapperOptions={{ backgroundColor: theme.panel }}
-          viewportOptions={{ backgroundColor: theme.panel }}
-          contentOptions={{ backgroundColor: theme.panel }}
-          verticalScrollbarOptions={{ visible: false }}
-          horizontalScrollbarOptions={{ visible: false }}
-        >
-          <box style={{ width: "100%", flexDirection: "column", overflow: "visible" }}>
-            {files.map((file, index) => {
-              const shouldRenderSection = visibleWindowedFileIds?.has(file.id) ?? true;
-              const shouldPrefetchVisibleHighlight =
-                Boolean(selectedHighlightKey) &&
-                prefetchAnchorKey === selectedHighlightKey &&
-                visibleViewportFileIds.has(file.id);
+        <box style={{ position: "relative", width: "100%", height: "100%", flexGrow: 1 }}>
+          <scrollbox
+            ref={scrollRef}
+            width="100%"
+            height="100%"
+            scrollY={true}
+            viewportCulling={true}
+            focused={pagerMode}
+            rootOptions={{ backgroundColor: theme.panel }}
+            wrapperOptions={{ backgroundColor: theme.panel }}
+            viewportOptions={{ backgroundColor: theme.panel }}
+            contentOptions={{ backgroundColor: theme.panel }}
+            verticalScrollbarOptions={{ visible: false }}
+            horizontalScrollbarOptions={{ visible: false }}
+          >
+            <box style={{ width: "100%", flexDirection: "column", overflow: "visible" }}>
+              {files.map((file, index) => {
+                const shouldRenderSection = visibleWindowedFileIds?.has(file.id) ?? true;
+                const shouldPrefetchVisibleHighlight =
+                  Boolean(selectedHighlightKey) &&
+                  prefetchAnchorKey === selectedHighlightKey &&
+                  visibleViewportFileIds.has(file.id);
 
-              return shouldRenderSection ? (
-                <DiffSection
-                  key={file.id}
-                  file={file}
-                  headerLabelWidth={headerLabelWidth}
-                  headerStatsWidth={headerStatsWidth}
-                  layout={layout}
-                  selected={file.id === selectedFileId}
-                  selectedHunkIndex={file.id === selectedFileId ? selectedHunkIndex : -1}
-                  shouldLoadHighlight={
-                    file.id === selectedFileId ||
-                    adjacentPrefetchFileIds.has(file.id) ||
-                    shouldPrefetchVisibleHighlight
-                  }
-                  onHighlightReady={
-                    file.id === selectedFileId ? handleSelectedHighlightReady : undefined
-                  }
-                  separatorWidth={separatorWidth}
-                  showSeparator={index > 0}
-                  showLineNumbers={showLineNumbers}
-                  showHunkHeaders={showHunkHeaders}
-                  wrapLines={wrapLines}
-                  theme={theme}
-                  viewWidth={diffContentWidth}
-                  visibleAgentNotes={
-                    visibleAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES
-                  }
-                  onOpenAgentNotesAtHunk={(hunkIndex) => onOpenAgentNotesAtHunk(file.id, hunkIndex)}
-                  onSelect={() => onSelectFile(file.id)}
-                />
-              ) : (
-                <DiffSectionPlaceholder
-                  key={file.id}
-                  bodyHeight={estimatedBodyHeights[index] ?? 0}
-                  file={file}
-                  headerLabelWidth={headerLabelWidth}
-                  headerStatsWidth={headerStatsWidth}
-                  separatorWidth={separatorWidth}
-                  showSeparator={index > 0}
-                  theme={theme}
-                  onSelect={() => onSelectFile(file.id)}
-                />
-              );
-            })}
-          </box>
-        </scrollbox>
+                return shouldRenderSection ? (
+                  <DiffSection
+                    key={file.id}
+                    file={file}
+                    headerLabelWidth={headerLabelWidth}
+                    headerStatsWidth={headerStatsWidth}
+                    layout={layout}
+                    selected={file.id === selectedFileId}
+                    selectedHunkIndex={file.id === selectedFileId ? selectedHunkIndex : -1}
+                    shouldLoadHighlight={
+                      file.id === selectedFileId ||
+                      adjacentPrefetchFileIds.has(file.id) ||
+                      shouldPrefetchVisibleHighlight
+                    }
+                    onHighlightReady={
+                      file.id === selectedFileId ? handleSelectedHighlightReady : undefined
+                    }
+                    separatorWidth={separatorWidth}
+                    showSeparator={index > 0}
+                    showLineNumbers={showLineNumbers}
+                    showHunkHeaders={showHunkHeaders}
+                    wrapLines={wrapLines}
+                    theme={theme}
+                    viewWidth={diffContentWidth}
+                    visibleAgentNotes={
+                      visibleAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES
+                    }
+                    onOpenAgentNotesAtHunk={(hunkIndex) =>
+                      onOpenAgentNotesAtHunk(file.id, hunkIndex)
+                    }
+                    onSelect={() => onSelectFile(file.id)}
+                  />
+                ) : (
+                  <DiffSectionPlaceholder
+                    key={file.id}
+                    bodyHeight={estimatedBodyHeights[index] ?? 0}
+                    file={file}
+                    headerLabelWidth={headerLabelWidth}
+                    headerStatsWidth={headerStatsWidth}
+                    separatorWidth={separatorWidth}
+                    showSeparator={index > 0}
+                    theme={theme}
+                    onSelect={() => onSelectFile(file.id)}
+                  />
+                );
+              })}
+            </box>
+          </scrollbox>
+          <VerticalScrollbar
+            ref={scrollbarRef}
+            scrollRef={scrollRef}
+            contentHeight={totalContentHeight}
+            height={scrollViewport.height}
+            theme={theme}
+          />
+        </box>
       ) : (
         <box style={{ flexGrow: 1, alignItems: "center", justifyContent: "center" }}>
           <text fg={theme.muted}>No files match the current filter.</text>
