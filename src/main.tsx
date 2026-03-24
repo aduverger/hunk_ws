@@ -21,8 +21,9 @@ async function main() {
   }
 
   if (startupPlan.kind === "mcp-serve") {
-    serveHunkMcpServer();
-    await new Promise<never>(() => {});
+    const server = serveHunkMcpServer();
+    await server.stopped;
+    return;
   }
 
   if (startupPlan.kind === "session-command") {

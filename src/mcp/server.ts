@@ -33,6 +33,10 @@ export interface ServeHunkMcpServerOptions {
   staleSessionSweepIntervalMs?: number;
 }
 
+export type RunningHunkMcpServer = ReturnType<typeof Bun.serve<{}>> & {
+  stopped: Promise<void>;
+};
+
 function formatDaemonServeError(error: unknown, host: string, port: number) {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
@@ -161,7 +165,7 @@ async function handleSessionApiRequest(state: HunkDaemonState, request: Request)
 }
 
 /** Serve the local Hunk session daemon and websocket session broker. */
-export function serveHunkMcpServer(options: ServeHunkMcpServerOptions = {}) {
+export function serveHunkMcpServer(options: ServeHunkMcpServerOptions = {}): RunningHunkMcpServer {
   const config = resolveHunkMcpConfig();
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
   const staleSessionTtlMs = options.staleSessionTtlMs ?? DEFAULT_STALE_SESSION_TTL_MS;
@@ -169,6 +173,10 @@ export function serveHunkMcpServer(options: ServeHunkMcpServerOptions = {}) {
     options.staleSessionSweepIntervalMs ?? DEFAULT_STALE_SESSION_SWEEP_INTERVAL_MS;
   const state = new HunkDaemonState();
   const startedAt = Date.now();
+  let resolveStopped: (() => void) | null = null;
+  const stopped = new Promise<void>((resolve) => {
+    resolveStopped = resolve;
+  });
   let lastActivityAt = startedAt;
   let shuttingDown = false;
   let sweepTimer: Timer | null = null;
@@ -203,6 +211,8 @@ export function serveHunkMcpServer(options: ServeHunkMcpServerOptions = {}) {
 
     state.shutdown();
     server?.stop(true);
+    resolveStopped?.();
+    resolveStopped = null;
   };
 
   const refreshIdleShutdownTimer = () => {
@@ -354,5 +364,5 @@ export function serveHunkMcpServer(options: ServeHunkMcpServerOptions = {}) {
   console.log(`Hunk session daemon listening on ${config.httpOrigin}${HUNK_SESSION_API_PATH}`);
   console.log(`Hunk session websocket listening on ${config.wsOrigin}${HUNK_SESSION_SOCKET_PATH}`);
 
-  return server;
+  return Object.assign(server, { stopped }) as RunningHunkMcpServer;
 }
