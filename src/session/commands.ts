@@ -11,10 +11,9 @@ import type {
   SessionSelectorInput,
 } from "../core/types";
 import {
+  ensureHunkDaemonAvailable,
   isHunkDaemonHealthy,
   isLoopbackPortReachable,
-  launchHunkDaemon,
-  waitForHunkDaemonHealth,
 } from "../mcp/daemonLauncher";
 import { resolveHunkMcpConfig } from "../mcp/config";
 import type {
@@ -308,13 +307,12 @@ async function restartDaemonForMissingAction(
     );
   }
 
-  launchHunkDaemon();
-
   const config = resolveHunkMcpConfig();
-  const ready = await waitForHunkDaemonHealth({ config, timeoutMs: 3_000 });
-  if (!ready) {
-    throw new Error("Timed out waiting for the refreshed Hunk session daemon to start.");
-  }
+  await ensureHunkDaemonAvailable({
+    config,
+    timeoutMs: 3_000,
+    timeoutMessage: "Timed out waiting for the refreshed Hunk session daemon to start.",
+  });
 
   if (selector || hadSessions) {
     const registered = await waitForSessionRegistration(selector);

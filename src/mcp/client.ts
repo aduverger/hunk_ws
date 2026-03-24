@@ -15,14 +15,8 @@ import {
   resolveHunkMcpConfig,
   type ResolvedHunkMcpConfig,
 } from "./config";
-import {
-  isHunkDaemonHealthy,
-  isLoopbackPortReachable,
-  launchHunkDaemon,
-  waitForHunkDaemonHealth,
-} from "./daemonLauncher";
+import { ensureHunkDaemonAvailable } from "./daemonLauncher";
 
-const DAEMON_LAUNCH_COOLDOWN_MS = 5_000;
 const DAEMON_STARTUP_TIMEOUT_MS = 3_000;
 const RECONNECT_DELAY_MS = 3_000;
 const HEARTBEAT_INTERVAL_MS = 10_000;
@@ -54,7 +48,6 @@ export class HunkHostClient {
   private heartbeatTimer: Timer | null = null;
   private stopped = false;
   private startupPromise: Promise<void> | null = null;
-  private lastDaemonLaunchStartedAt = 0;
   private lastConnectionWarning: string | null = null;
 
   constructor(
@@ -122,39 +115,11 @@ export class HunkHostClient {
   }
 
   private async ensureDaemonAvailable(config: ResolvedHunkMcpConfig) {
-    if (await isHunkDaemonHealthy(config)) {
-      this.lastConnectionWarning = null;
-      return;
-    }
-
-    const shouldLaunch = Date.now() - this.lastDaemonLaunchStartedAt >= DAEMON_LAUNCH_COOLDOWN_MS;
-    if (shouldLaunch) {
-      this.lastDaemonLaunchStartedAt = Date.now();
-      launchHunkDaemon();
-    }
-
-    const ready = await waitForHunkDaemonHealth({
+    await ensureHunkDaemonAvailable({
       config,
-      timeoutMs: shouldLaunch ? DAEMON_STARTUP_TIMEOUT_MS : 1_500,
+      timeoutMs: DAEMON_STARTUP_TIMEOUT_MS,
     });
-
-    if (ready) {
-      this.lastConnectionWarning = null;
-      return;
-    }
-
-    const portReachable = await isLoopbackPortReachable(config);
-    if (portReachable) {
-      throw new Error(
-        `Hunk MCP port ${config.host}:${config.port} is already in use by another process. ` +
-          `Stop the conflicting process or set HUNK_MCP_PORT to a different loopback port.`,
-      );
-    }
-
-    throw new Error(
-      `Timed out waiting for the Hunk MCP daemon on ${config.host}:${config.port}. ` +
-        `Hunk will retry in the background.`,
-    );
+    this.lastConnectionWarning = null;
   }
 
   setBridge(bridge: HunkAppBridge | null) {
@@ -180,7 +145,6 @@ export class HunkHostClient {
     this.websocket = websocket;
 
     websocket.onopen = () => {
-      this.lastDaemonLaunchStartedAt = 0;
       this.lastConnectionWarning = null;
       this.startHeartbeat();
       this.send({
