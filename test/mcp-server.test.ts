@@ -6,6 +6,13 @@ const originalHost = process.env.HUNK_MCP_HOST;
 const originalPort = process.env.HUNK_MCP_PORT;
 const originalUnsafeRemote = process.env.HUNK_MCP_UNSAFE_ALLOW_REMOTE;
 
+interface HealthResponse {
+  ok: boolean;
+  pid: number;
+  sessions: number;
+  pendingCommands: number;
+}
+
 async function reserveLoopbackPort() {
   const listener = createServer(() => undefined);
   await new Promise<void>((resolve, reject) => {
@@ -17,6 +24,126 @@ async function reserveLoopbackPort() {
   const port = typeof address === "object" && address ? address.port : 0;
   await new Promise<void>((resolve) => listener.close(() => resolve()));
   return port;
+}
+
+async function waitUntil<T>(
+  label: string,
+  fn: () => Promise<T | null> | T | null,
+  timeoutMs = 1_500,
+  intervalMs = 20,
+) {
+  const deadline = Date.now() + timeoutMs;
+
+  for (;;) {
+    const value = await fn();
+    if (value !== null) {
+      return value;
+    }
+
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for ${label}.`);
+    }
+
+    await Bun.sleep(intervalMs);
+  }
+}
+
+async function readHealth(port: number) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/health`);
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as HealthResponse;
+  } catch {
+    return null;
+  }
+}
+
+async function waitForHealth(port: number) {
+  return waitUntil("daemon health", () => readHealth(port));
+}
+
+async function waitForShutdown(port: number, timeoutMs = 1_500) {
+  await waitUntil(
+    "daemon shutdown",
+    async () => ((await readHealth(port)) === null ? true : null),
+    timeoutMs,
+  );
+}
+
+async function waitForSessionCount(port: number, count: number) {
+  await waitUntil("session registration", async () => {
+    const health = await readHealth(port);
+    return health?.sessions === count ? health : null;
+  });
+}
+
+async function openRegisteredSession(port: number, sessionId = "session-1") {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/session`);
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error("Timed out waiting for websocket open.")),
+      500,
+    );
+    timeout.unref?.();
+
+    socket.addEventListener(
+      "open",
+      () => {
+        clearTimeout(timeout);
+        resolve();
+      },
+      { once: true },
+    );
+    socket.addEventListener(
+      "error",
+      () => {
+        clearTimeout(timeout);
+        reject(new Error("Websocket failed to open."));
+      },
+      { once: true },
+    );
+  });
+
+  socket.send(
+    JSON.stringify({
+      type: "register",
+      registration: {
+        sessionId,
+        pid: process.pid,
+        cwd: "/repo",
+        repoRoot: "/repo",
+        inputKind: "git",
+        title: "repo working tree",
+        sourceLabel: "/repo",
+        launchedAt: "2026-03-24T00:00:00.000Z",
+        files: [
+          {
+            id: "file-1",
+            path: "src/example.ts",
+            additions: 1,
+            deletions: 1,
+            hunkCount: 1,
+          },
+        ],
+      },
+      snapshot: {
+        selectedFileId: "file-1",
+        selectedFilePath: "src/example.ts",
+        selectedHunkIndex: 0,
+        showAgentNotes: false,
+        liveCommentCount: 0,
+        liveComments: [],
+        updatedAt: "2026-03-24T00:00:00.000Z",
+      },
+    }),
+  );
+
+  await waitForSessionCount(port, 1);
+  return socket;
 }
 
 afterEach(() => {
@@ -104,6 +231,72 @@ describe("Hunk session daemon server", () => {
         error: expect.stringContaining("Use `hunk session ...` instead"),
       });
     } finally {
+      server.stop(true);
+    }
+  });
+
+  test("stays alive while at least one live session remains registered", async () => {
+    const port = await reserveLoopbackPort();
+    process.env.HUNK_MCP_HOST = "127.0.0.1";
+    process.env.HUNK_MCP_PORT = String(port);
+
+    const server = serveHunkMcpServer({
+      idleTimeoutMs: 60,
+      staleSessionTtlMs: 500,
+      staleSessionSweepIntervalMs: 25,
+    });
+    const socket = await openRegisteredSession(port);
+
+    try {
+      await Bun.sleep(150);
+      await expect(waitForHealth(port)).resolves.toMatchObject({
+        ok: true,
+        sessions: 1,
+      });
+    } finally {
+      socket.close();
+      server.stop(true);
+    }
+  });
+
+  test("shuts down after the last live session disconnects", async () => {
+    const port = await reserveLoopbackPort();
+    process.env.HUNK_MCP_HOST = "127.0.0.1";
+    process.env.HUNK_MCP_PORT = String(port);
+
+    const server = serveHunkMcpServer({
+      idleTimeoutMs: 75,
+      staleSessionTtlMs: 500,
+      staleSessionSweepIntervalMs: 25,
+    });
+    const socket = await openRegisteredSession(port);
+
+    try {
+      socket.close();
+      await waitForSessionCount(port, 0);
+      await waitForShutdown(port, 800);
+    } finally {
+      socket.close();
+      server.stop(true);
+    }
+  });
+
+  test("shuts down after stale-session pruning leaves zero live sessions", async () => {
+    const port = await reserveLoopbackPort();
+    process.env.HUNK_MCP_HOST = "127.0.0.1";
+    process.env.HUNK_MCP_PORT = String(port);
+
+    const server = serveHunkMcpServer({
+      idleTimeoutMs: 75,
+      staleSessionTtlMs: 80,
+      staleSessionSweepIntervalMs: 20,
+    });
+    const socket = await openRegisteredSession(port);
+
+    try {
+      await waitForShutdown(port, 1_000);
+    } finally {
+      socket.close();
       server.stop(true);
     }
   });

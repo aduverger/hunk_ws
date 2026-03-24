@@ -163,6 +163,10 @@ export class HunkDaemonState {
     return comments.filter((comment) => comment.filePath === filter.filePath);
   }
 
+  getSessionCount() {
+    return this.sessions.size;
+  }
+
   getPendingCommandCount() {
     return this.pendingCommands.size;
   }
