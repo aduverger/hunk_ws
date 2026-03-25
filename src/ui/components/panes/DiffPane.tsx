@@ -11,7 +11,11 @@ import {
 import type { DiffFile, LayoutMode } from "../../../core/types";
 import type { VisibleAgentNote } from "../../lib/agentAnnotations";
 import { computeHunkRevealScrollTop } from "../../lib/hunkScroll";
-import { measureDiffSectionMetrics } from "../../lib/sectionHeights";
+import {
+  measureDiffSectionMetrics,
+  type DiffSectionMetrics,
+  type DiffSectionRowMetric,
+} from "../../lib/sectionHeights";
 import { diffHunkId, diffSectionId } from "../../lib/ids";
 import type { AppTheme } from "../../themes";
 import { DiffSection } from "./DiffSection";
@@ -19,6 +23,101 @@ import { DiffSectionPlaceholder } from "./DiffSectionPlaceholder";
 import { VerticalScrollbar, type VerticalScrollbarHandle } from "../scrollbar/VerticalScrollbar";
 
 const EMPTY_VISIBLE_AGENT_NOTES: VisibleAgentNote[] = [];
+
+/** Identify the rendered diff row that currently owns the top of the viewport. */
+interface ViewportRowAnchor {
+  fileId: string;
+  rowKey: string;
+  rowOffsetWithin: number;
+}
+
+/** Find the rendered row metric covering a vertical offset within one file body. */
+function binarySearchRowMetric(rowMetrics: DiffSectionRowMetric[], relativeTop: number) {
+  let low = 0;
+  let high = rowMetrics.length - 1;
+
+  while (low <= high) {
+    const mid = (low + high) >>> 1;
+    const rowMetric = rowMetrics[mid]!;
+
+    if (relativeTop < rowMetric.offset) {
+      high = mid - 1;
+    } else if (relativeTop >= rowMetric.offset + rowMetric.height) {
+      low = mid + 1;
+    } else {
+      return rowMetric;
+    }
+  }
+
+  return undefined;
+}
+
+/** Capture a stable top-row anchor from the pre-toggle layout so it can be restored later. */
+function findViewportRowAnchor(
+  files: DiffFile[],
+  sectionMetrics: DiffSectionMetrics[],
+  scrollTop: number,
+) {
+  let offsetY = 0;
+
+  for (let index = 0; index < files.length; index += 1) {
+    if (index > 0) {
+      offsetY += 1;
+    }
+
+    offsetY += 1;
+    const bodyTop = offsetY;
+    const metrics = sectionMetrics[index];
+    const bodyHeight = metrics?.bodyHeight ?? 0;
+    const relativeTop = scrollTop - bodyTop;
+
+    if (relativeTop >= 0 && relativeTop < bodyHeight && metrics) {
+      const rowMetric = binarySearchRowMetric(metrics.rowMetrics, relativeTop);
+      if (rowMetric) {
+        return {
+          fileId: files[index]!.id,
+          rowKey: rowMetric.key,
+          rowOffsetWithin: relativeTop - rowMetric.offset,
+        } satisfies ViewportRowAnchor;
+      }
+    }
+
+    offsetY = bodyTop + bodyHeight;
+  }
+
+  return null;
+}
+
+/** Resolve a captured row anchor into its new scrollTop after wrapping/layout metrics change. */
+function resolveViewportRowAnchorTop(
+  files: DiffFile[],
+  sectionMetrics: DiffSectionMetrics[],
+  anchor: ViewportRowAnchor,
+) {
+  let offsetY = 0;
+
+  for (let index = 0; index < files.length; index += 1) {
+    if (index > 0) {
+      offsetY += 1;
+    }
+
+    offsetY += 1;
+    const bodyTop = offsetY;
+    const file = files[index];
+    const metrics = sectionMetrics[index];
+    if (file?.id === anchor.fileId && metrics) {
+      const rowMetric = metrics.rowMetricsByKey.get(anchor.rowKey);
+      if (rowMetric) {
+        return bodyTop + rowMetric.offset + Math.min(anchor.rowOffsetWithin, rowMetric.height - 1);
+      }
+      return bodyTop;
+    }
+
+    offsetY = bodyTop + (metrics?.bodyHeight ?? 0);
+  }
+
+  return 0;
+}
 
 /** Render the main multi-file review stream. */
 export function DiffPane({
@@ -36,6 +135,7 @@ export function DiffPane({
   showLineNumbers,
   showHunkHeaders,
   wrapLines,
+  wrapToggleScrollTop,
   theme,
   width,
   onOpenAgentNotesAtHunk,
@@ -55,6 +155,7 @@ export function DiffPane({
   showLineNumbers: boolean;
   showHunkHeaders: boolean;
   wrapLines: boolean;
+  wrapToggleScrollTop: number | null;
   theme: AppTheme;
   width: number;
   onOpenAgentNotesAtHunk: (fileId: string, hunkIndex: number) => void;
@@ -132,6 +233,10 @@ export function DiffPane({
   const [scrollViewport, setScrollViewport] = useState({ top: 0, height: 0 });
   const scrollbarRef = useRef<VerticalScrollbarHandle>(null);
   const prevScrollTopRef = useRef(0);
+  const previousSectionMetricsRef = useRef<DiffSectionMetrics[] | null>(null);
+  const previousFilesRef = useRef<DiffFile[]>(files);
+  const previousWrapLinesRef = useRef(wrapLines);
+  const suppressNextSelectionAutoScrollRef = useRef(false);
 
   useEffect(() => {
     const updateViewport = () => {
@@ -157,8 +262,20 @@ export function DiffPane({
   }, [scrollRef]);
 
   const baseSectionMetrics = useMemo(
-    () => files.map((file) => measureDiffSectionMetrics(file, layout, showHunkHeaders, theme)),
-    [files, layout, showHunkHeaders, theme],
+    () =>
+      files.map((file) =>
+        measureDiffSectionMetrics(
+          file,
+          layout,
+          showHunkHeaders,
+          theme,
+          EMPTY_VISIBLE_AGENT_NOTES,
+          diffContentWidth,
+          showLineNumbers,
+          wrapLines,
+        ),
+      ),
+    [diffContentWidth, files, layout, showHunkHeaders, showLineNumbers, theme, wrapLines],
   );
   const baseEstimatedBodyHeights = useMemo(
     () => baseSectionMetrics.map((metrics) => metrics.bodyHeight),
@@ -226,6 +343,8 @@ export function DiffPane({
           theme,
           visibleNotes,
           diffContentWidth,
+          showLineNumbers,
+          wrapLines,
         );
       }),
     [
@@ -234,8 +353,10 @@ export function DiffPane({
       files,
       layout,
       showHunkHeaders,
+      showLineNumbers,
       theme,
       visibleAgentNotesByFile,
+      wrapLines,
     ],
   );
   const estimatedBodyHeights = useMemo(
@@ -325,6 +446,57 @@ export function DiffPane({
   const prevSelectedAnchorIdRef = useRef<string | null>(null);
 
   useLayoutEffect(() => {
+    const wrapChanged = previousWrapLinesRef.current !== wrapLines;
+    const previousSectionMetrics = previousSectionMetricsRef.current;
+    const previousFiles = previousFilesRef.current;
+
+    if (wrapChanged && previousSectionMetrics && previousFiles.length > 0) {
+      const previousScrollTop =
+        // Prefer the synchronously captured pre-toggle position so anchor restoration does not
+        // race the polling-based viewport snapshot.
+        wrapToggleScrollTop != null
+          ? wrapToggleScrollTop
+          : Math.max(prevScrollTopRef.current, scrollViewport.top);
+      const anchor = findViewportRowAnchor(
+        previousFiles,
+        previousSectionMetrics,
+        previousScrollTop,
+      );
+      if (anchor) {
+        const nextTop = resolveViewportRowAnchorTop(files, sectionMetrics, anchor);
+        const restoreViewportAnchor = () => {
+          scrollRef.current?.scrollTo(nextTop);
+        };
+
+        restoreViewportAnchor();
+        // The wrap-toggle anchor restore should win over the usual selection-following behavior.
+        suppressNextSelectionAutoScrollRef.current = true;
+        // Retry across a couple of repaint cycles so the restored top-row anchor sticks
+        // after wrapped row heights and viewport culling settle.
+        const retryDelays = [0, 16, 48];
+        const timeouts = retryDelays.map((delay) => setTimeout(restoreViewportAnchor, delay));
+
+        previousWrapLinesRef.current = wrapLines;
+        previousSectionMetricsRef.current = sectionMetrics;
+        previousFilesRef.current = files;
+
+        return () => {
+          timeouts.forEach((timeout) => clearTimeout(timeout));
+        };
+      }
+    }
+
+    previousWrapLinesRef.current = wrapLines;
+    previousSectionMetricsRef.current = sectionMetrics;
+    previousFilesRef.current = files;
+  }, [files, scrollRef, scrollViewport.top, sectionMetrics, wrapLines, wrapToggleScrollTop]);
+
+  useLayoutEffect(() => {
+    if (suppressNextSelectionAutoScrollRef.current) {
+      suppressNextSelectionAutoScrollRef.current = false;
+      return;
+    }
+
     if (!selectedAnchorId && !selectedEstimatedHunkBounds) {
       prevSelectedAnchorIdRef.current = null;
       return;
@@ -384,7 +556,8 @@ export function DiffPane({
       }
     };
 
-    // Run after this pane renders the selected section/hunk, then retry briefly while layout settles.
+    // Run after this pane renders the selected section/hunk, then retry briefly while layout
+    // settles across a couple of repaint cycles.
     scrollSelectionIntoView();
     const retryDelays = [0, 16, 48];
     const timeouts = retryDelays.map((delay) => setTimeout(scrollSelectionIntoView, delay));
@@ -429,7 +602,12 @@ export function DiffPane({
             verticalScrollbarOptions={{ visible: false }}
             horizontalScrollbarOptions={{ visible: false }}
           >
-            <box style={{ width: "100%", flexDirection: "column", overflow: "visible" }}>
+            <box
+              // Remount the diff content when width/layout/wrap mode changes so viewport culling
+              // recomputes against the new row geometry, while the outer scrollbox keeps its state.
+              key={`diff-content:${layout}:${wrapLines ? "wrap" : "nowrap"}:${width}`}
+              style={{ width: "100%", flexDirection: "column", overflow: "visible" }}
+            >
               {files.map((file, index) => {
                 const shouldRenderSection = visibleWindowedFileIds?.has(file.id) ?? true;
                 const shouldPrefetchVisibleHighlight =

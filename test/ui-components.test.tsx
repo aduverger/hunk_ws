@@ -182,6 +182,7 @@ function createDiffPaneProps(
     showLineNumbers: true,
     showHunkHeaders: true,
     wrapLines: false,
+    wrapToggleScrollTop: null,
     theme,
     width: 76,
     onDismissAgentNote: () => {},
@@ -1039,6 +1040,46 @@ describe("UI components", () => {
     expect(addedLines.length).toBeGreaterThanOrEqual(3);
     expect(addedLines.slice(1).some((line) => line.includes("ong wrapped line"))).toBe(true);
     expect(addedLines.slice(1).some((line) => line.includes("age';"))).toBe(true);
+  });
+
+  test("split view wraps the same long diff line across more rows than stack view at the same width", async () => {
+    const file = createWrapBootstrap().changeset.files[0]!;
+    const theme = resolveTheme("midnight", null);
+    const width = 64;
+
+    const splitFrame = await captureFrame(
+      <PierreDiffView
+        file={file}
+        layout="split"
+        theme={theme}
+        width={width}
+        selectedHunkIndex={0}
+        wrapLines={true}
+        scrollable={false}
+      />,
+      width + 4,
+      18,
+    );
+    const stackFrame = await captureFrame(
+      <PierreDiffView
+        file={file}
+        layout="stack"
+        theme={theme}
+        width={width}
+        selectedHunkIndex={0}
+        wrapLines={true}
+        scrollable={false}
+      />,
+      width + 4,
+      18,
+    );
+
+    const splitContinuationRows = splitFrame.split("\n").filter((line) => /^▌\s+▌\s+\S/.test(line));
+    const stackContinuationRows = stackFrame.split("\n").filter((line) => /^▌\s{6,}\S/.test(line));
+
+    expect(splitFrame).toContain("1 + export const message = 't");
+    expect(stackFrame).toContain("1 +  export const message = 'this is a very long wrapped line");
+    expect(splitContinuationRows.length).toBeGreaterThan(stackContinuationRows.length);
   });
 
   test("PierreDiffView anchors range-less notes to the first visible row when hunk headers are hidden", async () => {
