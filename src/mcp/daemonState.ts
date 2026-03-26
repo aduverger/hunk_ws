@@ -118,6 +118,7 @@ export class HunkDaemonState {
         title: entry.registration.title,
         sourceLabel: entry.registration.sourceLabel,
         launchedAt: entry.registration.launchedAt,
+        terminal: entry.registration.terminal,
         fileCount: entry.registration.files.length,
         files: entry.registration.files,
         snapshot: entry.snapshot,
