@@ -4,6 +4,7 @@ export type DiffSide = "old" | "new";
 
 export interface SessionTargetInput {
   sessionId?: string;
+  sessionPath?: string;
   repoRoot?: string;
 }
 
@@ -86,6 +87,7 @@ export interface NavigateToHunkToolInput extends SessionTargetInput {
 
 export interface ReloadSessionToolInput extends SessionTargetInput {
   nextInput: CliInput;
+  sourcePath?: string;
 }
 
 export interface LiveComment extends AgentAnnotation {
@@ -157,6 +159,7 @@ export interface SelectedSessionContext {
   sessionId: string;
   title: string;
   sourceLabel: string;
+  cwd?: string;
   repoRoot?: string;
   inputKind: CliInput["kind"];
   selectedFile: SessionFileSummary | null;

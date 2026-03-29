@@ -90,6 +90,7 @@ export type SessionCommandOutput = "text" | "json";
 
 export interface SessionSelectorInput {
   sessionId?: string;
+  sessionPath?: string;
   repoRoot?: string;
 }
 
@@ -123,6 +124,7 @@ export interface SessionReloadCommandInput {
   output: SessionCommandOutput;
   selector: SessionSelectorInput;
   nextInput: CliInput;
+  sourcePath?: string;
 }
 
 export interface SessionCommentAddCommandInput {

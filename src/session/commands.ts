@@ -164,6 +164,7 @@ class HttpHunkDaemonCliClient implements HunkDaemonCliClient {
         action: "reload",
         selector: input.selector,
         nextInput: input.nextInput,
+        sourcePath: input.sourcePath,
       })
     ).result;
   }
@@ -258,6 +259,11 @@ function sessionMatchesSelector(session: ListedSession, selector?: SessionSelect
     return session.sessionId === selector.sessionId;
   }
 
+  const sessionPath = selector?.sessionPath;
+  if (sessionPath) {
+    return session.cwd === sessionPath;
+  }
+
   if (selector.repoRoot) {
     return session.repoRoot === selector.repoRoot;
   }
@@ -346,6 +352,10 @@ function formatSelector(selector: SessionSelectorInput) {
     return `session ${selector.sessionId}`;
   }
 
+  if (selector.sessionPath) {
+    return `session path ${selector.sessionPath}`;
+  }
+
   if (selector.repoRoot) {
     return `repo ${selector.repoRoot}`;
   }
@@ -425,7 +435,8 @@ function formatListOutput(sessions: ListedSession[]) {
       const terminal = resolveSessionTerminal(session);
       return [
         `${session.sessionId}  ${session.title}`,
-        `  repo: ${session.repoRoot ?? session.cwd}`,
+        `  path: ${session.cwd}`,
+        `  repo: ${session.repoRoot ?? "-"}`,
         ...formatTerminalLines(terminal, {
           headerLabel: "  terminal",
           locationLabel: "  location",
@@ -445,7 +456,8 @@ function formatSessionOutput(session: ListedSession) {
     `Session: ${session.sessionId}`,
     `Title: ${session.title}`,
     `Source: ${session.sourceLabel}`,
-    `Repo: ${session.repoRoot ?? session.cwd}`,
+    `Path: ${session.cwd}`,
+    `Repo: ${session.repoRoot ?? "-"}`,
     `Input: ${session.inputKind}`,
     `Launched: ${session.launchedAt}`,
     ...formatTerminalLines(terminal, {
@@ -477,6 +489,7 @@ function formatContextOutput(context: SelectedSessionContext) {
   return [
     `Session: ${context.sessionId}`,
     `Title: ${context.title}`,
+    `Path: ${context.cwd ?? "-"}`,
     `Repo: ${context.repoRoot ?? "-"}`,
     `File: ${selectedFile}`,
     `Hunk: ${context.selectedHunk ? hunkNumber : "-"}`,
@@ -534,14 +547,11 @@ function formatClearCommentsOutput(selector: SessionSelectorInput, result: Clear
   return `Cleared ${result.removedCount} live comments from ${scope}. Remaining comments: ${result.remainingCommentCount}.\n`;
 }
 
-function normalizeRepoRoot(selector: SessionSelectorInput) {
-  if (!selector.repoRoot) {
-    return selector;
-  }
-
+function normalizeSessionSelector(selector: SessionSelectorInput) {
   return {
     ...selector,
-    repoRoot: resolve(selector.repoRoot),
+    sessionPath: selector.sessionPath ? resolve(selector.sessionPath) : undefined,
+    repoRoot: selector.repoRoot ? resolve(selector.repoRoot) : undefined,
   };
 }
 
@@ -581,7 +591,7 @@ export async function runSessionCommand(input: SessionCommandInput) {
     return renderOutput(input.output, { sessions: [] }, () => formatListOutput([]));
   }
 
-  const normalizedSelector = "selector" in input ? normalizeRepoRoot(input.selector) : null;
+  const normalizedSelector = "selector" in input ? normalizeSessionSelector(input.selector) : null;
   await ensureRequiredAction(
     REQUIRED_ACTION_BY_COMMAND[input.action],
     normalizedSelector ?? undefined,
