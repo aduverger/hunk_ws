@@ -1090,7 +1090,7 @@ describe("App interactions", () => {
         await setup.mockInput.pressKey("f");
       });
       await flush(setup);
-      frame = setup.captureCharFrame();
+      frame = await waitForFrame(setup, (nextFrame) => nextFrame !== initialFrame);
       expect(frame).toContain("export const line");
       expect(frame).not.toEqual(initialFrame);
     } finally {
