@@ -129,6 +129,7 @@ export function DiffPane({
   scrollRef,
   selectedFileId,
   selectedHunkIndex,
+  scrollToNote = false,
   separatorWidth,
   pagerMode = false,
   showAgentNotes,
@@ -149,6 +150,7 @@ export function DiffPane({
   scrollRef: RefObject<ScrollBoxRenderable | null>;
   selectedFileId?: string;
   selectedHunkIndex: number;
+  scrollToNote?: boolean;
   separatorWidth: number;
   pagerMode?: boolean;
   showAgentNotes: boolean;
@@ -439,8 +441,40 @@ export function DiffPane({
       height: hunkBounds.height,
       startRowId: hunkBounds.startRowId,
       endRowId: hunkBounds.endRowId,
+      sectionTop,
     };
   }, [estimatedBodyHeights, sectionMetrics, selectedFile, selectedFileIndex, selectedHunkIndex]);
+
+  /** Absolute scroll offset and height of the first inline note in the selected hunk, if any. */
+  const selectedNoteBounds = useMemo(() => {
+    if (!scrollToNote || !selectedEstimatedHunkBounds || selectedFileIndex < 0) {
+      return null;
+    }
+
+    const metrics = sectionMetrics[selectedFileIndex];
+    if (!metrics) {
+      return null;
+    }
+
+    const sectionRelativeHunkTop =
+      selectedEstimatedHunkBounds.top - selectedEstimatedHunkBounds.sectionTop;
+    const sectionRelativeHunkBottom = sectionRelativeHunkTop + selectedEstimatedHunkBounds.height;
+    const noteRow = metrics.rowMetrics.find(
+      (row) =>
+        row.key.startsWith("inline-note:") &&
+        row.offset >= sectionRelativeHunkTop &&
+        row.offset < sectionRelativeHunkBottom,
+    );
+
+    if (!noteRow) {
+      return null;
+    }
+
+    return {
+      top: selectedEstimatedHunkBounds.sectionTop + noteRow.offset,
+      height: noteRow.height,
+    };
+  }, [scrollToNote, sectionMetrics, selectedEstimatedHunkBounds, selectedFileIndex]);
 
   // Track the previous selected anchor to detect actual selection changes.
   const prevSelectedAnchorIdRef = useRef<string | null>(null);
@@ -520,6 +554,21 @@ export function DiffPane({
       const viewportHeight = Math.max(scrollViewport.height, scrollBox.viewport.height ?? 0);
       const preferredTopPadding = Math.max(2, Math.floor(viewportHeight * 0.25));
 
+      // When navigating comment-to-comment, scroll the inline note card near the viewport top
+      // instead of positioning the entire hunk. Uses the same reveal function so the padding
+      // behavior matches regular hunk navigation.
+      if (selectedNoteBounds) {
+        scrollBox.scrollTo(
+          computeHunkRevealScrollTop({
+            hunkTop: selectedNoteBounds.top,
+            hunkHeight: selectedNoteBounds.height,
+            preferredTopPadding,
+            viewportHeight,
+          }),
+        );
+        return;
+      }
+
       if (selectedEstimatedHunkBounds) {
         const viewportTop = scrollBox.viewport.y;
         const currentScrollTop = scrollBox.scrollTop;
@@ -564,7 +613,13 @@ export function DiffPane({
     return () => {
       timeouts.forEach((timeout) => clearTimeout(timeout));
     };
-  }, [scrollRef, scrollViewport.height, selectedAnchorId, selectedEstimatedHunkBounds]);
+  }, [
+    scrollRef,
+    scrollViewport.height,
+    selectedAnchorId,
+    selectedEstimatedHunkBounds,
+    selectedNoteBounds,
+  ]);
 
   // Configure scroll step size to scroll exactly 1 line per step
   useEffect(() => {

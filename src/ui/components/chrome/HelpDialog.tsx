@@ -26,6 +26,7 @@ export function HelpDialog({
         ["Shift+Space", "page up (alt)"],
         ["d / u", "half page down / up"],
         ["[ / ]", "previous / next hunk"],
+        ["{ / }", "previous / next comment"],
         ["Home / End", "jump to top / bottom"],
       ],
     },

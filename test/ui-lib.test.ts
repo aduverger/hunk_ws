@@ -102,6 +102,7 @@ describe("ui helpers", () => {
       focusFilter: () => {},
       layoutMode: "stack",
       moveAnnotatedFile: () => {},
+      moveAnnotatedHunk: () => {},
       moveHunk: () => {},
       refreshCurrentInput: () => {},
       requestQuit: () => {},

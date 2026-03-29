@@ -94,6 +94,7 @@ async function handleSessionApiRequest(state: HunkDaemonState, request: Request)
         break;
       case "navigate": {
         if (
+          !input.commentDirection &&
           input.hunkNumber === undefined &&
           (input.side === undefined || input.line === undefined)
         ) {
@@ -107,6 +108,7 @@ async function handleSessionApiRequest(state: HunkDaemonState, request: Request)
             hunkIndex: input.hunkNumber !== undefined ? input.hunkNumber - 1 : undefined,
             side: input.side,
             line: input.line,
+            commentDirection: input.commentDirection,
           }),
         };
         break;

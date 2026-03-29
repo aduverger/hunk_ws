@@ -1,4 +1,5 @@
 import type { DiffFile } from "../../core/types";
+import { getAnnotatedHunkIndices } from "./agentAnnotations";
 
 export interface HunkCursor {
   fileId: string;
@@ -10,6 +11,16 @@ export function buildHunkCursors(files: DiffFile[]): HunkCursor[] {
   return files.flatMap((file) =>
     file.metadata.hunks.map((_, hunkIndex) => ({ fileId: file.id, hunkIndex })),
   );
+}
+
+/** Flatten only the annotated hunks into a cursor list for comment navigation. */
+export function buildAnnotatedHunkCursors(files: DiffFile[]): HunkCursor[] {
+  return files.flatMap((file) => {
+    const annotated = getAnnotatedHunkIndices(file);
+    return file.metadata.hunks
+      .map((_, hunkIndex) => ({ fileId: file.id, hunkIndex }))
+      .filter((cursor) => annotated.has(cursor.hunkIndex));
+  });
 }
 
 /** Move forward or backward through the review-stream hunk cursor list. */

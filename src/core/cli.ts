@@ -501,6 +501,7 @@ async function parseSessionCommand(tokens: string[]): Promise<ParsedCliInput> {
           "  hunk session context <session-id>",
           "  hunk session context --repo <path>",
           "  hunk session navigate (<session-id> | --repo <path>) --file <path> (--hunk <n> | --old-line <n> | --new-line <n>)",
+          "  hunk session navigate (<session-id> | --repo <path>) (--next-comment | --prev-comment)",
           "  hunk session reload (<session-id> | --repo <path> | --session-path <path>) [--source <path>] -- diff [ref] [-- <pathspec...>]",
           "  hunk session reload (<session-id> | --repo <path> | --session-path <path>) [--source <path>] -- show [ref] [-- <pathspec...>]",
           "  hunk session comment add (<session-id> | --repo <path>) --file <path> (--old-line <n> | --new-line <n>) --summary <text>",
@@ -569,32 +570,38 @@ async function parseSessionCommand(tokens: string[]): Promise<ParsedCliInput> {
     const command = new Command("session navigate")
       .description("move a live Hunk session to one diff hunk")
       .argument("[sessionId]")
-      .requiredOption("--file <path>", "diff file path as shown by Hunk")
+      .option("--file <path>", "diff file path as shown by Hunk")
       .option("--repo <path>", "target the live session whose repo root matches this path")
       .option("--hunk <n>", "1-based hunk number within the file", parsePositiveInt)
       .option("--old-line <n>", "1-based line number on the old side", parsePositiveInt)
       .option("--new-line <n>", "1-based line number on the new side", parsePositiveInt)
+      .option("--next-comment", "jump to the next annotated hunk")
+      .option("--prev-comment", "jump to the previous annotated hunk")
       .option("--json", "emit structured JSON");
 
     let parsedSessionId: string | undefined;
     let parsedOptions: {
       repo?: string;
-      file: string;
+      file?: string;
       hunk?: number;
       oldLine?: number;
       newLine?: number;
+      nextComment?: boolean;
+      prevComment?: boolean;
       json?: boolean;
-    } = { file: "" };
+    } = {};
 
     command.action(
       (
         sessionId: string | undefined,
         options: {
           repo?: string;
-          file: string;
+          file?: string;
           hunk?: number;
           oldLine?: number;
           newLine?: number;
+          nextComment?: boolean;
+          prevComment?: boolean;
           json?: boolean;
         },
       ) => {
@@ -608,6 +615,28 @@ async function parseSessionCommand(tokens: string[]): Promise<ParsedCliInput> {
     }
 
     await parseStandaloneCommand(command, rest);
+
+    /** Relative comment navigation mode. */
+    if (parsedOptions.nextComment || parsedOptions.prevComment) {
+      if (parsedOptions.nextComment && parsedOptions.prevComment) {
+        throw new Error("Specify either --next-comment or --prev-comment, not both.");
+      }
+
+      return {
+        kind: "session",
+        action: "navigate",
+        output: resolveJsonOutput(parsedOptions),
+        selector: resolveExplicitSessionSelector(parsedSessionId, parsedOptions.repo),
+        commentDirection: parsedOptions.nextComment ? "next" : "prev",
+      } as const;
+    }
+
+    /** Absolute navigation mode requires --file and a target. */
+    if (!parsedOptions.file) {
+      throw new Error(
+        "Specify --file <path> with a navigation target, or use --next-comment / --prev-comment.",
+      );
+    }
 
     const selectors = [
       parsedOptions.hunk !== undefined,

@@ -590,6 +590,104 @@ describe("UI components", () => {
     }
   });
 
+  test("DiffPane scrollToNote positions the inline note near the viewport top instead of the hunk top", async () => {
+    const theme = resolveTheme("midnight", null);
+
+    // Build a file with two distant hunks so the second hunk is far below the first when scrolled
+    // to the hunk top. The annotation anchors on the second hunk.
+    const beforeLines = Array.from(
+      { length: 80 },
+      (_, index) => `export const line${index + 1} = ${index + 1};`,
+    );
+    const afterLines = [...beforeLines];
+    // Hunk 0: change at line 1
+    afterLines[0] = "export const line1 = 100;";
+    // Hunk 1: changes at lines 60-65 to make a multi-line hunk
+    afterLines[59] = "export const line60 = 6000;";
+    afterLines[60] = "export const line61 = 6100;";
+    afterLines[61] = "export const line62 = 6200;";
+    afterLines[62] = "export const line63 = 6300;";
+    afterLines[63] = "export const line64 = 6400;";
+    afterLines[64] = "export const line65 = 6500;";
+
+    const file = createDiffFile(
+      "deep-note",
+      "deep-note.ts",
+      lines(...beforeLines),
+      lines(...afterLines),
+    );
+    file.agent = {
+      path: file.path,
+      summary: "file note",
+      annotations: [
+        {
+          newRange: [63, 63],
+          summary: "Note anchored on second hunk.",
+        },
+      ],
+    };
+
+    // Without scrollToNote: hunk top (context before line 60) is near viewport top,
+    // but the note card (anchored at line 63) may be below the visible area.
+    const propsWithoutFlag = createDiffPaneProps([file], theme, {
+      diffContentWidth: 96,
+      headerLabelWidth: 48,
+      selectedFileId: "deep-note",
+      selectedHunkIndex: 1,
+      separatorWidth: 92,
+      showAgentNotes: true,
+      showHunkHeaders: true,
+      width: 100,
+    });
+    const setupWithout = await testRender(<DiffPane {...propsWithoutFlag} />, {
+      width: 104,
+      height: 12,
+    });
+
+    try {
+      await settleDiffPane(setupWithout);
+      const frameWithout = setupWithout.captureCharFrame();
+
+      // Hunk context (lines near 57-59) should be visible at the top.
+      expect(frameWithout).toContain("line57");
+      // Note card should NOT be visible — it's below the 12-row viewport.
+      expect(frameWithout).not.toContain("Note anchored on second hunk.");
+    } finally {
+      await act(async () => {
+        setupWithout.renderer.destroy();
+      });
+    }
+
+    // With scrollToNote: note card should be near the viewport top.
+    const propsWithFlag = createDiffPaneProps([file], theme, {
+      diffContentWidth: 96,
+      headerLabelWidth: 48,
+      selectedFileId: "deep-note",
+      selectedHunkIndex: 1,
+      scrollToNote: true,
+      separatorWidth: 92,
+      showAgentNotes: true,
+      showHunkHeaders: true,
+      width: 100,
+    });
+    const setupWith = await testRender(<DiffPane {...propsWithFlag} />, {
+      width: 104,
+      height: 12,
+    });
+
+    try {
+      await settleDiffPane(setupWith);
+      const frameWith = setupWith.captureCharFrame();
+
+      // Note should be visible.
+      expect(frameWith).toContain("Note anchored on second hunk.");
+    } finally {
+      await act(async () => {
+        setupWith.renderer.destroy();
+      });
+    }
+  });
+
   test("AgentCard removes top and bottom padding while keeping the footer inside the frame", async () => {
     const theme = resolveTheme("midnight", null);
     const frame = await captureFrame(
@@ -841,13 +939,13 @@ describe("UI components", () => {
     const frame = await captureFrame(
       <HelpDialog
         canRefresh={true}
-        terminalHeight={28}
+        terminalHeight={29}
         terminalWidth={76}
         theme={theme}
         onClose={() => {}}
       />,
       76,
-      28,
+      29,
     );
 
     const expectedRows = [
@@ -860,6 +958,7 @@ describe("UI components", () => {
       "Shift+Space     page up (alt)",
       "d / u           half page down / up",
       "[ / ]           previous / next hunk",
+      "{ / }           previous / next comment",
       "Home / End      jump to top / bottom",
       "View",
       "1 / 2 / 0       split / stack / auto",

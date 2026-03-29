@@ -79,10 +79,11 @@ export interface NavigateToFileToolInput extends SessionTargetInput {
 }
 
 export interface NavigateToHunkToolInput extends SessionTargetInput {
-  filePath: string;
+  filePath?: string;
   hunkIndex?: number;
   side?: DiffSide;
   line?: number;
+  commentDirection?: "next" | "prev";
 }
 
 export interface ReloadSessionToolInput extends SessionTargetInput {

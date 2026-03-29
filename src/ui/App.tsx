@@ -35,8 +35,8 @@ import { PaneDivider } from "./components/panes/PaneDivider";
 import { useHunkSessionBridge } from "./hooks/useHunkSessionBridge";
 import { useMenuController } from "./hooks/useMenuController";
 import { buildAppMenus } from "./lib/appMenus";
-import { buildSidebarEntries } from "./lib/files";
-import { buildHunkCursors, findNextHunkCursor } from "./lib/hunks";
+import { buildSidebarEntries, filterReviewFiles, mergeFileAnnotationsByFileId } from "./lib/files";
+import { buildAnnotatedHunkCursors, buildHunkCursors, findNextHunkCursor } from "./lib/hunks";
 import { fileRowId } from "./lib/ids";
 import { resolveResponsiveLayout } from "./lib/responsive";
 import { resizeSidebarWidth } from "./lib/sidebar";
@@ -126,6 +126,7 @@ function AppShell({
   const [resizeStartWidth, setResizeStartWidth] = useState<number | null>(null);
   const [selectedFileId, setSelectedFileId] = useState(bootstrap.changeset.files[0]?.id ?? "");
   const [selectedHunkIndex, setSelectedHunkIndex] = useState(0);
+  const [scrollToNote, setScrollToNote] = useState(false);
   const deferredFilter = useDeferredValue(filter);
 
   const pagerMode = Boolean(bootstrap.input.options.pager);
@@ -135,6 +136,14 @@ function AppShell({
     filesScrollRef.current?.scrollChildIntoView(fileRowId(fileId));
     setSelectedFileId(fileId);
     setSelectedHunkIndex(nextHunkIndex);
+    setScrollToNote(false);
+  }, []);
+
+  const jumpToAnnotatedHunk = useCallback((fileId: string, nextHunkIndex = 0) => {
+    filesScrollRef.current?.scrollChildIntoView(fileRowId(fileId));
+    setSelectedFileId(fileId);
+    setSelectedHunkIndex(nextHunkIndex);
+    setScrollToNote(true);
   }, []);
 
   const openAgentNotes = useCallback(() => {
@@ -147,7 +156,9 @@ function AppShell({
   const { liveCommentsByFileId } = useHunkSessionBridge({
     currentHunk: baseSelectedFile?.metadata.hunks[selectedHunkIndex],
     files: bootstrap.changeset.files,
+    filterQuery: deferredFilter,
     hostClient,
+    jumpToAnnotatedHunk,
     jumpToFile,
     openAgentNotes,
     reloadSession: onReloadSession,
@@ -157,42 +168,21 @@ function AppShell({
   });
 
   const allFiles = useMemo(
-    () =>
-      bootstrap.changeset.files.map((file) => {
-        const liveComments = liveCommentsByFileId[file.id];
-        if (!liveComments || liveComments.length === 0) {
-          return file;
-        }
-
-        return {
-          ...file,
-          agent: {
-            path: file.path,
-            summary: file.agent?.summary,
-            annotations: [...(file.agent?.annotations ?? []), ...liveComments],
-          },
-        };
-      }),
+    () => mergeFileAnnotationsByFileId(bootstrap.changeset.files, liveCommentsByFileId),
     [bootstrap.changeset.files, liveCommentsByFileId],
   );
 
-  const filteredFiles = allFiles.filter((file) => {
-    if (!deferredFilter.trim()) {
-      return true;
-    }
-
-    const haystack = [file.path, file.previousPath, file.agent?.summary]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(deferredFilter.trim().toLowerCase());
-  });
+  const filteredFiles = useMemo(
+    () => filterReviewFiles(allFiles, deferredFilter),
+    [allFiles, deferredFilter],
+  );
 
   const selectedFile =
     filteredFiles.find((file) => file.id === selectedFileId) ??
     allFiles.find((file) => file.id === selectedFileId) ??
     filteredFiles[0];
   const hunkCursors = buildHunkCursors(filteredFiles);
+  const annotatedHunkCursors = buildAnnotatedHunkCursors(filteredFiles);
 
   const bodyPadding = pagerMode ? 0 : BODY_PADDING;
   const bodyWidth = Math.max(0, terminal.width - bodyPadding);
@@ -284,6 +274,22 @@ function AppShell({
     filesScrollRef.current?.scrollChildIntoView(fileRowId(nextCursor.fileId));
     setSelectedFileId(nextCursor.fileId);
     setSelectedHunkIndex(nextCursor.hunkIndex);
+    setScrollToNote(false);
+  };
+
+  /** Move the review focus to the next or previous annotated hunk. */
+  const moveAnnotatedHunk = (delta: number) => {
+    const nextCursor = findNextHunkCursor(
+      annotatedHunkCursors,
+      selectedFile?.id,
+      selectedHunkIndex,
+      delta,
+    );
+    if (!nextCursor) {
+      return;
+    }
+
+    jumpToAnnotatedHunk(nextCursor.fileId, nextCursor.hunkIndex);
   };
 
   /** Scroll the main review pane by line steps, viewport fractions, or whole-content jumps. */
@@ -478,6 +484,7 @@ function AppShell({
         focusFilter: () => setFocusArea("filter"),
         layoutMode,
         moveAnnotatedFile,
+        moveAnnotatedHunk,
         moveHunk,
         refreshCurrentInput: triggerRefreshCurrentInput,
         requestQuit,
@@ -502,6 +509,7 @@ function AppShell({
       canRefreshCurrentInput,
       layoutMode,
       moveAnnotatedFile,
+      moveAnnotatedHunk,
       moveHunk,
       requestQuit,
       triggerRefreshCurrentInput,
@@ -877,6 +885,18 @@ function AppShell({
       closeMenu();
       return;
     }
+
+    if (key.sequence === "{") {
+      moveAnnotatedHunk(-1);
+      closeMenu();
+      return;
+    }
+
+    if (key.sequence === "}") {
+      moveAnnotatedHunk(1);
+      closeMenu();
+      return;
+    }
   });
 
   return (
@@ -960,6 +980,7 @@ function AppShell({
           scrollRef={diffScrollRef}
           selectedFileId={selectedFile?.id}
           selectedHunkIndex={selectedHunkIndex}
+          scrollToNote={scrollToNote}
           separatorWidth={diffSeparatorWidth}
           showAgentNotes={showAgentNotes}
           showLineNumbers={showLineNumbers}

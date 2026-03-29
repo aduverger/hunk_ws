@@ -154,6 +154,7 @@ class HttpHunkDaemonCliClient implements HunkDaemonCliClient {
         hunkNumber: input.hunkNumber,
         side: input.side,
         line: input.line,
+        commentDirection: input.commentDirection,
       })
     ).result;
   }

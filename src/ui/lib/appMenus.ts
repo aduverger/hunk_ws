@@ -8,6 +8,7 @@ export interface BuildAppMenusOptions {
   focusFilter: () => void;
   layoutMode: LayoutMode;
   moveAnnotatedFile: (delta: number) => void;
+  moveAnnotatedHunk: (delta: number) => void;
   moveHunk: (delta: number) => void;
   refreshCurrentInput: () => void;
   requestQuit: () => void;
@@ -35,6 +36,7 @@ export function buildAppMenus({
   focusFilter,
   layoutMode,
   moveAnnotatedFile,
+  moveAnnotatedHunk,
   moveHunk,
   refreshCurrentInput,
   requestQuit,
@@ -169,6 +171,19 @@ export function buildAppMenus({
         label: "Next hunk",
         hint: "]",
         action: () => moveHunk(1),
+      },
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Previous comment",
+        hint: "{",
+        action: () => moveAnnotatedHunk(-1),
+      },
+      {
+        kind: "item",
+        label: "Next comment",
+        hint: "}",
+        action: () => moveAnnotatedHunk(1),
       },
       { kind: "separator" },
       {

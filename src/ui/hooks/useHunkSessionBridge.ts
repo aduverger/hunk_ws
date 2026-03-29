@@ -7,6 +7,8 @@ import {
   hunkLineRange,
 } from "../../core/liveComments";
 import { HunkHostClient } from "../../mcp/client";
+import { filterReviewFiles, mergeFileAnnotationsByFileId } from "../lib/files";
+import { buildAnnotatedHunkCursors, findNextHunkCursor } from "../lib/hunks";
 import type {
   LiveComment,
   ReloadedSessionResult,
@@ -18,7 +20,9 @@ import type {
 export function useHunkSessionBridge({
   currentHunk,
   files,
+  filterQuery,
   hostClient,
+  jumpToAnnotatedHunk,
   jumpToFile,
   openAgentNotes,
   reloadSession,
@@ -28,7 +32,9 @@ export function useHunkSessionBridge({
 }: {
   currentHunk: DiffFile["metadata"]["hunks"][number] | undefined;
   files: DiffFile[];
+  filterQuery: string;
   hostClient?: HunkHostClient;
+  jumpToAnnotatedHunk: (fileId: string, nextHunkIndex?: number) => void;
   jumpToFile: (fileId: string, nextHunkIndex?: number) => void;
   openAgentNotes: () => void;
   reloadSession: (
@@ -56,8 +62,57 @@ export function useHunkSessionBridge({
         };
   }, []);
 
+  /** Merge live comments into the raw file list so annotation queries see both sources. */
+  const filesWithLiveComments = useCallback(
+    () => mergeFileAnnotationsByFileId(files, liveCommentsByFileIdRef.current),
+    [files],
+  );
+
+  /** Apply the active filter to the merged file list so keyboard and CLI comment navigation agree. */
+  const visibleFilesWithLiveComments = useCallback(
+    () => filterReviewFiles(filesWithLiveComments(), filterQuery),
+    [filesWithLiveComments, filterQuery],
+  );
+
   const navigateToHunkSelection = useCallback(
     async (message: Extract<SessionServerMessage, { command: "navigate_to_hunk" }>) => {
+      /** Handle relative comment navigation (--next-comment / --prev-comment). */
+      if (message.input.commentDirection) {
+        const delta = message.input.commentDirection === "next" ? 1 : -1;
+        const visibleFiles = visibleFilesWithLiveComments();
+        const annotatedCursors = buildAnnotatedHunkCursors(visibleFiles);
+        const nextCursor = findNextHunkCursor(
+          annotatedCursors,
+          selectedFile?.id,
+          selectedHunkIndex,
+          delta,
+        );
+
+        if (!nextCursor) {
+          throw new Error("No annotated hunks found in the current review.");
+        }
+
+        const targetFile = visibleFiles.find((file) => file.id === nextCursor.fileId);
+        if (!targetFile) {
+          throw new Error("Resolved annotated hunk references an unknown file.");
+        }
+
+        jumpToAnnotatedHunk(targetFile.id, nextCursor.hunkIndex);
+        return {
+          fileId: targetFile.id,
+          filePath: targetFile.path,
+          hunkIndex: nextCursor.hunkIndex,
+          selectedHunk: buildSelectedHunkSummary(targetFile, nextCursor.hunkIndex),
+        };
+      }
+
+      /** Handle absolute navigation by file + hunk/line target. */
+      if (!message.input.filePath) {
+        throw new Error(
+          "navigate requires --file when not using --next-comment or --prev-comment.",
+        );
+      }
+
       const file = findDiffFileByPath(files, message.input.filePath);
       if (!file) {
         throw new Error(`No visible diff file matches ${message.input.filePath}.`);
@@ -84,7 +139,15 @@ export function useHunkSessionBridge({
         selectedHunk: buildSelectedHunkSummary(file, hunkIndex),
       };
     },
-    [buildSelectedHunkSummary, files, jumpToFile],
+    [
+      buildSelectedHunkSummary,
+      files,
+      jumpToAnnotatedHunk,
+      jumpToFile,
+      selectedFile?.id,
+      selectedHunkIndex,
+      visibleFilesWithLiveComments,
+    ],
   );
 
   const applyIncomingComment = useCallback(

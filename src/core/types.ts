@@ -112,10 +112,11 @@ export interface SessionNavigateCommandInput {
   action: "navigate";
   output: SessionCommandOutput;
   selector: SessionSelectorInput;
-  filePath: string;
+  filePath?: string;
   hunkNumber?: number;
   side?: "old" | "new";
   line?: number;
+  commentDirection?: "next" | "prev";
 }
 
 export interface SessionReloadCommandInput {

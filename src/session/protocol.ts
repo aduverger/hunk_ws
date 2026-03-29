@@ -53,10 +53,11 @@ export type SessionDaemonRequest =
   | {
       action: "navigate";
       selector: SessionNavigateCommandInput["selector"];
-      filePath: string;
+      filePath?: string;
       hunkNumber?: number;
       side?: "old" | "new";
       line?: number;
+      commentDirection?: "next" | "prev";
     }
   | {
       action: "reload";

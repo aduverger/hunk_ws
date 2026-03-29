@@ -399,6 +399,66 @@ describe("parseCli", () => {
     );
   });
 
+  test("parses session navigate with --next-comment", async () => {
+    const parsed = await parseCli([
+      "bun",
+      "hunk",
+      "session",
+      "navigate",
+      "--repo",
+      "/tmp/repo",
+      "--next-comment",
+    ]);
+
+    expect(parsed).toEqual({
+      kind: "session",
+      action: "navigate",
+      selector: { repoRoot: "/tmp/repo" },
+      commentDirection: "next",
+      output: "text",
+    });
+  });
+
+  test("parses session navigate with --prev-comment", async () => {
+    const parsed = await parseCli([
+      "bun",
+      "hunk",
+      "session",
+      "navigate",
+      "session-1",
+      "--prev-comment",
+      "--json",
+    ]);
+
+    expect(parsed).toEqual({
+      kind: "session",
+      action: "navigate",
+      selector: { sessionId: "session-1" },
+      commentDirection: "prev",
+      output: "json",
+    });
+  });
+
+  test("rejects session navigate with both --next-comment and --prev-comment", async () => {
+    await expect(
+      parseCli([
+        "bun",
+        "hunk",
+        "session",
+        "navigate",
+        "session-1",
+        "--next-comment",
+        "--prev-comment",
+      ]),
+    ).rejects.toThrow("Specify either --next-comment or --prev-comment, not both.");
+  });
+
+  test("rejects session navigate without --file when not using comment direction", async () => {
+    await expect(
+      parseCli(["bun", "hunk", "session", "navigate", "session-1", "--hunk", "1"]),
+    ).rejects.toThrow("Specify --file");
+  });
+
   test("rejects session navigation with multiple target selectors", async () => {
     await expect(
       parseCli([
