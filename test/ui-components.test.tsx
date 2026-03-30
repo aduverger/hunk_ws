@@ -715,7 +715,7 @@ describe("UI components", () => {
     expect(lines[7]).toBe("└────────────────────────────────┘");
   });
 
-  test("AgentInlineNote renders a connected bordered panel with an indented connector", async () => {
+  test("AgentInlineNote renders a connected bordered panel without a blank connector row", async () => {
     const theme = resolveTheme("midnight", null);
     const frame = await captureFrame(
       <AgentInlineNote
@@ -731,7 +731,7 @@ describe("UI components", () => {
         onClose={() => {}}
       />,
       100,
-      6,
+      5,
     );
 
     const lines = frame.split("\n");
@@ -741,7 +741,6 @@ describe("UI components", () => {
     expect(lines[2]).toContain("Summary line");
     expect(lines[3]).toContain("Rationale line.");
     expect(lines[4]?.trimStart().startsWith("└")).toBe(true);
-    expect(lines[5]?.trimStart().startsWith("│")).toBe(true);
   });
 
   test("DiffPane renders all visible hunk notes across the review stream", async () => {
@@ -797,6 +796,46 @@ describe("UI components", () => {
     expect(frame).not.toContain("alpha.ts note");
     expect(frame).not.toContain("review");
     expect(frame).not.toContain("confidence");
+  });
+
+  test("DiffPane split inline notes hand off directly to the anchored row without shifting it", async () => {
+    const bootstrap = createBootstrap();
+    const theme = resolveTheme("midnight", null);
+    const frame = await captureFrame(
+      <DiffPane
+        diffContentWidth={88}
+        files={bootstrap.changeset.files}
+        headerLabelWidth={48}
+        headerStatsWidth={16}
+        layout="split"
+        scrollRef={createRef()}
+        selectedFileId="alpha"
+        selectedHunkIndex={0}
+        separatorWidth={84}
+        showAgentNotes={true}
+        showLineNumbers={true}
+        showHunkHeaders={true}
+        wrapLines={false}
+        theme={theme}
+        width={92}
+        onOpenAgentNotesAtHunk={() => {}}
+        onSelectFile={() => {}}
+      />,
+      96,
+      16,
+    );
+
+    const lines = frame.split("\n");
+    const noteBottomIndex = lines.findIndex((line) => line.includes("└") && line.includes("┤"));
+    expect(noteBottomIndex).toBeGreaterThanOrEqual(0);
+    expect(lines[noteBottomIndex + 1]).toContain("export const add = true;");
+    expect(lines[noteBottomIndex + 1]?.trim()).not.toBe("│");
+
+    const changedLine = lines.find((line) => line.includes("export const alpha = 2;"));
+    const annotatedLine = lines.find((line) => line.includes("export const add = true;"));
+    expect(changedLine).toBeDefined();
+    expect(annotatedLine).toBeDefined();
+    expect(changedLine?.indexOf("+ export const")).toBe(annotatedLine?.indexOf("+ export const"));
   });
 
   test("DiffPane shows all inline notes when a hunk has multiple notes", async () => {

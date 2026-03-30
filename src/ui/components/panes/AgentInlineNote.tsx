@@ -58,8 +58,8 @@ export function measureAgentInlineNoteHeight({
       : []),
   ];
 
-  // top border + title row + body lines + bottom border + optional split-column guide row
-  return 3 + lines.length + (anchorSide && layout === "split" ? 1 : 0);
+  // top border + title row + body lines + bottom border
+  return 3 + lines.length;
 }
 
 /** Render the note card itself before the start of an annotated range. */
@@ -196,36 +196,6 @@ export function AgentInlineNote({
           </text>
         </box>
       </box>
-
-      {(anchorSide === "new" || anchorSide === "old") && layout === "split" ? (
-        <box
-          style={{ width: "100%", height: 1, flexDirection: "row", backgroundColor: theme.panel }}
-        >
-          {anchorSide === "old" ? (
-            <>
-              <box style={{ width: 1, height: 1, backgroundColor: theme.panel }}>
-                <text fg={theme.noteBorder}>│</text>
-              </box>
-              <box
-                style={{ width: Math.max(0, width - 1), height: 1, backgroundColor: theme.panel }}
-              >
-                <text>{" ".repeat(Math.max(0, width - 1))}</text>
-              </box>
-            </>
-          ) : (
-            <>
-              <box
-                style={{ width: Math.max(0, width - 1), height: 1, backgroundColor: theme.panel }}
-              >
-                <text>{" ".repeat(Math.max(0, width - 1))}</text>
-              </box>
-              <box style={{ width: 1, height: 1, backgroundColor: theme.panel }}>
-                <text fg={theme.noteBorder}>│</text>
-              </box>
-            </>
-          )}
-        </box>
-      ) : null}
     </box>
   );
 }

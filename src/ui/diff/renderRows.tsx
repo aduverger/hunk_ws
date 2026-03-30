@@ -732,18 +732,19 @@ function renderRow(
       ? renderHeaderRow(row, width, theme, selected, annotated, anchorId, onOpenAgentNotesAtHunk)
       : null;
   } else if (row.type === "split-line") {
-    const outerGuideWidth = noteGuideSide ? 1 : 0;
-    const contentWidth = Math.max(0, width - outerGuideWidth);
+    const guideOnOldSide = noteGuideSide === "old";
+    const guideOnNewSide = noteGuideSide === "new";
     const markerWidth = 1;
     const separatorWidth = 1;
 
     // Reserve fixed columns for the diff rails and center separator slot.
-    const usableWidth = Math.max(0, contentWidth - markerWidth - separatorWidth);
+    const usableWidth = Math.max(0, width - markerWidth - separatorWidth);
     const leftWidth = Math.max(0, markerWidth + Math.floor(usableWidth / 2));
     const rightWidth = Math.max(0, separatorWidth + usableWidth - Math.floor(usableWidth / 2));
+    const rightRenderWidth = Math.max(0, rightWidth - (guideOnNewSide ? 1 : 0));
     const leftPrefix = {
-      text: marker(),
-      fg: splitLeftRailColor(row.left.kind, theme, selected),
+      text: guideOnOldSide ? "│" : marker(),
+      fg: guideOnOldSide ? theme.noteBorder : splitLeftRailColor(row.left.kind, theme, selected),
       bg: theme.panel,
     };
     const rightPrefix = {
@@ -753,8 +754,8 @@ function renderRow(
     };
 
     if (!wrapLines) {
-      const content = (
-        <box style={{ width: contentWidth, height: 1 }}>
+      baseRow = (
+        <box id={anchorId} style={{ width: "100%", height: 1 }}>
           <text>
             {renderSplitCell(
               row.left,
@@ -767,27 +768,19 @@ function renderRow(
             )}
             {renderSplitCell(
               row.right,
-              rightWidth,
+              rightRenderWidth,
               lineNumberDigits,
               showLineNumbers,
               theme,
               `${row.key}:right`,
               rightPrefix,
             )}
+            {guideOnNewSide ? (
+              <span key={`${row.key}:note-guide`} fg={theme.noteBorder}>
+                │
+              </span>
+            ) : null}
           </text>
-        </box>
-      );
-      const guide = noteGuideSide ? (
-        <box style={{ width: 1, height: 1 }}>
-          <text fg={theme.noteBorder}>│</text>
-        </box>
-      ) : null;
-
-      baseRow = (
-        <box id={anchorId} style={{ width: "100%", height: 1, flexDirection: "row" }}>
-          {noteGuideSide === "old" ? guide : null}
-          {content}
-          {noteGuideSide === "new" ? guide : null}
         </box>
       );
     } else {
@@ -801,7 +794,7 @@ function renderRow(
       );
       const rightLayout = buildWrappedSplitCell(
         row.right,
-        rightWidth,
+        rightRenderWidth,
         lineNumberDigits,
         showLineNumbers,
         rightPrefix.text.length,
@@ -813,7 +806,7 @@ function renderRow(
       );
       const rightContentWidth = Math.max(
         0,
-        rightWidth - rightPrefix.text.length - rightLayout.gutterWidth,
+        rightRenderWidth - rightPrefix.text.length - rightLayout.gutterWidth,
       );
       const visualLineCount = Math.max(leftLayout.lines.length, rightLayout.lines.length);
 
@@ -828,39 +821,32 @@ function renderRow(
               gutterText: " ".repeat(rightLayout.gutterWidth),
               spans: [],
             };
-            const guide = noteGuideSide ? (
-              <box style={{ width: 1, height: 1 }}>
-                <text fg={theme.noteBorder}>│</text>
-              </box>
-            ) : null;
 
             return (
-              <box
-                key={`${row.key}:wrap:${index}`}
-                style={{ width: "100%", height: 1, flexDirection: "row" }}
-              >
-                {noteGuideSide === "old" ? guide : null}
-                <box style={{ width: contentWidth, height: 1 }}>
-                  <text>
-                    {renderWrappedSplitCellLine(
-                      leftLine,
-                      leftLayout.palette,
-                      leftContentWidth,
-                      theme,
-                      `${row.key}:left:${index}`,
-                      leftPrefix,
-                    )}
-                    {renderWrappedSplitCellLine(
-                      rightLine,
-                      rightLayout.palette,
-                      rightContentWidth,
-                      theme,
-                      `${row.key}:right:${index}`,
-                      rightPrefix,
-                    )}
-                  </text>
-                </box>
-                {noteGuideSide === "new" ? guide : null}
+              <box key={`${row.key}:wrap:${index}`} style={{ width: "100%", height: 1 }}>
+                <text>
+                  {renderWrappedSplitCellLine(
+                    leftLine,
+                    leftLayout.palette,
+                    leftContentWidth,
+                    theme,
+                    `${row.key}:left:${index}`,
+                    leftPrefix,
+                  )}
+                  {renderWrappedSplitCellLine(
+                    rightLine,
+                    rightLayout.palette,
+                    rightContentWidth,
+                    theme,
+                    `${row.key}:right:${index}`,
+                    rightPrefix,
+                  )}
+                  {guideOnNewSide ? (
+                    <span key={`${row.key}:note-guide:${index}`} fg={theme.noteBorder}>
+                      │
+                    </span>
+                  ) : null}
+                </text>
               </box>
             );
           })}
@@ -868,17 +854,18 @@ function renderRow(
       );
     }
   } else if (row.type === "stack-line") {
-    const outerGuideWidth = noteGuideSide ? 1 : 0;
-    const contentWidth = Math.max(0, width - outerGuideWidth);
+    const guideOnOldSide = noteGuideSide === "old";
+    const guideOnNewSide = noteGuideSide === "new";
+    const contentWidth = Math.max(0, width - (guideOnNewSide ? 1 : 0));
     const prefix = {
-      text: marker(),
-      fg: stackRailColor(row.cell.kind, theme, selected),
+      text: guideOnOldSide ? "│" : marker(),
+      fg: guideOnOldSide ? theme.noteBorder : stackRailColor(row.cell.kind, theme, selected),
       bg: theme.panel,
     };
 
     if (!wrapLines) {
-      const content = (
-        <box style={{ width: contentWidth, height: 1 }}>
+      baseRow = (
+        <box id={anchorId} style={{ width: "100%", height: 1 }}>
           <text>
             {renderStackCell(
               row.cell,
@@ -889,20 +876,12 @@ function renderRow(
               `${row.key}:stack`,
               prefix,
             )}
+            {guideOnNewSide ? (
+              <span key={`${row.key}:note-guide`} fg={theme.noteBorder}>
+                │
+              </span>
+            ) : null}
           </text>
-        </box>
-      );
-      const guide = noteGuideSide ? (
-        <box style={{ width: 1, height: 1 }}>
-          <text fg={theme.noteBorder}>│</text>
-        </box>
-      ) : null;
-
-      baseRow = (
-        <box id={anchorId} style={{ width: "100%", height: 1, flexDirection: "row" }}>
-          {noteGuideSide === "old" ? guide : null}
-          {content}
-          {noteGuideSide === "new" ? guide : null}
         </box>
       );
     } else {
@@ -921,35 +900,25 @@ function renderRow(
 
       baseRow = (
         <box id={anchorId} style={{ width: "100%", flexDirection: "column" }}>
-          {layout.lines.map((line, index) => {
-            const guide = noteGuideSide ? (
-              <box style={{ width: 1, height: 1 }}>
-                <text fg={theme.noteBorder}>│</text>
-              </box>
-            ) : null;
-
-            return (
-              <box
-                key={`${row.key}:wrap:${index}`}
-                style={{ width: "100%", height: 1, flexDirection: "row" }}
-              >
-                {noteGuideSide === "old" ? guide : null}
-                <box style={{ width: contentWidth, height: 1 }}>
-                  <text>
-                    {renderWrappedStackCellLine(
-                      line,
-                      layout.palette,
-                      wrappedContentWidth,
-                      theme,
-                      `${row.key}:stack:${index}`,
-                      prefix,
-                    )}
-                  </text>
-                </box>
-                {noteGuideSide === "new" ? guide : null}
-              </box>
-            );
-          })}
+          {layout.lines.map((line, index) => (
+            <box key={`${row.key}:wrap:${index}`} style={{ width: "100%", height: 1 }}>
+              <text>
+                {renderWrappedStackCellLine(
+                  line,
+                  layout.palette,
+                  wrappedContentWidth,
+                  theme,
+                  `${row.key}:stack:${index}`,
+                  prefix,
+                )}
+                {guideOnNewSide ? (
+                  <span key={`${row.key}:note-guide:${index}`} fg={theme.noteBorder}>
+                    │
+                  </span>
+                ) : null}
+              </text>
+            </box>
+          ))}
         </box>
       );
     }
