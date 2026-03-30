@@ -5,7 +5,7 @@ import React from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { parseDiffFromFile } from "@pierre/diffs";
 import { act } from "react";
-import { AppHost } from "../src/ui/App";
+import { AppHost } from "../src/ui/AppHost";
 import type { AppBootstrap, DiffFile } from "../src/core/types";
 
 function createDiffFile(index: number, marker: string): DiffFile {

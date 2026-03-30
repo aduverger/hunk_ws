@@ -16,17 +16,9 @@ import {
   useState,
   useRef,
 } from "react";
-import { resolveConfiguredCliInput } from "../core/config";
-import { loadAppBootstrap } from "../core/loaders";
-import { resolveRuntimeCliInput } from "../core/terminal";
 import type { AppBootstrap, CliInput, LayoutMode } from "../core/types";
 import { canReloadInput, computeWatchSignature } from "../core/watch";
-import type { UpdateNotice } from "../core/updateNotice";
 import { HunkHostClient } from "../mcp/client";
-import {
-  createInitialSessionSnapshot,
-  updateSessionRegistration,
-} from "../mcp/sessionRegistration";
 import type { ReloadedSessionResult } from "../mcp/types";
 import { MenuBar } from "./components/chrome/MenuBar";
 import { StatusBar } from "./components/chrome/StatusBar";
@@ -35,7 +27,6 @@ import { FilesPane } from "./components/panes/FilesPane";
 import { PaneDivider } from "./components/panes/PaneDivider";
 import { useHunkSessionBridge } from "./hooks/useHunkSessionBridge";
 import { useMenuController } from "./hooks/useMenuController";
-import { useStartupUpdateNotice } from "./hooks/useStartupUpdateNotice";
 import { buildAppMenus } from "./lib/appMenus";
 import { buildSidebarEntries, filterReviewFiles, mergeFileAnnotationsByFileId } from "./lib/files";
 import { buildAnnotatedHunkCursors, buildHunkCursors, findNextHunkCursor } from "./lib/hunks";
@@ -85,7 +76,7 @@ function withCurrentViewOptions(
 }
 
 /** Orchestrate global app state, layout, navigation, and pane coordination. */
-function App({
+export function App({
   bootstrap,
   hostClient,
   noticeText,
@@ -1042,75 +1033,5 @@ function App({
         </Suspense>
       ) : null}
     </box>
-  );
-}
-
-/** Keep one live Hunk app mounted while allowing daemon-driven session reloads. */
-export function AppHost({
-  bootstrap,
-  hostClient,
-  onQuit = () => process.exit(0),
-  startupNoticeResolver,
-}: {
-  bootstrap: AppBootstrap;
-  hostClient?: HunkHostClient;
-  onQuit?: () => void;
-  startupNoticeResolver?: () => Promise<UpdateNotice | null>;
-}) {
-  const [activeBootstrap, setActiveBootstrap] = useState(bootstrap);
-  const [appVersion, setAppVersion] = useState(0);
-  const startupNoticeText = useStartupUpdateNotice({
-    enabled: !bootstrap.input.options.pager,
-    resolver: startupNoticeResolver,
-  });
-
-  const reloadSession = useCallback(
-    async (nextInput: CliInput, options?: { resetApp?: boolean; sourcePath?: string }) => {
-      const runtimeInput = resolveRuntimeCliInput(nextInput);
-      const configuredInput = resolveConfiguredCliInput(runtimeInput, {
-        cwd: options?.sourcePath,
-      }).input;
-      const nextBootstrap = await loadAppBootstrap(configuredInput, {
-        cwd: options?.sourcePath,
-      });
-      const nextSnapshot = createInitialSessionSnapshot(nextBootstrap);
-
-      let sessionId = "local-session";
-      if (hostClient) {
-        const nextRegistration = updateSessionRegistration(
-          hostClient.getRegistration(),
-          nextBootstrap,
-        );
-        sessionId = nextRegistration.sessionId;
-        hostClient.replaceSession(nextRegistration, nextSnapshot);
-      }
-
-      setActiveBootstrap(nextBootstrap);
-      if (options?.resetApp !== false) {
-        setAppVersion((current) => current + 1);
-      }
-
-      return {
-        sessionId,
-        inputKind: nextBootstrap.input.kind,
-        title: nextBootstrap.changeset.title,
-        sourceLabel: nextBootstrap.changeset.sourceLabel,
-        fileCount: nextBootstrap.changeset.files.length,
-        selectedFilePath: nextSnapshot.selectedFilePath,
-        selectedHunkIndex: nextSnapshot.selectedHunkIndex,
-      };
-    },
-    [hostClient],
-  );
-
-  return (
-    <App
-      key={appVersion}
-      bootstrap={activeBootstrap}
-      hostClient={hostClient}
-      noticeText={startupNoticeText}
-      onQuit={onQuit}
-      onReloadSession={reloadSession}
-    />
   );
 }

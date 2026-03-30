@@ -7,7 +7,7 @@ import { pagePlainText } from "./core/pager";
 import { shutdownSession } from "./core/shutdown";
 import { prepareStartupPlan } from "./core/startup";
 import { resolveStartupUpdateNotice } from "./core/updateNotice";
-import { AppHost } from "./ui/App";
+import { AppHost } from "./ui/AppHost";
 import { HunkHostClient } from "./mcp/client";
 import { serveHunkMcpServer } from "./mcp/server";
 import { createInitialSessionSnapshot, createSessionRegistration } from "./mcp/sessionRegistration";
