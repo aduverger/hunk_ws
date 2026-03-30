@@ -45,6 +45,9 @@ jobs:
       - name: Test suite
         run: bun test
 
+      - name: PTY integration tests
+        run: bun run test:integration
+
       - name: Verify terminal tools
         run: |
           command -v script

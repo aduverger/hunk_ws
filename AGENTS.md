@@ -74,6 +74,7 @@ CLI input
 - fast smoke test: `bun run src/main.tsx -- diff /tmp/before.ts /tmp/after.ts`
 - typecheck: `bun run typecheck`
 - tests: `bun test`
+- PTY integration tests: `bun run test:integration`
 - TTY smoke test: `bun run test:tty-smoke`
 - build binary: `bun run build:bin`
 - install binary: `bun run install:bin`
@@ -86,8 +87,8 @@ CLI input
 
 ## verification
 
-- For rendering changes: run `bun run typecheck`, `bun test`, `bun run test:tty-smoke`, and do one real TTY smoke run on an actual diff.
-- For interaction, layout, scrolling, navigation, or windowing changes: also add or update integration tests that exercise the user-visible behavior at the pane/app level.
+- For rendering changes: run `bun run typecheck`, `bun test`, `bun run test:integration`, `bun run test:tty-smoke`, and do one real TTY smoke run on an actual diff.
+- For interaction, layout, scrolling, navigation, windowing, or other terminal-native behavior: add or update PTY integration coverage in `test/integration/*.integration.ts` and run it with `bun run test:integration`.
 - For CLI, config, or pager work: make sure the relevant source invocation still works (`diff`, `show`, `patch`, or `pager`).
 - Preserve current interaction model unless the user asks to change it explicitly.
 

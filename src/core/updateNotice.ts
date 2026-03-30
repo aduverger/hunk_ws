@@ -5,6 +5,7 @@ const STABLE_SEMVER_PATTERN = /^\d+\.\d+\.\d+$/;
 const PRERELEASE_SEMVER_PATTERN = /^\d+\.\d+\.\d+-[0-9A-Za-z.-]+$/;
 const UNKNOWN_CLI_VERSION = "0.0.0-unknown";
 const DEFAULT_UPDATE_NOTICE_FETCH_TIMEOUT_MS = 5_000;
+const DISABLE_STARTUP_UPDATE_NOTICE_ENV = "HUNK_DISABLE_UPDATE_NOTICE";
 
 export type UpdateChannel = "latest" | "beta";
 
@@ -147,10 +148,19 @@ function createFetchTimeoutSignal(timeoutMs: number) {
   };
 }
 
+/** Return whether the transient startup notice should stay disabled for deterministic sessions like CI. */
+function startupUpdateNoticeDisabled() {
+  return process.env[DISABLE_STARTUP_UPDATE_NOTICE_ENV] === "1";
+}
+
 /** Resolve the transient startup notice directly from npm dist-tags without persisted state. */
 export async function resolveStartupUpdateNotice(
   deps: UpdateNoticeDeps = {},
 ): Promise<UpdateNotice | null> {
+  if (startupUpdateNoticeDisabled()) {
+    return null;
+  }
+
   const fetchImpl = deps.fetchImpl ?? fetch;
   const fetchTimeoutMs = deps.fetchTimeoutMs ?? DEFAULT_UPDATE_NOTICE_FETCH_TIMEOUT_MS;
   const resolveInstalledVersion = deps.resolveInstalledVersion ?? resolveCliVersion;

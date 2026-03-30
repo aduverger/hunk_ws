@@ -84,6 +84,28 @@ describe("startup update notice", () => {
     ).resolves.toBeNull();
   });
 
+  test("returns null immediately when the CI disable env is set", async () => {
+    const previous = process.env.HUNK_DISABLE_UPDATE_NOTICE;
+    process.env.HUNK_DISABLE_UPDATE_NOTICE = "1";
+
+    try {
+      await expect(
+        resolveStartupUpdateNotice({
+          fetchImpl: async () => {
+            throw new Error("should not fetch when disabled");
+          },
+          resolveInstalledVersion: () => "0.7.0",
+        }),
+      ).resolves.toBeNull();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.HUNK_DISABLE_UPDATE_NOTICE;
+      } else {
+        process.env.HUNK_DISABLE_UPDATE_NOTICE = previous;
+      }
+    }
+  });
+
   test("aborts hung fetches after the timeout", async () => {
     let aborted = false;
 
