@@ -250,6 +250,47 @@ describe("Hunk integration via tuistory", () => {
     }
   });
 
+  test("mouse menu navigation can switch the diff layout", async () => {
+    const fixture = harness.createTwoFileRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "split"],
+      cwd: fixture.dir,
+      cols: 220,
+      rows: 24,
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Theme\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      expect(initial).toMatch(/▌.*▌/);
+
+      await session.click(/View/);
+      const menu = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("Stacked view") && text.includes("Split view"),
+        5_000,
+      );
+
+      expect(menu).toContain("Stacked view");
+      expect(menu).toContain("Split view");
+
+      await session.click(/Stacked view/);
+      const stacked = await harness.waitForSnapshot(
+        session,
+        (text) => !/▌.*▌/.test(text) && text.includes("1   -  export const alpha = 1;"),
+        5_000,
+      );
+
+      expect(stacked).not.toMatch(/▌.*▌/);
+      expect(stacked).toContain("1   -  export const alpha = 1;");
+      expect(stacked).toContain("1   -  export const beta = 1;");
+    } finally {
+      session.close();
+    }
+  });
+
   test("mouse wheel scrolling moves the review pane", async () => {
     const fixture = harness.createScrollableFilePair();
     const session = await harness.launchHunk({
