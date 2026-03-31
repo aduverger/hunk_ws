@@ -26,7 +26,10 @@ import {
 } from "../src/ui/lib/keyboard";
 import { fitText, padText } from "../src/ui/lib/text";
 import { computeHunkRevealScrollTop } from "../src/ui/lib/hunkScroll";
-import { estimateDiffBodyRows, measureDiffSectionMetrics } from "../src/ui/lib/sectionHeights";
+import {
+  estimateDiffSectionBodyRows,
+  measureDiffSectionGeometry,
+} from "../src/ui/lib/diffSectionGeometry";
 import { resizeSidebarWidth } from "../src/ui/lib/sidebar";
 import { resolveTheme } from "../src/ui/themes";
 
@@ -251,20 +254,20 @@ describe("ui helpers", () => {
     expect(resizeSidebarWidth(34, 33, 120, 22, 80)).toBe(80);
   });
 
-  test("estimateDiffBodyRows matches split and stack row counts from the render plan", async () => {
+  test("estimateDiffSectionBodyRows matches split and stack row counts from the render plan", async () => {
     const file = createDiffFile();
     const theme = resolveTheme("midnight", null);
 
-    expect(estimateDiffBodyRows(file, "split", true, theme)).toBeGreaterThan(0);
-    expect(estimateDiffBodyRows(file, "stack", true, theme)).toBeGreaterThan(
-      estimateDiffBodyRows(file, "split", true, theme),
+    expect(estimateDiffSectionBodyRows(file, "split", true, theme)).toBeGreaterThan(0);
+    expect(estimateDiffSectionBodyRows(file, "stack", true, theme)).toBeGreaterThan(
+      estimateDiffSectionBodyRows(file, "split", true, theme),
     );
-    expect(estimateDiffBodyRows(file, "split", false, theme)).toBe(
-      estimateDiffBodyRows(file, "split", true, theme) - file.metadata.hunks.length,
+    expect(estimateDiffSectionBodyRows(file, "split", false, theme)).toBe(
+      estimateDiffSectionBodyRows(file, "split", true, theme) - file.metadata.hunks.length,
     );
   });
 
-  test("measureDiffSectionMetrics tracks hidden-header anchor rows across multiple hunks", () => {
+  test("measureDiffSectionGeometry tracks hidden-header anchor rows across multiple hunks", () => {
     const file = createDiffFile(
       lines(
         "const line1 = 1;",
@@ -296,7 +299,7 @@ describe("ui helpers", () => {
       ),
     );
     const theme = resolveTheme("midnight", null);
-    const metrics = measureDiffSectionMetrics(file, "split", false, theme);
+    const metrics = measureDiffSectionGeometry(file, "split", false, theme);
 
     expect(metrics.bodyHeight).toBeGreaterThan(0);
     expect(metrics.hunkAnchorRows.get(0)).toBe(1);
@@ -308,11 +311,11 @@ describe("ui helpers", () => {
     expect(metrics.hunkBounds.get(1)?.height).toBe(1);
   });
 
-  test("measureDiffSectionMetrics includes visible inline note rows in split mode", () => {
+  test("measureDiffSectionGeometry includes visible inline note rows in split mode", () => {
     const file = createDiffFile();
     const theme = resolveTheme("midnight", null);
-    const baseMetrics = measureDiffSectionMetrics(file, "split", true, theme);
-    const noteMetrics = measureDiffSectionMetrics(
+    const baseGeometry = measureDiffSectionGeometry(file, "split", true, theme);
+    const noteGeometry = measureDiffSectionGeometry(
       file,
       "split",
       true,
@@ -330,8 +333,8 @@ describe("ui helpers", () => {
       120,
     );
 
-    expect(noteMetrics.bodyHeight).toBeGreaterThan(baseMetrics.bodyHeight);
-    expect(noteMetrics.hunkAnchorRows.get(0)).toBe(baseMetrics.hunkAnchorRows.get(0));
+    expect(noteGeometry.bodyHeight).toBeGreaterThan(baseGeometry.bodyHeight);
+    expect(noteGeometry.hunkAnchorRows.get(0)).toBe(baseGeometry.hunkAnchorRows.get(0));
   });
 
   test("computeHunkRevealScrollTop keeps a hunk fully visible when it fits", () => {

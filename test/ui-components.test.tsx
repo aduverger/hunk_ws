@@ -5,7 +5,7 @@ import { parseDiffFromFile } from "@pierre/diffs";
 import { act, createRef, type ReactNode } from "react";
 import type { AppBootstrap, DiffFile } from "../src/core/types";
 import { resolveTheme } from "../src/ui/themes";
-import { measureDiffSectionMetrics } from "../src/ui/lib/sectionHeights";
+import { measureDiffSectionGeometry } from "../src/ui/lib/diffSectionGeometry";
 
 const { AppHost } = await import("../src/ui/AppHost");
 const { buildSidebarEntries } = await import("../src/ui/lib/files");
@@ -524,7 +524,7 @@ describe("UI components", () => {
       height: 10,
     });
 
-    const firstBodyHeight = measureDiffSectionMetrics(
+    const firstBodyHeight = measureDiffSectionGeometry(
       firstFile,
       "split",
       true,

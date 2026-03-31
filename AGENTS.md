@@ -57,6 +57,13 @@ CLI input
 - Add inline comments for intent, invariants, or tricky behavior that would not be obvious to a fresh reader.
 - Skip comments that only narrate what the code already says.
 
+## naming
+
+- Prefer names that match the role the code plays in the product and architecture.
+- Use `layout` for structural placement or arrangement data.
+- Use `geometry` for aggregate spatial data used by rendering, scrolling, or interaction.
+- Use `bounds` for one concrete visible extent within a larger structure.
+
 ## review behavior
 
 - Default behavior is a multi-file review stream in sidebar order.

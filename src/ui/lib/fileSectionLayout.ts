@@ -1,7 +1,7 @@
 import type { DiffFile } from "../../core/types";
 
 /** Stream geometry for one file section in the main review pane. */
-export interface FileSectionLayoutMetric {
+export interface FileSectionLayout {
   fileId: string;
   sectionIndex: number;
   sectionTop: number;
@@ -12,8 +12,8 @@ export interface FileSectionLayoutMetric {
 }
 
 /** Build absolute section offsets from file order and measured body heights. */
-export function buildFileSectionLayoutMetrics(files: DiffFile[], bodyHeights: number[]) {
-  const metrics: FileSectionLayoutMetric[] = [];
+export function buildFileSectionLayouts(files: DiffFile[], bodyHeights: number[]) {
+  const layouts: FileSectionLayout[] = [];
   let cursor = 0;
 
   files.forEach((file, index) => {
@@ -24,7 +24,7 @@ export function buildFileSectionLayoutMetrics(files: DiffFile[], bodyHeights: nu
     const bodyTop = headerTop + 1;
     const sectionBottom = bodyTop + bodyHeight;
 
-    metrics.push({
+    layouts.push({
       fileId: file.id,
       sectionIndex: index,
       sectionTop,
@@ -37,29 +37,29 @@ export function buildFileSectionLayoutMetrics(files: DiffFile[], bodyHeights: nu
     cursor = sectionBottom;
   });
 
-  return metrics;
+  return layouts;
 }
 
 /** Return the file section that owns the viewport top, switching at each next header row. */
 export function findHeaderOwningFileSection(
-  sectionMetrics: FileSectionLayoutMetric[],
+  fileSectionLayouts: FileSectionLayout[],
   scrollTop: number,
 ) {
-  if (sectionMetrics.length === 0) {
+  if (fileSectionLayouts.length === 0) {
     return null;
   }
 
   // Choose the last header whose top has reached the viewport, so separator rows still belong
   // to the previous section until the next header itself takes over.
   let low = 0;
-  let high = sectionMetrics.length - 1;
+  let high = fileSectionLayouts.length - 1;
   let winner = 0;
 
   while (low <= high) {
     const mid = (low + high) >>> 1;
-    const metric = sectionMetrics[mid]!;
+    const layout = fileSectionLayouts[mid]!;
 
-    if (metric.headerTop <= scrollTop) {
+    if (layout.headerTop <= scrollTop) {
       winner = mid;
       low = mid + 1;
     } else {
@@ -67,15 +67,12 @@ export function findHeaderOwningFileSection(
     }
   }
 
-  return sectionMetrics[winner]!;
+  return fileSectionLayouts[winner]!;
 }
 
-/** Resolve the scroll target needed to make one file header own the viewport top. */
-export function resolveFileSectionHeaderTop(
-  sectionMetrics: FileSectionLayoutMetric[],
-  fileId: string,
-) {
-  const targetSection = sectionMetrics.find((metric) => metric.fileId === fileId);
+/** Return the scroll top needed to make one file header own the viewport top. */
+export function getFileSectionHeaderTop(fileSectionLayouts: FileSectionLayout[], fileId: string) {
+  const targetSection = fileSectionLayouts.find((layout) => layout.fileId === fileId);
   if (!targetSection) {
     return null;
   }

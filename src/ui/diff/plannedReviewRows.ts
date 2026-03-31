@@ -22,6 +22,13 @@ export interface PlannedHunkBounds {
   endRowId: string;
 }
 
+/** Aggregate geometry for one file section measured from planned review rows. */
+export interface PlannedSectionGeometry {
+  bodyHeight: number;
+  hunkAnchorRows: Map<number, number>;
+  hunkBounds: Map<number, PlannedHunkBounds>;
+}
+
 /** Return whether this planned row should count toward a hunk's own visible extent. */
 function rowContributesToHunkBounds(row: PlannedReviewRow) {
   // Collapsed gap rows belong between hunks, so they affect total section height but not a hunk's
@@ -63,14 +70,14 @@ export function plannedReviewRowVisible(
 }
 
 /**
- * Walk one file's planned rows and derive both section metrics and hunk-local bounds.
+ * Walk one file's planned rows and derive section geometry plus hunk-local bounds.
  *
  * `top` is measured in section-body rows, so callers can add the file section offset later.
  */
-export function measurePlannedHunkBounds(
+export function measurePlannedSectionGeometry(
   plannedRows: PlannedReviewRow[],
   options: PlannedReviewRowLayoutOptions,
-) {
+): PlannedSectionGeometry {
   const hunkAnchorRows = new Map<number, number>();
   const hunkBounds = new Map<number, PlannedHunkBounds>();
   let bodyHeight = 0;

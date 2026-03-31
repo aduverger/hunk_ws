@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import type { VisibleAgentNote } from "../src/ui/lib/agentAnnotations";
-import { measureDiffSectionMetrics } from "../src/ui/lib/sectionHeights";
+import { measureDiffSectionGeometry } from "../src/ui/lib/diffSectionGeometry";
 import { resolveTheme } from "../src/ui/themes";
 import { createDiffFile, createHeaderOnlyDiffFile, lines } from "./fixtures/diff-helpers";
 
-describe("measureDiffSectionMetrics", () => {
+describe("measureDiffSectionGeometry", () => {
   const theme = resolveTheme("midnight", null);
 
   test("measures split and stack layouts from the render plan", () => {
     const file = createDiffFile();
 
-    const split = measureDiffSectionMetrics(file, "split", true, theme);
-    const stack = measureDiffSectionMetrics(file, "stack", true, theme);
+    const split = measureDiffSectionGeometry(file, "split", true, theme);
+    const stack = measureDiffSectionGeometry(file, "stack", true, theme);
 
     expect(split.bodyHeight).toBeGreaterThan(0);
     expect(stack.bodyHeight).toBeGreaterThan(split.bodyHeight);
@@ -26,14 +26,14 @@ describe("measureDiffSectionMetrics", () => {
         id: "annotation:example:0",
         annotation: {
           newRange: [1, 1],
-          rationale: "Keep note height in section metrics.",
+          rationale: "Keep note height in section geometry.",
           summary: "Explain the change",
         },
       },
     ];
 
-    const baseMetrics = measureDiffSectionMetrics(file, "split", true, theme, [], 120);
-    const noteMetrics = measureDiffSectionMetrics(
+    const baseGeometry = measureDiffSectionGeometry(file, "split", true, theme, [], 120);
+    const noteGeometry = measureDiffSectionGeometry(
       file,
       "split",
       true,
@@ -42,12 +42,12 @@ describe("measureDiffSectionMetrics", () => {
       120,
     );
 
-    expect(noteMetrics.bodyHeight).toBeGreaterThan(baseMetrics.bodyHeight);
-    expect(noteMetrics.hunkAnchorRows.get(0)).toBe(baseMetrics.hunkAnchorRows.get(0));
-    expect(noteMetrics.rowMetrics.some((row) => row.key.startsWith("inline-note:"))).toBe(true);
+    expect(noteGeometry.bodyHeight).toBeGreaterThan(baseGeometry.bodyHeight);
+    expect(noteGeometry.hunkAnchorRows.get(0)).toBe(baseGeometry.hunkAnchorRows.get(0));
+    expect(noteGeometry.rowBounds.some((row) => row.key.startsWith("inline-note:"))).toBe(true);
   });
 
-  test("wraps long rows into taller section metrics when wrapping is enabled", () => {
+  test("wraps long rows into taller section geometry when wrapping is enabled", () => {
     const file = createDiffFile({
       before: lines("const alpha = 1;", "const beta = 2;"),
       after: lines(
@@ -58,7 +58,7 @@ describe("measureDiffSectionMetrics", () => {
       path: "wrapped.ts",
     });
 
-    const nowrapMetrics = measureDiffSectionMetrics(
+    const nowrapGeometry = measureDiffSectionGeometry(
       file,
       "stack",
       true,
@@ -68,7 +68,7 @@ describe("measureDiffSectionMetrics", () => {
       true,
       false,
     );
-    const wrappedMetrics = measureDiffSectionMetrics(
+    const wrappedGeometry = measureDiffSectionGeometry(
       file,
       "stack",
       true,
@@ -79,9 +79,9 @@ describe("measureDiffSectionMetrics", () => {
       true,
     );
 
-    expect(wrappedMetrics.bodyHeight).toBeGreaterThan(nowrapMetrics.bodyHeight);
-    expect(wrappedMetrics.hunkBounds.get(0)?.height).toBeGreaterThan(
-      nowrapMetrics.hunkBounds.get(0)?.height ?? 0,
+    expect(wrappedGeometry.bodyHeight).toBeGreaterThan(nowrapGeometry.bodyHeight);
+    expect(wrappedGeometry.hunkBounds.get(0)?.height).toBeGreaterThan(
+      nowrapGeometry.hunkBounds.get(0)?.height ?? 0,
     );
   });
 
@@ -93,25 +93,25 @@ describe("measureDiffSectionMetrics", () => {
       path: "empty.ts",
     });
 
-    const metrics = measureDiffSectionMetrics(file, "split", true, theme);
+    const metrics = measureDiffSectionGeometry(file, "split", true, theme);
 
     expect(file.metadata.hunks).toHaveLength(0);
     expect(metrics.bodyHeight).toBe(1);
     expect(metrics.hunkBounds.size).toBe(0);
-    expect(metrics.rowMetrics).toEqual([]);
+    expect(metrics.rowBounds).toEqual([]);
   });
 
   test("can measure a header-only hunk stream without line rows", () => {
     const file = createHeaderOnlyDiffFile();
 
-    const metrics = measureDiffSectionMetrics(file, "split", true, theme);
+    const metrics = measureDiffSectionGeometry(file, "split", true, theme);
 
     expect(file.metadata.hunks).toHaveLength(1);
     expect(metrics.bodyHeight).toBe(1);
     expect(metrics.hunkAnchorRows.size).toBe(1);
     expect(metrics.hunkAnchorRows.get(0)).toBe(0);
     expect(metrics.hunkBounds.get(0)).toMatchObject({ height: 1, top: 0 });
-    expect(metrics.rowMetrics).toHaveLength(1);
-    expect(metrics.rowMetrics[0]?.key).toContain(":header:");
+    expect(metrics.rowBounds).toHaveLength(1);
+    expect(metrics.rowBounds[0]?.key).toContain(":header:");
   });
 });

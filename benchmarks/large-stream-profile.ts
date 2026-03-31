@@ -3,7 +3,7 @@
 import { performance } from "perf_hooks";
 import { buildSplitRows } from "../src/ui/diff/pierre";
 import { buildReviewRenderPlan } from "../src/ui/diff/reviewRenderPlan";
-import { measureDiffSectionMetrics } from "../src/ui/lib/sectionHeights";
+import { measureDiffSectionGeometry } from "../src/ui/lib/diffSectionGeometry";
 import { resolveTheme } from "../src/ui/themes";
 import {
   createLargeSplitStreamFiles,
@@ -30,9 +30,9 @@ function measureMs(run: () => void) {
   return performance.now() - start;
 }
 
-const sectionMetricsMs = measureMs(() => {
+const sectionGeometryMs = measureMs(() => {
   windowedFiles.forEach((file) => {
-    measureDiffSectionMetrics(file, "split", true, theme);
+    measureDiffSectionGeometry(file, "split", true, theme);
   });
 });
 
@@ -56,7 +56,7 @@ const noteReviewPlanMs = measureMs(() => {
   });
 });
 
-console.log(`METRIC section_metrics_ms=${sectionMetricsMs.toFixed(2)}`);
+console.log(`METRIC section_geometry_ms=${sectionGeometryMs.toFixed(2)}`);
 console.log(`METRIC split_rows_ms=${splitRowsMs.toFixed(2)}`);
 console.log(`METRIC note_review_plan_ms=${noteReviewPlanMs.toFixed(2)}`);
 console.log(`METRIC split_rows=${windowedRows}`);

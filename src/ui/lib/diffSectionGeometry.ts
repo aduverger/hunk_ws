@@ -8,27 +8,27 @@ import { reviewRowId } from "./ids";
 import type { VisibleAgentNote } from "./agentAnnotations";
 import type { AppTheme } from "../themes";
 
-export interface DiffSectionRowMetric {
+export interface DiffSectionRowBounds {
   key: string;
-  offset: number;
+  top: number;
   height: number;
 }
 
-/** Cached placeholder sizing and hunk navigation metrics for one file section. */
-export interface DiffSectionMetrics {
+/** Cached placeholder sizing and hunk navigation geometry for one file section. */
+export interface DiffSectionGeometry {
   bodyHeight: number;
   hunkAnchorRows: Map<number, number>;
   hunkBounds: Map<number, PlannedHunkBounds>;
-  rowMetrics: DiffSectionRowMetric[];
-  rowMetricsByKey: Map<string, DiffSectionRowMetric>;
+  rowBounds: DiffSectionRowBounds[];
+  rowBoundsByKey: Map<string, DiffSectionRowBounds>;
 }
 
-const NOTE_AWARE_SECTION_METRICS_CACHE = new WeakMap<
+const NOTE_AWARE_SECTION_GEOMETRY_CACHE = new WeakMap<
   VisibleAgentNote[],
-  Map<string, DiffSectionMetrics>
+  Map<string, DiffSectionGeometry>
 >();
 
-/** Build the exact review rows for one file before converting them into height metrics. */
+/** Build the exact review rows for one file before converting them into section geometry. */
 function buildBasePlannedRows(
   file: DiffFile,
   layout: Exclude<LayoutMode, "auto">,
@@ -90,11 +90,8 @@ function rowContributesToHunkBounds(row: PlannedReviewRow) {
   return !(row.kind === "diff-row" && row.row.type === "collapsed");
 }
 
-/**
- * Measure one file section from the same render plan used by PierreDiffView.
- * This keeps placeholder sizing, viewport anchoring, and selected-hunk reveal math aligned.
- */
-export function measureDiffSectionMetrics(
+/** Measure one file section from the same render plan used by PierreDiffView. */
+export function measureDiffSectionGeometry(
   file: DiffFile,
   layout: Exclude<LayoutMode, "auto">,
   showHunkHeaders: boolean,
@@ -103,14 +100,14 @@ export function measureDiffSectionMetrics(
   width = 0,
   showLineNumbers = true,
   wrapLines = false,
-): DiffSectionMetrics {
+): DiffSectionGeometry {
   if (file.metadata.hunks.length === 0) {
     return {
       bodyHeight: 1,
       hunkAnchorRows: new Map(),
       hunkBounds: new Map(),
-      rowMetrics: [],
-      rowMetricsByKey: new Map(),
+      rowBounds: [],
+      rowBoundsByKey: new Map(),
     };
   }
 
@@ -118,7 +115,7 @@ export function measureDiffSectionMetrics(
   // participate in the cache key alongside the structural file/layout inputs.
   const cacheKey = `${file.id}:${layout}:${showHunkHeaders ? 1 : 0}:${theme.id}:${width}:${showLineNumbers ? 1 : 0}:${wrapLines ? 1 : 0}`;
   if (visibleAgentNotes.length > 0) {
-    const cachedByNotes = NOTE_AWARE_SECTION_METRICS_CACHE.get(visibleAgentNotes);
+    const cachedByNotes = NOTE_AWARE_SECTION_GEOMETRY_CACHE.get(visibleAgentNotes);
     const cached = cachedByNotes?.get(cacheKey);
     if (cached) {
       return cached;
@@ -128,8 +125,8 @@ export function measureDiffSectionMetrics(
   const plannedRows = buildBasePlannedRows(file, layout, showHunkHeaders, theme, visibleAgentNotes);
   const hunkAnchorRows = new Map<number, number>();
   const hunkBounds = new Map<number, PlannedHunkBounds>();
-  const rowMetrics: DiffSectionRowMetric[] = [];
-  const rowMetricsByKey = new Map<string, DiffSectionRowMetric>();
+  const rowBounds: DiffSectionRowBounds[] = [];
+  const rowBoundsByKey = new Map<string, DiffSectionRowBounds>();
   const lineNumberDigits = String(findMaxLineNumber(file)).length;
   let bodyHeight = 0;
 
@@ -148,15 +145,15 @@ export function measureDiffSectionMetrics(
       wrapLines,
       theme,
     );
-    const rowMetric = {
+    const rowBoundsEntry = {
       key: row.key,
-      // Record both the starting offset and the measured height so callers can translate between
+      // Record both the starting top and the measured height so callers can translate between
       // scroll positions and stable review-row identities across wrap/layout changes.
-      offset: bodyHeight,
+      top: bodyHeight,
       height,
     };
-    rowMetrics.push(rowMetric);
-    rowMetricsByKey.set(row.key, rowMetric);
+    rowBounds.push(rowBoundsEntry);
+    rowBoundsByKey.set(row.key, rowBoundsEntry);
 
     if (height > 0 && rowContributesToHunkBounds(row)) {
       const rowId = reviewRowId(row.key);
@@ -178,35 +175,35 @@ export function measureDiffSectionMetrics(
     bodyHeight += height;
   }
 
-  const metrics = {
+  const geometry: DiffSectionGeometry = {
     bodyHeight,
     hunkAnchorRows,
     hunkBounds,
-    rowMetrics,
-    rowMetricsByKey,
+    rowBounds,
+    rowBoundsByKey,
   };
 
   if (visibleAgentNotes.length > 0) {
-    const cachedByNotes = NOTE_AWARE_SECTION_METRICS_CACHE.get(visibleAgentNotes) ?? new Map();
-    cachedByNotes.set(cacheKey, metrics);
-    NOTE_AWARE_SECTION_METRICS_CACHE.set(visibleAgentNotes, cachedByNotes);
+    const cachedByNotes = NOTE_AWARE_SECTION_GEOMETRY_CACHE.get(visibleAgentNotes) ?? new Map();
+    cachedByNotes.set(cacheKey, geometry);
+    NOTE_AWARE_SECTION_GEOMETRY_CACHE.set(visibleAgentNotes, cachedByNotes);
   }
 
-  return metrics;
+  return geometry;
 }
 
-/** Estimate the number of diff-body rows for one file in the windowed path. */
-export function estimateDiffBodyRows(
+/** Estimate the number of diff-body rows for one file section in the windowed path. */
+export function estimateDiffSectionBodyRows(
   file: DiffFile,
   layout: Exclude<LayoutMode, "auto">,
   showHunkHeaders: boolean,
   theme: AppTheme,
 ) {
-  return measureDiffSectionMetrics(file, layout, showHunkHeaders, theme).bodyHeight;
+  return measureDiffSectionGeometry(file, layout, showHunkHeaders, theme).bodyHeight;
 }
 
-/** Estimate the body-row offset for the anchor that should represent the selected hunk. */
-export function estimateHunkAnchorRow(
+/** Estimate the body-row position for the anchor that should represent the selected hunk. */
+export function estimateHunkAnchorBodyRow(
   file: DiffFile,
   layout: Exclude<LayoutMode, "auto">,
   showHunkHeaders: boolean,
@@ -219,7 +216,7 @@ export function estimateHunkAnchorRow(
 
   const clampedHunkIndex = Math.max(0, Math.min(hunkIndex, file.metadata.hunks.length - 1));
   return (
-    measureDiffSectionMetrics(file, layout, showHunkHeaders, theme).hunkAnchorRows.get(
+    measureDiffSectionGeometry(file, layout, showHunkHeaders, theme).hunkAnchorRows.get(
       clampedHunkIndex,
     ) ?? 0
   );
