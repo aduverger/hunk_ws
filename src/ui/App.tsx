@@ -397,8 +397,17 @@ export function App({
       wrapLines,
     });
 
-    await onReloadSession(nextInput, { resetApp: false });
+    await onReloadSession(nextInput, {
+      resetApp: false,
+      sourcePath:
+        bootstrap.input.kind === "git" ||
+        bootstrap.input.kind === "show" ||
+        bootstrap.input.kind === "stash-show"
+          ? bootstrap.changeset.sourceLabel
+          : undefined,
+    });
   }, [
+    bootstrap.changeset.sourceLabel,
     bootstrap.input,
     canRefreshCurrentInput,
     layoutMode,
