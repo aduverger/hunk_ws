@@ -1,4 +1,5 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
+import { useRenderer } from "@opentui/react";
 import {
   useCallback,
   useEffect,
@@ -18,8 +19,9 @@ import {
 } from "../../lib/diffSectionGeometry";
 import {
   buildFileSectionLayouts,
+  buildInStreamFileHeaderHeights,
   findHeaderOwningFileSection,
-  getFileSectionHeaderTop,
+  shouldRenderInStreamFileHeader,
 } from "../../lib/fileSectionLayout";
 import { diffHunkId, diffSectionId } from "../../lib/ids";
 import type { AppTheme } from "../../themes";
@@ -63,10 +65,12 @@ function findViewportRowAnchor(
   files: DiffFile[],
   sectionGeometry: DiffSectionGeometry[],
   scrollTop: number,
+  headerHeights: number[],
 ) {
   const fileSectionLayouts = buildFileSectionLayouts(
     files,
     sectionGeometry.map((metrics) => metrics?.bodyHeight ?? 0),
+    headerHeights,
   );
 
   for (let index = 0; index < files.length; index += 1) {
@@ -96,10 +100,12 @@ function resolveViewportRowAnchorTop(
   files: DiffFile[],
   sectionGeometry: DiffSectionGeometry[],
   anchor: ViewportRowAnchor,
+  headerHeights: number[],
 ) {
   const fileSectionLayouts = buildFileSectionLayouts(
     files,
     sectionGeometry.map((metrics) => metrics?.bodyHeight ?? 0),
+    headerHeights,
   );
 
   for (let index = 0; index < files.length; index += 1) {
@@ -165,6 +171,7 @@ export function DiffPane({
   onOpenAgentNotesAtHunk: (fileId: string, hunkIndex: number) => void;
   onSelectFile: (fileId: string) => void;
 }) {
+  const renderer = useRenderer();
   const [prefetchAnchorKey, setPrefetchAnchorKey] = useState<string | null>(null);
   const selectedHighlightKey = selectedFileId ? `${theme.appearance}:${selectedFileId}` : null;
 
@@ -245,11 +252,16 @@ export function DiffPane({
   const pendingFileTopAlignFileIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const updateViewport = () => {
-      const nextTop = scrollRef.current?.scrollTop ?? 0;
-      const nextHeight = scrollRef.current?.viewport.height ?? 0;
+    const scrollBox = scrollRef.current;
+    if (!scrollBox) {
+      return;
+    }
 
-      // Detect scroll activity and show scrollbar
+    const updateViewport = () => {
+      const nextTop = scrollBox.scrollTop ?? 0;
+      const nextHeight = scrollBox.viewport.height ?? 0;
+
+      // Detect scroll activity and show scrollbar.
       if (nextTop !== prevScrollTopRef.current) {
         scrollbarRef.current?.show();
         prevScrollTopRef.current = nextTop;
@@ -262,10 +274,23 @@ export function DiffPane({
       );
     };
 
+    const handleViewportChange = () => {
+      updateViewport();
+    };
+
     updateViewport();
-    const interval = setInterval(updateViewport, 50);
-    return () => clearInterval(interval);
-  }, [scrollRef]);
+    scrollBox.verticalScrollBar.on("change", handleViewportChange);
+    scrollBox.viewport.on("layout-changed", handleViewportChange);
+    scrollBox.viewport.on("resized", handleViewportChange);
+
+    return () => {
+      scrollBox.verticalScrollBar.off("change", handleViewportChange);
+      scrollBox.viewport.off("layout-changed", handleViewportChange);
+      scrollBox.viewport.off("resized", handleViewportChange);
+    };
+  }, [files.length, scrollRef]);
+
+  const sectionHeaderHeights = useMemo(() => buildInStreamFileHeaderHeights(files), [files]);
 
   const baseSectionGeometry = useMemo(
     () =>
@@ -288,8 +313,8 @@ export function DiffPane({
     [baseSectionGeometry],
   );
   const baseFileSectionLayouts = useMemo(
-    () => buildFileSectionLayouts(files, baseEstimatedBodyHeights),
-    [baseEstimatedBodyHeights, files],
+    () => buildFileSectionLayouts(files, baseEstimatedBodyHeights, sectionHeaderHeights),
+    [baseEstimatedBodyHeights, files, sectionHeaderHeights],
   );
 
   const visibleViewportFileIds = useMemo(() => {
@@ -363,27 +388,34 @@ export function DiffPane({
     [sectionGeometry],
   );
   const fileSectionLayouts = useMemo(
-    () => buildFileSectionLayouts(files, estimatedBodyHeights),
-    [estimatedBodyHeights, files],
+    () => buildFileSectionLayouts(files, estimatedBodyHeights, sectionHeaderHeights),
+    [estimatedBodyHeights, files, sectionHeaderHeights],
   );
-  // Read the live scroll box position during render so sticky-header ownership flips
+  const totalContentHeight = fileSectionLayouts[fileSectionLayouts.length - 1]?.sectionBottom ?? 0;
+  // Read the live scroll box position during render so pinned-header ownership flips
   // immediately after imperative scrolls instead of waiting for the polled viewport snapshot.
   const effectiveScrollTop = scrollRef.current?.scrollTop ?? scrollViewport.top;
 
-  const totalContentHeight = fileSectionLayouts[fileSectionLayouts.length - 1]?.sectionBottom ?? 0;
-
-  const stickyHeaderFile = useMemo(() => {
-    if (files.length < 2) {
+  const pinnedHeaderFile = useMemo(() => {
+    if (files.length === 0) {
       return null;
     }
 
-    const owner = findHeaderOwningFileSection(fileSectionLayouts, effectiveScrollTop);
-    if (!owner || effectiveScrollTop <= owner.headerTop) {
-      return null;
-    }
+    // The current file header always owns the pinned top row.
+    // Use the previous visible row to decide ownership so the next file's real header can still
+    // scroll through the stream before the pinned header hands off to it on the following row.
+    const owner = findHeaderOwningFileSection(
+      fileSectionLayouts,
+      Math.max(0, effectiveScrollTop - 1),
+    );
 
-    return files[owner.sectionIndex] ?? null;
+    return owner ? (files[owner.sectionIndex] ?? null) : (files[0] ?? null);
   }, [effectiveScrollTop, fileSectionLayouts, files]);
+  const pinnedHeaderFileId = pinnedHeaderFile?.id ?? null;
+
+  useLayoutEffect(() => {
+    renderer.intermediateRender();
+  }, [renderer, pinnedHeaderFileId]);
 
   const visibleWindowedFileIds = useMemo(() => {
     if (!windowingEnabled) {
@@ -473,17 +505,19 @@ export function DiffPane({
 
   // Track the previous selected anchor to detect actual selection changes.
   const prevSelectedAnchorIdRef = useRef<string | null>(null);
+  const prevPinnedHeaderFileIdRef = useRef<string | null>(null);
+  const pendingSelectionSettleRef = useRef(false);
 
   /** Clear any pending "selected file to top" follow-up. */
   const clearPendingFileTopAlign = useCallback(() => {
     pendingFileTopAlignFileIdRef.current = null;
   }, []);
 
-  /** Scroll one file header to the top using the latest planned section geometry. */
+  /** Scroll one file so it immediately owns the viewport top using the latest planned geometry. */
   const scrollFileHeaderToTop = useCallback(
     (fileId: string) => {
-      const headerTop = getFileSectionHeaderTop(fileSectionLayouts, fileId);
-      if (headerTop == null) {
+      const targetSection = fileSectionLayouts.find((layout) => layout.fileId === fileId);
+      if (!targetSection) {
         return false;
       }
 
@@ -492,7 +526,8 @@ export function DiffPane({
         return false;
       }
 
-      scrollBox.scrollTo(headerTop);
+      // The pinned header owns the top row, so align the review stream to the file body.
+      scrollBox.scrollTo(targetSection.bodyTop);
       return true;
     },
     [fileSectionLayouts, scrollRef],
@@ -502,6 +537,7 @@ export function DiffPane({
     const wrapChanged = previousWrapLinesRef.current !== wrapLines;
     const previousSectionMetrics = previousSectionGeometryRef.current;
     const previousFiles = previousFilesRef.current;
+    const previousSectionHeaderHeights = buildInStreamFileHeaderHeights(previousFiles);
 
     if (wrapChanged && previousSectionMetrics && previousFiles.length > 0) {
       const previousScrollTop =
@@ -514,9 +550,15 @@ export function DiffPane({
         previousFiles,
         previousSectionMetrics,
         previousScrollTop,
+        previousSectionHeaderHeights,
       );
       if (anchor) {
-        const nextTop = resolveViewportRowAnchorTop(files, sectionGeometry, anchor);
+        const nextTop = resolveViewportRowAnchorTop(
+          files,
+          sectionGeometry,
+          anchor,
+          sectionHeaderHeights,
+        );
         const restoreViewportAnchor = () => {
           scrollRef.current?.scrollTo(nextTop);
         };
@@ -542,7 +584,15 @@ export function DiffPane({
     previousWrapLinesRef.current = wrapLines;
     previousSectionGeometryRef.current = sectionGeometry;
     previousFilesRef.current = files;
-  }, [files, scrollRef, scrollViewport.top, sectionGeometry, wrapLines, wrapToggleScrollTop]);
+  }, [
+    files,
+    scrollRef,
+    scrollViewport.top,
+    sectionGeometry,
+    sectionHeaderHeights,
+    wrapLines,
+    wrapToggleScrollTop,
+  ]);
 
   useLayoutEffect(() => {
     if (previousSelectedFileTopAlignRequestIdRef.current === selectedFileTopAlignRequestId) {
@@ -581,10 +631,12 @@ export function DiffPane({
       return;
     }
 
-    const desiredTop = getFileSectionHeaderTop(fileSectionLayouts, pendingFileId);
-    if (desiredTop == null) {
+    const targetSection = fileSectionLayouts.find((layout) => layout.fileId === pendingFileId);
+    if (!targetSection) {
       return;
     }
+
+    const desiredTop = targetSection.bodyTop;
 
     const currentTop = scrollRef.current?.scrollTop ?? scrollViewport.top;
     if (Math.abs(currentTop - desiredTop) <= 0.5) {
@@ -603,24 +655,40 @@ export function DiffPane({
   ]);
 
   useLayoutEffect(() => {
+    const pinnedHeaderFileId = pinnedHeaderFile?.id ?? null;
+
     if (suppressNextSelectionAutoScrollRef.current) {
       suppressNextSelectionAutoScrollRef.current = false;
       // Consume this selection transition so the next render does not re-center the selected hunk.
       prevSelectedAnchorIdRef.current = selectedAnchorId;
+      prevPinnedHeaderFileIdRef.current = pinnedHeaderFileId;
+      pendingSelectionSettleRef.current = false;
       return;
     }
 
     if (!selectedAnchorId && !selectedEstimatedHunkBounds) {
       prevSelectedAnchorIdRef.current = null;
+      prevPinnedHeaderFileIdRef.current = pinnedHeaderFileId;
+      pendingSelectionSettleRef.current = false;
       return;
     }
 
-    // Only auto-scroll when the selection actually changes, not when geometry updates during
-    // scrolling or when the selected section refines its measured bounds.
-    const isSelectionChange = prevSelectedAnchorIdRef.current !== selectedAnchorId;
-    prevSelectedAnchorIdRef.current = selectedAnchorId;
+    const shouldTrackPinnedHeaderResettle =
+      selectedFileIndex > 0 || selectedHunkIndex > 0 || selectedNoteBounds !== null;
 
-    if (!isSelectionChange) {
+    // Only auto-scroll when the selection actually changes, not when geometry updates during
+    // scrolling or when the selected section refines its measured bounds. One exception: after a
+    // programmatic jump to a later file/hunk, rerun the settle scroll once if the pinned header
+    // hands off to a different file while the selected content is still settling.
+    const isSelectionChange = prevSelectedAnchorIdRef.current !== selectedAnchorId;
+    const pinnedHeaderChangedWhileSettling =
+      shouldTrackPinnedHeaderResettle &&
+      pendingSelectionSettleRef.current &&
+      prevPinnedHeaderFileIdRef.current !== pinnedHeaderFileId;
+    prevSelectedAnchorIdRef.current = selectedAnchorId;
+    prevPinnedHeaderFileIdRef.current = pinnedHeaderFileId;
+
+    if (!isSelectionChange && !pinnedHeaderChangedWhileSettling) {
       return;
     }
 
@@ -687,17 +755,29 @@ export function DiffPane({
     // Run after this pane renders the selected section/hunk, then retry briefly while layout
     // settles across a couple of repaint cycles.
     scrollSelectionIntoView();
+    pendingSelectionSettleRef.current = shouldTrackPinnedHeaderResettle;
     const retryDelays = [0, 16, 48];
     const timeouts = retryDelays.map((delay) => setTimeout(scrollSelectionIntoView, delay));
+    const settleReset = shouldTrackPinnedHeaderResettle
+      ? setTimeout(() => {
+          pendingSelectionSettleRef.current = false;
+        }, 120)
+      : null;
     return () => {
       timeouts.forEach((timeout) => clearTimeout(timeout));
+      if (settleReset) {
+        clearTimeout(settleReset);
+      }
     };
   }, [
     scrollRef,
     scrollViewport.height,
     selectedAnchorId,
     selectedEstimatedHunkBounds,
+    selectedFileIndex,
+    selectedHunkIndex,
     selectedNoteBounds,
+    pinnedHeaderFile?.id,
   ]);
 
   // Configure scroll step size to scroll exactly 1 line per step
@@ -722,15 +802,15 @@ export function DiffPane({
     >
       {files.length > 0 ? (
         <box style={{ width: "100%", height: "100%", flexGrow: 1, flexDirection: "column" }}>
-          {/* Keep the current file header visible once its real header has scrolled offscreen. */}
-          {stickyHeaderFile ? (
+          {/* Always pin the current file header in a dedicated top row. */}
+          {pinnedHeaderFile ? (
             <box style={{ width: "100%", height: 1, minHeight: 1, flexShrink: 0 }}>
               <DiffFileHeaderRow
-                file={stickyHeaderFile}
+                file={pinnedHeaderFile}
                 headerLabelWidth={headerLabelWidth}
                 headerStatsWidth={headerStatsWidth}
                 theme={theme}
-                onSelect={() => onSelectFile(stickyHeaderFile.id)}
+                onSelect={() => onSelectFile(pinnedHeaderFile.id)}
               />
             </box>
           ) : null}
@@ -763,7 +843,7 @@ export function DiffPane({
                     visibleViewportFileIds.has(file.id);
 
                   // Windowing keeps offscreen files cheap: render placeholders with identical
-                  // section geometry so scroll math and sticky-header ownership stay stable.
+                  // section geometry so scroll math and pinned-header ownership stay stable.
                   if (!shouldRenderSection) {
                     return (
                       <DiffSectionPlaceholder
@@ -773,6 +853,7 @@ export function DiffPane({
                         headerLabelWidth={headerLabelWidth}
                         headerStatsWidth={headerStatsWidth}
                         separatorWidth={separatorWidth}
+                        showHeader={shouldRenderInStreamFileHeader(index)}
                         showSeparator={index > 0}
                         theme={theme}
                         onSelect={() => onSelectFile(file.id)}
@@ -787,7 +868,6 @@ export function DiffPane({
                       headerLabelWidth={headerLabelWidth}
                       headerStatsWidth={headerStatsWidth}
                       layout={layout}
-                      selected={file.id === selectedFileId}
                       selectedHunkIndex={file.id === selectedFileId ? selectedHunkIndex : -1}
                       shouldLoadHighlight={
                         file.id === selectedFileId ||
@@ -798,6 +878,7 @@ export function DiffPane({
                         file.id === selectedFileId ? handleSelectedHighlightReady : undefined
                       }
                       separatorWidth={separatorWidth}
+                      showHeader={shouldRenderInStreamFileHeader(index)}
                       showSeparator={index > 0}
                       showLineNumbers={showLineNumbers}
                       showHunkHeaders={showHunkHeaders}

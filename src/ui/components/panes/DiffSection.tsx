@@ -12,7 +12,6 @@ interface DiffSectionProps {
   headerLabelWidth: number;
   headerStatsWidth: number;
   layout: Exclude<LayoutMode, "auto">;
-  selected: boolean;
   selectedHunkIndex: number;
   shouldLoadHighlight: boolean;
   onHighlightReady?: () => void;
@@ -20,6 +19,7 @@ interface DiffSectionProps {
   showLineNumbers: boolean;
   showHunkHeaders: boolean;
   wrapLines: boolean;
+  showHeader: boolean;
   showSeparator: boolean;
   theme: AppTheme;
   visibleAgentNotes: VisibleAgentNote[];
@@ -34,7 +34,6 @@ function DiffSectionComponent({
   headerLabelWidth,
   headerStatsWidth,
   layout,
-  selected: _selected,
   selectedHunkIndex,
   shouldLoadHighlight,
   onHighlightReady,
@@ -42,6 +41,7 @@ function DiffSectionComponent({
   showLineNumbers,
   showHunkHeaders,
   wrapLines,
+  showHeader,
   showSeparator,
   theme,
   visibleAgentNotes,
@@ -75,13 +75,15 @@ function DiffSectionComponent({
         </box>
       ) : null}
 
-      <DiffFileHeaderRow
-        file={file}
-        headerLabelWidth={headerLabelWidth}
-        headerStatsWidth={headerStatsWidth}
-        theme={theme}
-        onSelect={onSelect}
-      />
+      {showHeader ? (
+        <DiffFileHeaderRow
+          file={file}
+          headerLabelWidth={headerLabelWidth}
+          headerStatsWidth={headerStatsWidth}
+          theme={theme}
+          onSelect={onSelect}
+        />
+      ) : null}
 
       <PierreDiffView
         file={file}
@@ -112,13 +114,13 @@ export const DiffSection = memo(DiffSectionComponent, (previous, next) => {
     previous.headerLabelWidth === next.headerLabelWidth &&
     previous.headerStatsWidth === next.headerStatsWidth &&
     previous.layout === next.layout &&
-    previous.selected === next.selected &&
     previous.selectedHunkIndex === next.selectedHunkIndex &&
     previous.shouldLoadHighlight === next.shouldLoadHighlight &&
     previous.separatorWidth === next.separatorWidth &&
     previous.showLineNumbers === next.showLineNumbers &&
     previous.showHunkHeaders === next.showHunkHeaders &&
     previous.wrapLines === next.wrapLines &&
+    previous.showHeader === next.showHeader &&
     previous.showSeparator === next.showSeparator &&
     previous.theme === next.theme &&
     previous.visibleAgentNotes === next.visibleAgentNotes &&

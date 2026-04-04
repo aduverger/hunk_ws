@@ -117,7 +117,7 @@ describe("Hunk integration via tuistory", () => {
       );
 
       expect(secondHunk).toContain("line60 = 6000");
-      expect(secondHunk).toContain("line61 = 6100");
+      expect(secondHunk).toContain("@@ -57,12 +57,12 @@");
       expect(secondHunk).not.toContain("line1 = 100");
     } finally {
       session.close();
@@ -229,6 +229,73 @@ describe("Hunk integration via tuistory", () => {
       expect(pinned).toContain("second.ts");
       expect(pinned).toContain("line17 = 117");
       expect(harness.countMatches(pinned, /first\.ts/g)).toBe(1);
+    } finally {
+      session.close();
+    }
+  });
+
+  test("mouse wheel scrolling preserves the divider and header handoff in a real PTY", async () => {
+    const fixture = harness.createPinnedHeaderRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "split"],
+      cwd: fixture.dir,
+      cols: 220,
+      rows: 10,
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Theme\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      expect(initial).toContain("first.ts");
+      expect(initial).toContain("second.ts");
+
+      await session.scrollDown(17);
+      const boundary = await harness.waitForSnapshot(
+        session,
+        (text) =>
+          harness.countMatches(text, /first\.ts/g) === 2 &&
+          harness.countMatches(text, /second\.ts/g) === 2 &&
+          text.includes("@@ -1,16 +1,16 @@") &&
+          text.includes("line17 = 117"),
+        5_000,
+      );
+
+      expect(boundary).toContain("first.ts");
+      expect(boundary).toContain("second.ts");
+      expect(boundary).toContain("@@ -1,16 +1,16 @@");
+      expect(boundary).toContain("line17 = 117");
+
+      await session.scrollDown(1);
+      const nextHeader = await harness.waitForSnapshot(
+        session,
+        (text) =>
+          harness.countMatches(text, /first\.ts/g) === 2 &&
+          harness.countMatches(text, /second\.ts/g) === 2 &&
+          text.includes("line18 = 118"),
+        5_000,
+      );
+
+      expect(nextHeader).toContain("first.ts");
+      expect(nextHeader).toContain("second.ts");
+      expect(nextHeader).toContain("line18 = 118");
+
+      await session.scrollDown(1);
+      const handedOff = await harness.waitForSnapshot(
+        session,
+        (text) =>
+          harness.countMatches(text, /first\.ts/g) === 1 &&
+          harness.countMatches(text, /second\.ts/g) === 2 &&
+          text.includes("line17 = 117") &&
+          !text.includes("@@ -1,16 +1,16 @@"),
+        5_000,
+      );
+
+      expect(harness.countMatches(handedOff, /first\.ts/g)).toBe(1);
+      expect(harness.countMatches(handedOff, /second\.ts/g)).toBe(2);
+      expect(handedOff).toContain("line17 = 117");
+      expect(handedOff).not.toContain("@@ -1,16 +1,16 @@");
     } finally {
       session.close();
     }
@@ -417,12 +484,14 @@ describe("Hunk integration via tuistory", () => {
       await session.scrollDown(12);
       const scrolled = await harness.waitForSnapshot(
         session,
-        (text) => text.includes("line11 = 111") && !text.includes("line01 = 101"),
+        (text) =>
+          !text.includes("line01 = 101") &&
+          (text.includes("line11 = 111") || text.includes("line12 = 112")),
         5_000,
       );
 
-      expect(scrolled).toContain("line11 = 111");
       expect(scrolled).not.toContain("line01 = 101");
+      expect(scrolled.includes("line11 = 111") || scrolled.includes("line12 = 112")).toBe(true);
 
       await session.scrollUp(12);
       const restored = await harness.waitForSnapshot(
@@ -432,6 +501,76 @@ describe("Hunk integration via tuistory", () => {
       );
 
       expect(restored).toContain("line01 = 101");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("the first mouse-wheel step still advances content under the always-pinned file header above a collapsed gap", async () => {
+    const fixture = harness.createCollapsedTopRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "split"],
+      cwd: fixture.dir,
+      cols: 220,
+      rows: 10,
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Theme\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      expect(initial).toContain("aaa-collapsed.ts");
+      expect(initial).toContain("··· 362 unchanged lines ···");
+      expect(initial).not.toContain("366 - export const line366 = 366;");
+
+      await session.scrollDown(1);
+      const advanced = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("366 - export const line366 = 366;"),
+        5_000,
+      );
+
+      expect(advanced).toContain("366 - export const line366 = 366;");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("one mouse-wheel step down then up restores the collapsed-gap view beneath the pinned file header", async () => {
+    const fixture = harness.createCollapsedTopRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "split"],
+      cwd: fixture.dir,
+      cols: 220,
+      rows: 10,
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Theme\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+      const initialHeaderCount = harness.countMatches(initial, /aaa-collapsed\.ts/g);
+
+      await session.scrollDown(1);
+      await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("366 - export const line366 = 366;"),
+        5_000,
+      );
+
+      await session.scrollUp(1);
+      const restored = await harness.waitForSnapshot(
+        session,
+        (text) =>
+          text.includes("··· 362 unchanged lines ···") &&
+          harness.countMatches(text, /aaa-collapsed\.ts/g) === initialHeaderCount,
+        5_000,
+      );
+
+      expect(restored).toContain("··· 362 unchanged lines ···");
+      expect(restored).not.toContain("366 - export const line366 = 366;");
+      expect(harness.countMatches(restored, /aaa-collapsed\.ts/g)).toBe(initialHeaderCount);
     } finally {
       session.close();
     }
