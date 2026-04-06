@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { createTuistoryHarness } from "./tuistoryHarness";
+import { createPtyHarness } from "./harness";
 
-const harness = createTuistoryHarness();
+const harness = createPtyHarness();
 
 /** Give PTY-backed startup and redraws enough headroom for slower CI machines. */
 setDefaultTimeout(20_000);
@@ -10,7 +10,7 @@ afterEach(() => {
   harness.cleanup();
 });
 
-describe("Hunk integration via tuistory", () => {
+describe("live UI integration", () => {
   test("real PTY sessions can toggle wrapped lines on and off", async () => {
     const fixture = harness.createLongWrapFilePair();
     const session = await harness.launchHunk({

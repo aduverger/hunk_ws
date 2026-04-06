@@ -194,7 +194,7 @@ afterEach(() => {
   cleanupTempDirs();
 });
 
-describe("live session end-to-end", () => {
+describe("session broker end-to-end", () => {
   test("a live Hunk session auto-starts the daemon and renders CLI comments inline", async () => {
     if (!ttyToolsAvailable) {
       return;

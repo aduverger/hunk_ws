@@ -18,7 +18,7 @@ function git(cwd: string, ...args: string[]) {
   }
 }
 
-describe("CLI help output", () => {
+describe("CLI entrypoint contracts", () => {
   test("bare hunk prints standard help without terminal takeover sequences", () => {
     const proc = Bun.spawnSync(["bun", "run", "src/main.tsx"], {
       cwd: process.cwd(),
@@ -89,7 +89,7 @@ describe("CLI help output", () => {
   });
 
   test("prints the package version for --version without terminal takeover sequences", () => {
-    const expectedVersion = require("../package.json").version;
+    const expectedVersion = require("../../package.json").version;
     const proc = Bun.spawnSync(["bun", "run", "src/main.tsx", "--version"], {
       cwd: process.cwd(),
       stdin: "ignore",

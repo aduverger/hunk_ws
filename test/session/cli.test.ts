@@ -128,7 +128,7 @@ afterEach(() => {
   cleanupTempDirs();
 });
 
-describe("session CLI", () => {
+describe("session CLI integration", () => {
   test("list/get/context expose live Hunk sessions through the daemon", async () => {
     if (!ttyToolsAvailable) {
       return;

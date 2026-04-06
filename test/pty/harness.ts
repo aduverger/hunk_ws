@@ -87,8 +87,8 @@ function runGit(args: string[], cwd: string, allowExitCodeOne = false) {
   return proc.stdout;
 }
 
-/** Build a fresh helper that tracks its own temp directories for one integration test file. */
-export function createTuistoryHarness() {
+/** Build a fresh PTY test helper that tracks its own temp directories for one integration test file. */
+export function createPtyHarness() {
   const tempDirs: string[] = [];
 
   function makeTempDir(prefix: string) {

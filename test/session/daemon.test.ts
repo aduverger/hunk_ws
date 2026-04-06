@@ -67,7 +67,7 @@ afterEach(async () => {
   );
 });
 
-describe("mcp serve process lifecycle", () => {
+describe("session daemon lifecycle", () => {
   test("exits cleanly after SIGTERM instead of hot-looping after server shutdown", async () => {
     const port = await reserveLoopbackPort();
     const proc = Bun.spawn(["bun", "run", "src/main.tsx", "mcp", "serve"], {

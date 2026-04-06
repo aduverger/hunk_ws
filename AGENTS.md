@@ -56,7 +56,11 @@ CLI input
 - Colocate unit tests with the code they cover (`src/core/foo.ts` + `src/core/foo.test.ts`, `src/ui/AppHost.*.test.tsx`, `src/ui/lib/*.test.ts`).
 - Put shared unit-test helpers in `test/helpers/`.
 - Name test helpers so they explicitly include `Test` and are clearly test-only (`createTestDiffFile`).
-- Keep other repo-level `test/` files for cross-cutting integration, PTY/session, CLI transcript, and smoke coverage.
+- Use repo-level `test/` directories by intent:
+  - `test/cli/` for black-box CLI contract coverage.
+  - `test/session/` for daemon/session integration and end-to-end flows.
+  - `test/pty/` for PTY-backed live UI integration tests.
+  - `test/smoke/` for opt-in terminal transcript smoke coverage.
 
 ## code comments
 
@@ -110,7 +114,7 @@ CLI input
 ## verification
 
 - For rendering changes: run `bun run typecheck`, `bun test`, `bun run test:integration`, `bun run test:tty-smoke`, and do one real TTY smoke run on an actual diff.
-- For interaction, layout, scrolling, navigation, windowing, or other terminal-native behavior: add or update PTY integration coverage in `test/integration/*.integration.ts` and run it with `bun run test:integration`.
+- For interaction, layout, scrolling, navigation, windowing, or other terminal-native behavior: add or update PTY integration coverage in `test/pty/*-integration.test.ts` and run it with `bun run test:integration`.
 - For CLI, config, or pager work: make sure the relevant source invocation still works (`diff`, `show`, `patch`, or `pager`).
 - Preserve current interaction model unless the user asks to change it explicitly.
 
