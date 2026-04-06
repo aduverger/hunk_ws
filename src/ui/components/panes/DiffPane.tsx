@@ -1,4 +1,4 @@
-import type { ScrollBoxRenderable } from "@opentui/core";
+import { type MouseEvent as TuiMouseEvent, type ScrollBoxRenderable } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import {
   useCallback,
@@ -127,6 +127,7 @@ function resolveViewportRowAnchorTop(
 
 /** Render the main multi-file review stream. */
 export function DiffPane({
+  codeHorizontalOffset = 0,
   diffContentWidth,
   files,
   headerLabelWidth,
@@ -147,8 +148,10 @@ export function DiffPane({
   theme,
   width,
   onOpenAgentNotesAtHunk,
+  onScrollCodeHorizontally = () => {},
   onSelectFile,
 }: {
+  codeHorizontalOffset?: number;
   diffContentWidth: number;
   files: DiffFile[];
   headerLabelWidth: number;
@@ -169,6 +172,7 @@ export function DiffPane({
   theme: AppTheme;
   width: number;
   onOpenAgentNotesAtHunk: (fileId: string, hunkIndex: number) => void;
+  onScrollCodeHorizontally?: (delta: number) => void;
   onSelectFile: (fileId: string) => void;
 }) {
   const renderer = useRenderer();
@@ -212,6 +216,47 @@ export function DiffPane({
 
     setPrefetchAnchorKey((current) => current ?? selectedHighlightKey);
   }, [selectedHighlightKey]);
+
+  /** Route shifted wheel input into horizontal code-column scrolling without disturbing vertical review scroll. */
+  const handleMouseScroll = useCallback(
+    (event: TuiMouseEvent) => {
+      const scrollBox = scrollRef.current;
+      const direction = event.scroll?.direction;
+      if (!direction || !scrollBox || wrapLines) {
+        return;
+      }
+
+      const preservedScrollTop = scrollBox.scrollTop;
+      const preservedScrollLeft = scrollBox.scrollLeft;
+
+      if (direction === "left") {
+        onScrollCodeHorizontally(-1);
+      } else if (direction === "right") {
+        onScrollCodeHorizontally(1);
+      } else if (event.modifiers.shift && direction === "up") {
+        onScrollCodeHorizontally(-1);
+      } else if (event.modifiers.shift && direction === "down") {
+        onScrollCodeHorizontally(1);
+      } else {
+        return;
+      }
+
+      // OpenTUI runs ScrollBox's own wheel handler after this listener and it does not honor
+      // preventDefault(), so restore the pre-event viewport position on the next microtask.
+      queueMicrotask(() => {
+        const currentScrollBox = scrollRef.current;
+        if (!currentScrollBox) {
+          return;
+        }
+
+        currentScrollBox.scrollTo({ x: preservedScrollLeft, y: preservedScrollTop });
+      });
+
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    [onScrollCodeHorizontally, scrollRef, wrapLines],
+  );
 
   const allAgentNotesByFile = useMemo(() => {
     const next = new Map<string, VisibleAgentNote[]>();
@@ -828,6 +873,7 @@ export function DiffPane({
               contentOptions={{ backgroundColor: theme.panel }}
               verticalScrollbarOptions={{ visible: false }}
               horizontalScrollbarOptions={{ visible: false }}
+              onMouseScroll={handleMouseScroll}
             >
               <box
                 // Remount the diff content when width/layout/wrap mode changes so viewport culling
@@ -864,6 +910,7 @@ export function DiffPane({
                   return (
                     <DiffSection
                       key={file.id}
+                      codeHorizontalOffset={codeHorizontalOffset}
                       file={file}
                       headerLabelWidth={headerLabelWidth}
                       headerStatsWidth={headerStatsWidth}

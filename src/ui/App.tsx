@@ -14,6 +14,11 @@ import { StatusBar } from "./components/chrome/StatusBar";
 import { DiffPane } from "./components/panes/DiffPane";
 import { SidebarPane } from "./components/panes/SidebarPane";
 import { PaneDivider } from "./components/panes/PaneDivider";
+import {
+  findMaxLineNumber,
+  maxFileCodeLineWidth,
+  resolveCodeViewportWidth,
+} from "./diff/codeColumns";
 import { useAppKeyboardShortcuts } from "./hooks/useAppKeyboardShortcuts";
 import { useHunkSessionBridge } from "./hooks/useHunkSessionBridge";
 import { useMenuController } from "./hooks/useMenuController";
@@ -25,6 +30,8 @@ import { resizeSidebarWidth } from "./lib/sidebar";
 import { resolveTheme, THEMES } from "./themes";
 
 type FocusArea = "files" | "filter";
+
+const FAST_CODE_HORIZONTAL_SCROLL_COLUMNS = 8;
 
 const LazyHelpDialog = lazy(async () => ({
   default: (await import("./components/chrome/HelpDialog")).HelpDialog,
@@ -99,6 +106,7 @@ export function App({
   const [showAgentNotes, setShowAgentNotes] = useState(bootstrap.initialShowAgentNotes ?? false);
   const [showLineNumbers, setShowLineNumbers] = useState(bootstrap.initialShowLineNumbers ?? true);
   const [wrapLines, setWrapLines] = useState(bootstrap.initialWrapLines ?? false);
+  const [codeHorizontalOffset, setCodeHorizontalOffset] = useState(0);
   const [showHunkHeaders, setShowHunkHeaders] = useState(bootstrap.initialShowHunkHeaders ?? true);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [forceSidebarOpen, setForceSidebarOpen] = useState(false);
@@ -168,6 +176,26 @@ export function App({
   const diffPaneWidth = renderSidebar
     ? Math.max(DIFF_MIN_WIDTH, availableCenterWidth - clampedSidebarWidth)
     : Math.max(0, availableCenterWidth);
+  const diffContentWidth = Math.max(12, diffPaneWidth - 2);
+  const maxVisibleLineNumber = useMemo(
+    () =>
+      filteredFiles.reduce(
+        (maxLineNumber, file) => Math.max(maxLineNumber, findMaxLineNumber(file)),
+        1,
+      ),
+    [filteredFiles],
+  );
+  const maxLineNumberDigits = String(maxVisibleLineNumber).length;
+  const codeViewportWidth = useMemo(
+    () =>
+      resolveCodeViewportWidth(
+        resolvedLayout,
+        diffContentWidth,
+        maxLineNumberDigits,
+        showLineNumbers,
+      ),
+    [diffContentWidth, maxLineNumberDigits, resolvedLayout, showLineNumbers],
+  );
   const isResizingSidebar = resizeDragOriginX !== null && resizeStartWidth !== null;
   const dividerHitLeft = Math.max(
     1,
@@ -219,6 +247,34 @@ export function App({
     diffScrollRef.current?.scrollBy(delta, unit);
   };
 
+  const maxCodeHorizontalOffset = useMemo(
+    () =>
+      Math.max(
+        0,
+        filteredFiles.reduce(
+          (maxWidth, file) => Math.max(maxWidth, maxFileCodeLineWidth(file)),
+          0,
+        ) - codeViewportWidth,
+      ),
+    [codeViewportWidth, filteredFiles],
+  );
+
+  useEffect(() => {
+    setCodeHorizontalOffset((current) => clamp(current, 0, maxCodeHorizontalOffset));
+  }, [maxCodeHorizontalOffset]);
+
+  /** Shift the visible code columns horizontally without moving gutters or headers. */
+  const scrollCodeHorizontally = useCallback(
+    (delta: number) => {
+      if (wrapLines || delta === 0 || maxCodeHorizontalOffset <= 0) {
+        return;
+      }
+
+      setCodeHorizontalOffset((current) => clamp(current + delta, 0, maxCodeHorizontalOffset));
+    },
+    [maxCodeHorizontalOffset, wrapLines],
+  );
+
   /** Toggle the global agent note layer on or off. */
   const toggleAgentNotes = () => {
     setShowAgentNotes((current) => !current);
@@ -234,6 +290,7 @@ export function App({
     // Capture the pre-toggle viewport position synchronously so DiffPane can restore the same
     // top-most source row after wrapped row heights change.
     wrapToggleScrollTopRef.current = diffScrollRef.current?.scrollTop ?? 0;
+    setCodeHorizontalOffset(0);
     setWrapLines((current) => !current);
   };
 
@@ -491,6 +548,7 @@ export function App({
     openMenu,
     pagerMode,
     requestQuit,
+    scrollCodeHorizontally,
     scrollDiff,
     selectLayoutMode: setLayoutMode,
     showHelp,
@@ -559,7 +617,6 @@ export function App({
   );
   const topTitle = `${bootstrap.changeset.title}  +${totalAdditions}  -${totalDeletions}`;
   const sidebarTextWidth = Math.max(8, clampedSidebarWidth - 2);
-  const diffContentWidth = Math.max(12, diffPaneWidth - 2);
   const diffHeaderStatsWidth = Math.min(24, Math.max(16, Math.floor(diffContentWidth / 3)));
   const diffHeaderLabelWidth = Math.max(8, diffContentWidth - diffHeaderStatsWidth - 1);
   const diffSeparatorWidth = Math.max(4, diffContentWidth - 2);
@@ -636,6 +693,7 @@ export function App({
         ) : null}
 
         <DiffPane
+          codeHorizontalOffset={codeHorizontalOffset}
           diffContentWidth={diffContentWidth}
           files={filteredFiles}
           pagerMode={pagerMode}
@@ -656,6 +714,9 @@ export function App({
           theme={activeTheme}
           width={diffPaneWidth}
           onOpenAgentNotesAtHunk={openAgentNotesAtHunk}
+          onScrollCodeHorizontally={(delta) => {
+            scrollCodeHorizontally(delta * FAST_CODE_HORIZONTAL_SCROLL_COLUMNS);
+          }}
           onSelectFile={jumpToFile}
         />
       </box>

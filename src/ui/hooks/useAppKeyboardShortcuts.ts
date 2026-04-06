@@ -15,6 +15,8 @@ import {
 type FocusArea = "files" | "filter";
 type ScrollUnit = "step" | "viewport" | "content" | "half";
 
+const FAST_CODE_HORIZONTAL_SCROLL_COLUMNS = 8;
+
 export interface UseAppKeyboardShortcutsOptions {
   activeMenuId: MenuId | null;
   activateCurrentMenuItem: () => void;
@@ -33,6 +35,7 @@ export interface UseAppKeyboardShortcutsOptions {
   openMenu: (menuId: MenuId) => void;
   pagerMode: boolean;
   requestQuit: () => void;
+  scrollCodeHorizontally: (delta: number) => void;
   scrollDiff: (delta: number, unit: ScrollUnit) => void;
   selectLayoutMode: (mode: LayoutMode) => void;
   showHelp: boolean;
@@ -66,6 +69,7 @@ export function useAppKeyboardShortcuts({
   openMenu,
   pagerMode,
   requestQuit,
+  scrollCodeHorizontally,
   scrollDiff,
   selectLayoutMode,
   showHelp,
@@ -135,6 +139,16 @@ export function useAppKeyboardShortcuts({
 
     if (isStepUpKey(key)) {
       scrollDiff(-1, "step");
+      return;
+    }
+
+    if (key.name === "left") {
+      scrollCodeHorizontally(key.shift ? -FAST_CODE_HORIZONTAL_SCROLL_COLUMNS : -1);
+      return;
+    }
+
+    if (key.name === "right") {
+      scrollCodeHorizontally(key.shift ? FAST_CODE_HORIZONTAL_SCROLL_COLUMNS : 1);
       return;
     }
 
@@ -288,6 +302,16 @@ export function useAppKeyboardShortcuts({
 
     if (isStepDownKey(key)) {
       scrollDiff(1, "step");
+      return;
+    }
+
+    if (key.name === "left") {
+      scrollCodeHorizontally(key.shift ? -FAST_CODE_HORIZONTAL_SCROLL_COLUMNS : -1);
+      return;
+    }
+
+    if (key.name === "right") {
+      scrollCodeHorizontally(key.shift ? FAST_CODE_HORIZONTAL_SCROLL_COLUMNS : 1);
       return;
     }
 

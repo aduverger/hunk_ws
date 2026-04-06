@@ -27,6 +27,7 @@ export function HelpDialog({
         ["d / u", "half page down / up"],
         ["[ / ]", "previous / next hunk"],
         ["{ / }", "previous / next comment"],
+        ["← / →", "scroll code (Shift = faster)"],
         ["Home / End", "jump to top / bottom"],
       ],
     },

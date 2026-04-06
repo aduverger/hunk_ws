@@ -4,10 +4,11 @@ import { AgentInlineNote, AgentInlineNoteGuideCap } from "../components/panes/Ag
 import type { VisibleAgentNote } from "../lib/agentAnnotations";
 import { reviewRowId } from "../lib/ids";
 import type { AppTheme } from "../themes";
+import { findMaxLineNumber } from "./codeColumns";
 import { buildSplitRows, buildStackRows } from "./pierre";
 import { plannedReviewRowVisible } from "./plannedReviewRows";
 import { buildReviewRenderPlan } from "./reviewRenderPlan";
-import { diffMessage, DiffRowView, findMaxLineNumber, fitText } from "./renderRows";
+import { diffMessage, DiffRowView, fitText } from "./renderRows";
 import { useHighlightedDiff } from "./useHighlightedDiff";
 
 const EMPTY_ANNOTATED_HUNK_INDICES = new Set<number>();
@@ -16,6 +17,7 @@ const EMPTY_VISIBLE_AGENT_NOTES: VisibleAgentNote[] = [];
 /** Render a file diff in split or stack mode, with inline agent notes inserted between diff rows. */
 export function PierreDiffView({
   annotatedHunkIndices = EMPTY_ANNOTATED_HUNK_INDICES,
+  codeHorizontalOffset = 0,
   file,
   layout,
   onOpenAgentNotesAtHunk,
@@ -31,6 +33,7 @@ export function PierreDiffView({
   scrollable = true,
 }: {
   annotatedHunkIndices?: Set<number>;
+  codeHorizontalOffset?: number;
   file: DiffFile | undefined;
   layout: Exclude<LayoutMode, "auto">;
   onOpenAgentNotesAtHunk?: (hunkIndex: number) => void;
@@ -140,6 +143,7 @@ export function PierreDiffView({
               showLineNumbers={showLineNumbers}
               showHunkHeaders={showHunkHeaders}
               wrapLines={wrapLines}
+              codeHorizontalOffset={codeHorizontalOffset}
               theme={theme}
               selected={plannedRow.row.hunkIndex === selectedHunkIndex}
               annotated={

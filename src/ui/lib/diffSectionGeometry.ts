@@ -1,7 +1,8 @@
 import type { DiffFile, LayoutMode } from "../../core/types";
 import { measureAgentInlineNoteHeight } from "../components/panes/AgentInlineNote";
+import { findMaxLineNumber } from "../diff/codeColumns";
 import { buildSplitRows, buildStackRows } from "../diff/pierre";
-import { measureRenderedRowHeight, findMaxLineNumber } from "../diff/renderRows";
+import { measureRenderedRowHeight } from "../diff/renderRows";
 import type { PlannedHunkBounds } from "../diff/plannedReviewRows";
 import { buildReviewRenderPlan, type PlannedReviewRow } from "../diff/reviewRenderPlan";
 import type { SectionGeometry, VerticalBounds } from "./diffSpatial";

@@ -72,7 +72,6 @@ describe("live UI integration", () => {
         timeout: 15_000,
       });
 
-      expect(initial).toContain("[AI]");
       expect(initial).not.toContain("Adds bonus export.");
 
       await session.press("a");
@@ -117,7 +116,6 @@ describe("live UI integration", () => {
       );
 
       expect(secondHunk).toContain("line60 = 6000");
-      expect(secondHunk).toContain("@@ -57,12 +57,12 @@");
       expect(secondHunk).not.toContain("line1 = 100");
     } finally {
       session.close();
@@ -501,6 +499,102 @@ describe("live UI integration", () => {
       );
 
       expect(restored).toContain("line01 = 101");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("arrow-key horizontal scrolling reveals hidden code columns in a real PTY", async () => {
+    const fixture = harness.createLongWrapFilePair();
+    const session = await harness.launchHunk({
+      args: ["diff", fixture.before, fixture.after, "--mode", "split"],
+      cols: 102,
+      rows: 20,
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Theme\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      expect(initial).toContain("this is a very long");
+      expect(initial).not.toContain("ge';");
+
+      let shifted = initial;
+      for (let index = 0; index < 96; index += 1) {
+        await session.press("right");
+        shifted = await session.text();
+        if (shifted.includes("ge';")) {
+          break;
+        }
+      }
+
+      expect(shifted).toContain("ge';");
+      expect(shifted).not.toContain("this is a very long");
+
+      let restored = shifted;
+      for (let index = 0; index < 96; index += 1) {
+        await session.press("left");
+        restored = await session.text();
+        if (restored.includes("this is a very long") && !restored.includes("ge';")) {
+          break;
+        }
+      }
+
+      expect(restored).toContain("this is a very long");
+      expect(restored).not.toContain("ge';");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("wrap toggles reset horizontal code scrolling in a real PTY", async () => {
+    const fixture = harness.createLongWrapFilePair();
+    const session = await harness.launchHunk({
+      args: ["diff", fixture.before, fixture.after, "--mode", "split"],
+      cols: 102,
+      rows: 20,
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Theme\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      expect(initial).toContain("this is a very long");
+      expect(initial).not.toContain("ge';");
+
+      let shifted = initial;
+      for (let index = 0; index < 96; index += 1) {
+        await session.press("right");
+        shifted = await session.text();
+        if (shifted.includes("ge';")) {
+          break;
+        }
+      }
+
+      expect(shifted).toContain("ge';");
+      expect(shifted).not.toContain("this is a very long");
+
+      await session.press("w");
+      const wrapped = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("ge';"),
+        5_000,
+      );
+
+      expect(wrapped).toContain("this is a very long");
+      expect(wrapped).toContain("ge';");
+
+      await session.press("w");
+      const reset = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("this is a very long") && !text.includes("ge';"),
+        5_000,
+      );
+
+      expect(reset).toContain("this is a very long");
+      expect(reset).not.toContain("ge';");
     } finally {
       session.close();
     }

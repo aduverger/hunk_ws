@@ -8,6 +8,7 @@ import {
 import { formatHunkHeader } from "../../core/hunkHeader";
 import type { DiffFile } from "../../core/types";
 import type { AppTheme } from "../themes";
+import { expandDiffTabs } from "./codeColumns";
 
 const PIERRE_THEME = {
   light: "pierre-light",
@@ -108,7 +109,7 @@ export type DiffRow =
 
 /** Replace tabs with fixed spaces so terminal cell widths stay predictable. */
 function tabify(text: string) {
-  return text.replaceAll("\t", "  ");
+  return expandDiffTabs(text);
 }
 
 /** Parse an inline CSS style string from Pierre's highlighted HAST output. */
