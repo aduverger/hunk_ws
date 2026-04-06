@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createServer } from "node:http";
 import {
-  createTestSessionFileSummary,
   createTestSessionRegistration,
+  createTestSessionReviewFile,
   createTestSessionSnapshot,
 } from "../../test/helpers/mcp-fixtures";
 import { HunkHostClient } from "./client";
@@ -16,12 +16,12 @@ const originalConsoleError = console.error;
 function createRegistration() {
   return createTestSessionRegistration({
     cwd: process.cwd(),
-    files: [createTestSessionFileSummary({ path: "after.ts" })],
     inputKind: "diff",
     pid: process.pid,
     repoRoot: process.cwd(),
     sourceLabel: "before.ts -> after.ts",
     title: "before.ts ↔ after.ts",
+    reviewFiles: [createTestSessionReviewFile({ path: "after.ts" })],
   });
 }
 

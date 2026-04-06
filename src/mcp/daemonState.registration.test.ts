@@ -7,10 +7,10 @@ import { HunkDaemonState } from "./daemonState";
 
 function createRegistration(overrides = {}) {
   return createTestSessionRegistration({
-    files: [],
     inputKind: "diff",
     launchedAt: "2026-03-23T00:00:00.000Z",
     pid: 1234,
+    reviewFiles: [],
     sessionId: "test-session",
     title: "repo diff",
     ...overrides,

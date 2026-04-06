@@ -219,6 +219,43 @@ describe("parseCli", () => {
     });
   });
 
+  test("parses session review by repo alias", async () => {
+    const parsed = await parseCli(["bun", "hunk", "session", "review", "--repo", ".", "--json"]);
+
+    expect(parsed).toMatchObject({
+      kind: "session",
+      action: "review",
+      selector: {
+        repoRoot: process.cwd(),
+      },
+      output: "json",
+      includePatch: false,
+    });
+  });
+
+  test("parses session review with raw patch export enabled", async () => {
+    const parsed = await parseCli([
+      "bun",
+      "hunk",
+      "session",
+      "review",
+      "--repo",
+      ".",
+      "--include-patch",
+      "--json",
+    ]);
+
+    expect(parsed).toMatchObject({
+      kind: "session",
+      action: "review",
+      selector: {
+        repoRoot: process.cwd(),
+      },
+      output: "json",
+      includePatch: true,
+    });
+  });
+
   test("parses session navigate by hunk number", async () => {
     const parsed = await parseCli([
       "bun",

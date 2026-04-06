@@ -4,6 +4,7 @@ import {
   createTestListedSession as buildTestListedSession,
   createTestSelectedSessionContext,
   createTestSessionFileSummary,
+  createTestSessionReview as buildTestSessionReview,
   createTestSessionSnapshot,
 } from "../../test/helpers/mcp-fixtures";
 import type { SessionCommandInput, SessionSelectorInput } from "../core/types";
@@ -27,6 +28,30 @@ function createTestListedSession(sessionId: string) {
   });
 }
 
+function createTestSessionReview(includePatch = false) {
+  const patch = "@@ -1,1 +1,2 @@";
+  const file = {
+    ...createTestSessionFileSummary({ additions: 1, deletions: 0, path: "README.md" }),
+    ...(includePatch ? { patch } : {}),
+    hunks: [
+      {
+        index: 0,
+        header: patch,
+        oldRange: [1, 1] as [number, number],
+        newRange: [1, 2] as [number, number],
+      },
+    ],
+  };
+
+  return buildTestSessionReview({
+    files: [file],
+    inputKind: "diff",
+    selectedFile: file,
+    selectedHunk: file.hunks[0]!,
+    title: "repo diff",
+  });
+}
+
 function createClient(overrides: Partial<HunkDaemonCliClient>): HunkDaemonCliClient {
   return {
     getCapabilities: async () => ({
@@ -35,6 +60,7 @@ function createClient(overrides: Partial<HunkDaemonCliClient>): HunkDaemonCliCli
         "list",
         "get",
         "context",
+        "review",
         "navigate",
         "reload",
         "comment-add",
@@ -46,6 +72,7 @@ function createClient(overrides: Partial<HunkDaemonCliClient>): HunkDaemonCliCli
     listSessions: async () => [],
     getSession: async () => createTestListedSession("session-1"),
     getSelectedContext: async () => createTestSelectedSessionContext(),
+    getSessionReview: async (input) => createTestSessionReview(input.includePatch),
     navigateToHunk: async () => ({
       fileId: "file-1",
       filePath: "README.md",
@@ -148,6 +175,248 @@ describe("session command compatibility checks", () => {
       },
     ]);
     expect(createdClients).toEqual(["stale-capabilities", "fresh-context"]);
+  });
+
+  test("runs review commands through the daemon without raw patch text by default", async () => {
+    setSessionCommandTestHooks({
+      createClient: () =>
+        createClient({
+          getSessionReview: async (input) => {
+            expect(input.selector).toEqual({ sessionId: "session-1" });
+            expect(input.includePatch).toBe(false);
+
+            return {
+              sessionId: "session-1",
+              title: "repo diff",
+              sourceLabel: "/repo",
+              repoRoot: "/repo",
+              inputKind: "diff",
+              selectedFile: {
+                id: "file-1",
+                path: "README.md",
+                additions: 1,
+                deletions: 0,
+                hunkCount: 1,
+                hunks: [
+                  {
+                    index: 0,
+                    header: "@@ -1,1 +1,2 @@",
+                    oldRange: [1, 1],
+                    newRange: [1, 2],
+                  },
+                ],
+              },
+              selectedHunk: {
+                index: 0,
+                header: "@@ -1,1 +1,2 @@",
+                oldRange: [1, 1],
+                newRange: [1, 2],
+              },
+              showAgentNotes: false,
+              liveCommentCount: 0,
+              files: [
+                {
+                  id: "file-1",
+                  path: "README.md",
+                  additions: 1,
+                  deletions: 0,
+                  hunkCount: 1,
+                  hunks: [
+                    {
+                      index: 0,
+                      header: "@@ -1,1 +1,2 @@",
+                      oldRange: [1, 1],
+                      newRange: [1, 2],
+                    },
+                  ],
+                },
+              ],
+            };
+          },
+        }),
+      resolveDaemonAvailability: async () => true,
+    });
+
+    const output = await runSessionCommand({
+      kind: "session",
+      action: "review",
+      selector: { sessionId: "session-1" },
+      output: "json",
+      includePatch: false,
+    } satisfies SessionCommandInput);
+
+    expect(JSON.parse(output)).toEqual({
+      review: {
+        sessionId: "session-1",
+        title: "repo diff",
+        sourceLabel: "/repo",
+        repoRoot: "/repo",
+        inputKind: "diff",
+        selectedFile: {
+          id: "file-1",
+          path: "README.md",
+          additions: 1,
+          deletions: 0,
+          hunkCount: 1,
+          hunks: [
+            {
+              index: 0,
+              header: "@@ -1,1 +1,2 @@",
+              oldRange: [1, 1],
+              newRange: [1, 2],
+            },
+          ],
+        },
+        selectedHunk: {
+          index: 0,
+          header: "@@ -1,1 +1,2 @@",
+          oldRange: [1, 1],
+          newRange: [1, 2],
+        },
+        showAgentNotes: false,
+        liveCommentCount: 0,
+        files: [
+          {
+            id: "file-1",
+            path: "README.md",
+            additions: 1,
+            deletions: 0,
+            hunkCount: 1,
+            hunks: [
+              {
+                index: 0,
+                header: "@@ -1,1 +1,2 @@",
+                oldRange: [1, 1],
+                newRange: [1, 2],
+              },
+            ],
+          },
+        ],
+      },
+    });
+  });
+
+  test("runs review commands through the daemon with raw patch text when requested", async () => {
+    setSessionCommandTestHooks({
+      createClient: () =>
+        createClient({
+          getSessionReview: async (input) => {
+            expect(input.selector).toEqual({ sessionId: "session-1" });
+            expect(input.includePatch).toBe(true);
+
+            return {
+              sessionId: "session-1",
+              title: "repo diff",
+              sourceLabel: "/repo",
+              repoRoot: "/repo",
+              inputKind: "diff",
+              selectedFile: {
+                id: "file-1",
+                path: "README.md",
+                additions: 1,
+                deletions: 0,
+                hunkCount: 1,
+                patch: "@@ -1,1 +1,2 @@",
+                hunks: [
+                  {
+                    index: 0,
+                    header: "@@ -1,1 +1,2 @@",
+                    oldRange: [1, 1],
+                    newRange: [1, 2],
+                  },
+                ],
+              },
+              selectedHunk: {
+                index: 0,
+                header: "@@ -1,1 +1,2 @@",
+                oldRange: [1, 1],
+                newRange: [1, 2],
+              },
+              showAgentNotes: false,
+              liveCommentCount: 0,
+              files: [
+                {
+                  id: "file-1",
+                  path: "README.md",
+                  additions: 1,
+                  deletions: 0,
+                  hunkCount: 1,
+                  patch: "@@ -1,1 +1,2 @@",
+                  hunks: [
+                    {
+                      index: 0,
+                      header: "@@ -1,1 +1,2 @@",
+                      oldRange: [1, 1],
+                      newRange: [1, 2],
+                    },
+                  ],
+                },
+              ],
+            };
+          },
+        }),
+      resolveDaemonAvailability: async () => true,
+    });
+
+    const output = await runSessionCommand({
+      kind: "session",
+      action: "review",
+      selector: { sessionId: "session-1" },
+      output: "json",
+      includePatch: true,
+    } satisfies SessionCommandInput);
+
+    expect(JSON.parse(output)).toEqual({
+      review: {
+        sessionId: "session-1",
+        title: "repo diff",
+        sourceLabel: "/repo",
+        repoRoot: "/repo",
+        inputKind: "diff",
+        selectedFile: {
+          id: "file-1",
+          path: "README.md",
+          additions: 1,
+          deletions: 0,
+          hunkCount: 1,
+          patch: "@@ -1,1 +1,2 @@",
+          hunks: [
+            {
+              index: 0,
+              header: "@@ -1,1 +1,2 @@",
+              oldRange: [1, 1],
+              newRange: [1, 2],
+            },
+          ],
+        },
+        selectedHunk: {
+          index: 0,
+          header: "@@ -1,1 +1,2 @@",
+          oldRange: [1, 1],
+          newRange: [1, 2],
+        },
+        showAgentNotes: false,
+        liveCommentCount: 0,
+        files: [
+          {
+            id: "file-1",
+            path: "README.md",
+            additions: 1,
+            deletions: 0,
+            hunkCount: 1,
+            patch: "@@ -1,1 +1,2 @@",
+            hunks: [
+              {
+                index: 0,
+                header: "@@ -1,1 +1,2 @@",
+                oldRange: [1, 1],
+                newRange: [1, 2],
+              },
+            ],
+          },
+        ],
+      },
+    });
   });
 
   test("runs reload commands through the daemon and returns the replacement session summary", async () => {
@@ -266,6 +535,7 @@ describe("session command compatibility checks", () => {
               "list",
               "get",
               "context",
+              "review",
               "navigate",
               "reload",
               "comment-add",

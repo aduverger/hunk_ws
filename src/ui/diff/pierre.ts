@@ -4,8 +4,8 @@ import {
   getSharedHighlighter,
   renderDiffWithHighlighter,
   type FileDiffMetadata,
-  type Hunk,
 } from "@pierre/diffs";
+import { formatHunkHeader } from "../../core/hunkHeader";
 import type { DiffFile } from "../../core/types";
 import type { AppTheme } from "../themes";
 
@@ -313,14 +313,6 @@ function makeStackCell(
   } satisfies StackLineCell;
 }
 
-/** Format a hunk header exactly as the review stream should display it. */
-function hunkHeader(hunk: Hunk) {
-  const specs =
-    hunk.hunkSpecs ??
-    `@@ -${hunk.deletionStart},${hunk.deletionLines} +${hunk.additionStart},${hunk.additionLines} @@`;
-  return hunk.hunkContext ? `${specs} ${hunk.hunkContext}` : specs;
-}
-
 /** Describe a collapsed unchanged region between visible hunks. */
 function collapsedRowText(lines: number) {
   return `${lines} unchanged ${lines === 1 ? "line" : "lines"}`;
@@ -451,7 +443,7 @@ export function buildSplitRows(
       key: `${file.id}:header:${hunkIndex}`,
       fileId: file.id,
       hunkIndex,
-      text: hunkHeader(hunk),
+      text: formatHunkHeader(hunk),
     });
 
     let deletionLineIndex = hunk.deletionLineIndex;
@@ -570,7 +562,7 @@ export function buildStackRows(
       key: `${file.id}:stack:header:${hunkIndex}`,
       fileId: file.id,
       hunkIndex,
-      text: hunkHeader(hunk),
+      text: formatHunkHeader(hunk),
     });
 
     let deletionLineIndex = hunk.deletionLineIndex;
