@@ -20,15 +20,19 @@ import {
 import {
   buildFileSectionLayouts,
   buildInStreamFileHeaderHeights,
+  collectIntersectingFileSectionIds,
   findHeaderOwningFileSection,
   shouldRenderInStreamFileHeader,
+  type FileSectionLayout,
 } from "../../lib/fileSectionLayout";
 import { diffHunkId, diffSectionId } from "../../lib/ids";
+import { findViewportCenteredHunkTarget } from "../../lib/viewportSelection";
 import type { AppTheme } from "../../themes";
 import { DiffSection } from "./DiffSection";
 import { DiffFileHeaderRow } from "./DiffFileHeaderRow";
 import { DiffSectionPlaceholder } from "./DiffSectionPlaceholder";
 import { VerticalScrollbar, type VerticalScrollbarHandle } from "../scrollbar/VerticalScrollbar";
+import { prefetchHighlightedDiff } from "../../diff/useHighlightedDiff";
 
 const EMPTY_VISIBLE_AGENT_NOTES: VisibleAgentNote[] = [];
 
@@ -125,6 +129,75 @@ function resolveViewportRowAnchorTop(
   return 0;
 }
 
+/** Keep syntax-highlight warm for the files immediately adjacent to the current selection. */
+function buildAdjacentPrefetchFileIds(files: DiffFile[], selectedFileId?: string) {
+  if (!selectedFileId) {
+    return new Set<string>();
+  }
+
+  const selectedIndex = files.findIndex((file) => file.id === selectedFileId);
+  if (selectedIndex < 0) {
+    return new Set<string>();
+  }
+
+  const next = new Set<string>();
+  const previousFile = files[selectedIndex - 1];
+  const nextFile = files[selectedIndex + 1];
+
+  if (previousFile) {
+    next.add(previousFile.id);
+  }
+
+  if (nextFile) {
+    next.add(nextFile.id);
+  }
+
+  return next;
+}
+
+/**
+ * Start highlight work before files visibly enter the review stream.
+ *
+ * We intentionally include three groups:
+ * - the selected file, so direct navigation always warms the active target
+ * - adjacent files, so hunk/file navigation does not wait on a cold highlight
+ * - files within a larger viewport halo, so wheel/track scrolling sees colorized rows already ready
+ */
+function buildHighlightPrefetchFileIds({
+  adjacentPrefetchFileIds,
+  fileSectionLayouts,
+  scrollTop,
+  viewportHeight,
+  selectedFileId,
+}: {
+  adjacentPrefetchFileIds: Set<string>;
+  fileSectionLayouts: FileSectionLayout[];
+  scrollTop: number;
+  viewportHeight: number;
+  selectedFileId?: string;
+}) {
+  const next = new Set(adjacentPrefetchFileIds);
+
+  if (selectedFileId) {
+    next.add(selectedFileId);
+  }
+
+  const clampedViewportHeight = Math.max(1, viewportHeight);
+  const prefetchRows = Math.max(24, clampedViewportHeight * 3);
+  const minPrefetchY = Math.max(0, scrollTop - prefetchRows);
+  const maxPrefetchY = scrollTop + viewportHeight + prefetchRows;
+
+  for (const fileId of collectIntersectingFileSectionIds(
+    fileSectionLayouts,
+    minPrefetchY,
+    maxPrefetchY,
+  )) {
+    next.add(fileId);
+  }
+
+  return next;
+}
+
 /** Render the main multi-file review stream. */
 export function DiffPane({
   codeHorizontalOffset = 0,
@@ -150,6 +223,7 @@ export function DiffPane({
   onOpenAgentNotesAtHunk,
   onScrollCodeHorizontally = () => {},
   onSelectFile,
+  onViewportCenteredHunkChange,
 }: {
   codeHorizontalOffset?: number;
   diffContentWidth: number;
@@ -174,48 +248,14 @@ export function DiffPane({
   onOpenAgentNotesAtHunk: (fileId: string, hunkIndex: number) => void;
   onScrollCodeHorizontally?: (delta: number) => void;
   onSelectFile: (fileId: string) => void;
+  onViewportCenteredHunkChange?: (fileId: string, hunkIndex: number) => void;
 }) {
   const renderer = useRenderer();
-  const [prefetchAnchorKey, setPrefetchAnchorKey] = useState<string | null>(null);
-  const selectedHighlightKey = selectedFileId ? `${theme.appearance}:${selectedFileId}` : null;
 
-  useEffect(() => {
-    setPrefetchAnchorKey(null);
-  }, [selectedHighlightKey]);
-
-  // Hold background prefetches until the currently selected file has painted once.
-  const adjacentPrefetchFileIds = useMemo(() => {
-    if (!selectedHighlightKey || prefetchAnchorKey !== selectedHighlightKey || !selectedFileId) {
-      return new Set<string>();
-    }
-
-    const selectedIndex = files.findIndex((file) => file.id === selectedFileId);
-    if (selectedIndex < 0) {
-      return new Set<string>();
-    }
-
-    const next = new Set<string>();
-    const previousFile = files[selectedIndex - 1];
-    const nextFile = files[selectedIndex + 1];
-
-    if (previousFile) {
-      next.add(previousFile.id);
-    }
-
-    if (nextFile) {
-      next.add(nextFile.id);
-    }
-
-    return next;
-  }, [files, prefetchAnchorKey, selectedFileId, selectedHighlightKey]);
-
-  const handleSelectedHighlightReady = useCallback(() => {
-    if (!selectedHighlightKey) {
-      return;
-    }
-
-    setPrefetchAnchorKey((current) => current ?? selectedHighlightKey);
-  }, [selectedHighlightKey]);
+  const adjacentPrefetchFileIds = useMemo(
+    () => buildAdjacentPrefetchFileIds(files, selectedFileId),
+    [files, selectedFileId],
+  );
 
   /** Route shifted wheel input into horizontal code-column scrolling without disturbing vertical review scroll. */
   const handleMouseScroll = useCallback(
@@ -295,7 +335,51 @@ export function DiffPane({
   const previousSelectedFileTopAlignRequestIdRef = useRef(selectedFileTopAlignRequestId);
   const suppressNextSelectionAutoScrollRef = useRef(false);
   const pendingFileTopAlignFileIdRef = useRef<string | null>(null);
+  const mouseScrollSelectionSyncActiveRef = useRef(false);
+  const mouseScrollSelectionSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const armMouseScrollSelectionSync = useCallback(() => {
+    mouseScrollSelectionSyncActiveRef.current = true;
+    if (mouseScrollSelectionSyncTimeoutRef.current) {
+      clearTimeout(mouseScrollSelectionSyncTimeoutRef.current);
+    }
+    mouseScrollSelectionSyncTimeoutRef.current = setTimeout(() => {
+      mouseScrollSelectionSyncActiveRef.current = false;
+      mouseScrollSelectionSyncTimeoutRef.current = null;
+    }, 120);
+  }, []);
+
+  /**
+   * Combine the existing horizontal-wheel handler with viewport-centered selection sync.
+   * Horizontal gestures should keep their current behavior without changing the active hunk.
+   */
+  const handleDiffPaneMouseScroll = useCallback(
+    (event: TuiMouseEvent) => {
+      const direction = event.scroll?.direction;
+      const isHorizontalGesture =
+        direction === "left" ||
+        direction === "right" ||
+        (event.modifiers.shift && (direction === "up" || direction === "down"));
+
+      if (!isHorizontalGesture) {
+        armMouseScrollSelectionSync();
+      }
+
+      handleMouseScroll(event);
+    },
+    [armMouseScrollSelectionSync, handleMouseScroll],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (mouseScrollSelectionSyncTimeoutRef.current) {
+        clearTimeout(mouseScrollSelectionSyncTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Mirror the imperative OpenTUI scrollbox state into React state so geometry planning,
+  // windowing, pinned-header ownership, and prefetching can all read the same viewport snapshot.
   useEffect(() => {
     const scrollBox = scrollRef.current;
     if (!scrollBox) {
@@ -366,11 +450,7 @@ export function DiffPane({
     const overscanRows = 8;
     const minVisibleY = Math.max(0, scrollViewport.top - overscanRows);
     const maxVisibleY = scrollViewport.top + scrollViewport.height + overscanRows;
-    return new Set(
-      baseFileSectionLayouts
-        .filter((metric) => metric.sectionBottom >= minVisibleY && metric.sectionTop <= maxVisibleY)
-        .map((metric) => metric.fileId),
-    );
+    return collectIntersectingFileSectionIds(baseFileSectionLayouts, minVisibleY, maxVisibleY);
   }, [baseFileSectionLayouts, scrollViewport.height, scrollViewport.top]);
 
   const visibleAgentNotesByFile = useMemo(() => {
@@ -437,9 +517,90 @@ export function DiffPane({
     [estimatedBodyHeights, files, sectionHeaderHeights],
   );
   const totalContentHeight = fileSectionLayouts[fileSectionLayouts.length - 1]?.sectionBottom ?? 0;
+
+  const highlightPrefetchFileIds = useMemo(
+    () =>
+      buildHighlightPrefetchFileIds({
+        adjacentPrefetchFileIds,
+        fileSectionLayouts,
+        scrollTop: scrollViewport.top,
+        viewportHeight: scrollViewport.height,
+        selectedFileId,
+      }),
+    [
+      adjacentPrefetchFileIds,
+      fileSectionLayouts,
+      scrollViewport.height,
+      scrollViewport.top,
+      selectedFileId,
+    ],
+  );
+
+  // Kick off highlight work from viewport planning rather than waiting for the section to mount.
+  // That avoids the "plain rows first, color later" stutter when a file is about to scroll onscreen.
+  useEffect(() => {
+    if (files.length === 0) {
+      return;
+    }
+
+    for (const file of files) {
+      if (!highlightPrefetchFileIds.has(file.id)) {
+        continue;
+      }
+
+      void prefetchHighlightedDiff({
+        file,
+        appearance: theme.appearance,
+      });
+    }
+  }, [files, highlightPrefetchFileIds, theme.appearance]);
+
   // Read the live scroll box position during render so pinned-header ownership flips
   // immediately after imperative scrolls instead of waiting for the polled viewport snapshot.
   const effectiveScrollTop = scrollRef.current?.scrollTop ?? scrollViewport.top;
+
+  // While the wheel is actively scrolling, selection follows the viewport center instead of
+  // driving the viewport. That keeps sidebar state in sync without introducing scroll snap-back.
+  useLayoutEffect(() => {
+    if (
+      !onViewportCenteredHunkChange ||
+      !mouseScrollSelectionSyncActiveRef.current ||
+      files.length === 0 ||
+      scrollViewport.height <= 0
+    ) {
+      return;
+    }
+
+    const centeredTarget = findViewportCenteredHunkTarget({
+      files,
+      fileSectionLayouts,
+      sectionGeometry,
+      scrollTop: scrollViewport.top,
+      viewportHeight: scrollViewport.height,
+    });
+    if (!centeredTarget) {
+      return;
+    }
+
+    if (
+      centeredTarget.fileId === selectedFileId &&
+      centeredTarget.hunkIndex === selectedHunkIndex
+    ) {
+      return;
+    }
+
+    suppressNextSelectionAutoScrollRef.current = true;
+    onViewportCenteredHunkChange(centeredTarget.fileId, centeredTarget.hunkIndex);
+  }, [
+    fileSectionLayouts,
+    files,
+    onViewportCenteredHunkChange,
+    scrollViewport.height,
+    scrollViewport.top,
+    sectionGeometry,
+    selectedFileId,
+    selectedHunkIndex,
+  ]);
 
   const pinnedHeaderFile = useMemo(() => {
     if (files.length === 0) {
@@ -702,9 +863,10 @@ export function DiffPane({
   useLayoutEffect(() => {
     const pinnedHeaderFileId = pinnedHeaderFile?.id ?? null;
 
-    if (suppressNextSelectionAutoScrollRef.current) {
+    if (mouseScrollSelectionSyncActiveRef.current || suppressNextSelectionAutoScrollRef.current) {
       suppressNextSelectionAutoScrollRef.current = false;
-      // Consume this selection transition so the next render does not re-center the selected hunk.
+      // While the mouse wheel owns the viewport, selection should follow passively instead of
+      // snapping the review stream back toward the newly selected hunk.
       prevSelectedAnchorIdRef.current = selectedAnchorId;
       prevPinnedHeaderFileIdRef.current = pinnedHeaderFileId;
       pendingSelectionSettleRef.current = false;
@@ -867,13 +1029,13 @@ export function DiffPane({
               scrollY={true}
               viewportCulling={true}
               focused={pagerMode}
+              onMouseScroll={handleDiffPaneMouseScroll}
               rootOptions={{ backgroundColor: theme.panel }}
               wrapperOptions={{ backgroundColor: theme.panel }}
               viewportOptions={{ backgroundColor: theme.panel }}
               contentOptions={{ backgroundColor: theme.panel }}
               verticalScrollbarOptions={{ visible: false }}
               horizontalScrollbarOptions={{ visible: false }}
-              onMouseScroll={handleMouseScroll}
             >
               <box
                 // Remount the diff content when width/layout/wrap mode changes so viewport culling
@@ -883,10 +1045,6 @@ export function DiffPane({
               >
                 {files.map((file, index) => {
                   const shouldRenderSection = visibleWindowedFileIds?.has(file.id) ?? true;
-                  const shouldPrefetchVisibleHighlight =
-                    Boolean(selectedHighlightKey) &&
-                    prefetchAnchorKey === selectedHighlightKey &&
-                    visibleViewportFileIds.has(file.id);
 
                   // Windowing keeps offscreen files cheap: render placeholders with identical
                   // section geometry so scroll math and pinned-header ownership stay stable.
@@ -916,14 +1074,7 @@ export function DiffPane({
                       headerStatsWidth={headerStatsWidth}
                       layout={layout}
                       selectedHunkIndex={file.id === selectedFileId ? selectedHunkIndex : -1}
-                      shouldLoadHighlight={
-                        file.id === selectedFileId ||
-                        adjacentPrefetchFileIds.has(file.id) ||
-                        shouldPrefetchVisibleHighlight
-                      }
-                      onHighlightReady={
-                        file.id === selectedFileId ? handleSelectedHighlightReady : undefined
-                      }
+                      shouldLoadHighlight={highlightPrefetchFileIds.has(file.id)}
                       separatorWidth={separatorWidth}
                       showHeader={shouldRenderInStreamFileHeader(index)}
                       showSeparator={index > 0}

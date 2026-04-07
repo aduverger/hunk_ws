@@ -5,7 +5,11 @@ import { describe, expect, mock, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import type { HunkHostClient } from "../mcp/client";
-import type { HunkSessionRegistration, SessionServerMessage } from "../mcp/types";
+import type {
+  HunkSessionRegistration,
+  HunkSessionSnapshot,
+  SessionServerMessage,
+} from "../mcp/types";
 import type { AppBootstrap, LayoutMode } from "../core/types";
 import { createTestGitAppBootstrap } from "../../test/helpers/app-bootstrap";
 import { createTestDiffFile as buildTestDiffFile, lines } from "../../test/helpers/diff-helpers";
@@ -41,6 +45,7 @@ function createMockHostClient() {
   type Bridge = Parameters<HunkHostClient["setBridge"]>[0];
 
   let bridge: Bridge = null;
+  let latestSnapshot: HunkSessionSnapshot | null = null;
   const registration: HunkSessionRegistration = {
     sessionId: "session-1",
     pid: process.pid,
@@ -59,9 +64,12 @@ function createMockHostClient() {
       setBridge: (nextBridge: Bridge) => {
         bridge = nextBridge;
       },
-      updateSnapshot: () => {},
+      updateSnapshot: (snapshot: HunkSessionSnapshot) => {
+        latestSnapshot = snapshot;
+      },
     } as unknown as HunkHostClient,
     getBridge: () => bridge,
+    getLatestSnapshot: () => latestSnapshot,
     navigateToHunk: async (
       input: Extract<SessionServerMessage, { command: "navigate_to_hunk" }>["input"],
     ) => {
@@ -226,6 +234,40 @@ function createTwoFileHunkBootstrap(): AppBootstrap {
   });
 }
 
+function createMouseScrollSelectionBootstrap(): AppBootstrap {
+  const firstBeforeLines = createNumberedAssignmentLines(1, 12);
+  const secondBeforeLines = Array.from(
+    { length: 90 },
+    (_, index) => `export const line${String(index + 13).padStart(2, "0")} = ${index + 13};`,
+  );
+  const secondAfterLines = [...secondBeforeLines];
+
+  secondAfterLines[0] = "export const line13 = 1300;";
+  secondAfterLines[59] = "export const line72 = 7200;";
+  secondAfterLines[60] = "export const line73 = 7300;";
+  secondAfterLines[61] = "export const line74 = 7400;";
+
+  return createTestGitAppBootstrap({
+    changesetId: "changeset:mouse-scroll-selection",
+    files: [
+      createTestDiffFile(
+        "first",
+        "first.ts",
+        lines(...firstBeforeLines),
+        lines("export const line01 = 101;", ...createNumberedAssignmentLines(2, 11)),
+        true,
+      ),
+      createTestDiffFile(
+        "second",
+        "second.ts",
+        lines(...secondBeforeLines),
+        lines(...secondAfterLines),
+        true,
+      ),
+    ],
+  });
+}
+
 function createCollapsedTopBootstrap(): AppBootstrap {
   const beforeLines = Array.from(
     { length: 400 },
@@ -291,6 +333,29 @@ async function waitForFrame(
   }
 
   return frame;
+}
+
+async function waitForSnapshot(
+  setup: Awaited<ReturnType<typeof testRender>>,
+  getSnapshot: () => HunkSessionSnapshot | null,
+  predicate: (snapshot: HunkSessionSnapshot) => boolean,
+  attempts = 8,
+) {
+  let snapshot = getSnapshot();
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (snapshot && predicate(snapshot)) {
+      return snapshot;
+    }
+
+    await act(async () => {
+      await Bun.sleep(30);
+      await setup.renderOnce();
+    });
+    snapshot = getSnapshot();
+  }
+
+  return snapshot;
 }
 
 function firstVisibleAddedLine(frame: string) {
@@ -1662,6 +1727,55 @@ describe("App interactions", () => {
       );
       expect(frame).toContain("second.ts");
       expect((frame.match(/first\.ts/g) ?? []).length).toBe(1);
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("mouse wheel scrolling updates the active file and hunk to the viewport center", async () => {
+    const { getLatestSnapshot, hostClient } = createMockHostClient();
+    const setup = await testRender(
+      <AppHost bootstrap={createMouseScrollSelectionBootstrap()} hostClient={hostClient} />,
+      {
+        width: 220,
+        height: 12,
+      },
+    );
+
+    try {
+      await flush(setup);
+
+      expect(getLatestSnapshot()).toMatchObject({
+        selectedFilePath: "first.ts",
+        selectedHunkIndex: 0,
+      });
+
+      let snapshot = getLatestSnapshot();
+      for (let index = 0; index < 24; index += 1) {
+        await act(async () => {
+          await setup.mockMouse.scroll(120, 7, "down");
+        });
+        await flush(setup);
+
+        snapshot = await waitForSnapshot(
+          setup,
+          getLatestSnapshot,
+          (currentSnapshot) =>
+            currentSnapshot.selectedFilePath === "second.ts" &&
+            currentSnapshot.selectedHunkIndex === 1,
+          4,
+        );
+        if (snapshot?.selectedFilePath === "second.ts" && snapshot.selectedHunkIndex === 1) {
+          break;
+        }
+      }
+
+      expect(snapshot).toMatchObject({
+        selectedFilePath: "second.ts",
+        selectedHunkIndex: 1,
+      });
     } finally {
       await act(async () => {
         setup.renderer.destroy();

@@ -718,6 +718,7 @@ export function App({
             scrollCodeHorizontally(delta * FAST_CODE_HORIZONTAL_SCROLL_COLUMNS);
           }}
           onSelectFile={jumpToFile}
+          onViewportCenteredHunkChange={review.selectHunk}
         />
       </box>
 
