@@ -451,6 +451,8 @@ describe("live UI integration", () => {
       expect(initial).toContain("before_01");
       expect(initial).not.toContain("before_23");
 
+      // CI can surface the pager header before the first page is fully ready to consume keys.
+      await session.waitIdle({ timeout: 200 });
       await session.press("space");
       const paged = await harness.waitForSnapshot(
         session,
@@ -724,6 +726,8 @@ describe("live UI integration", () => {
       expect(initial).toContain("line01 = 101");
       expect(initial).not.toContain("line08 = 108");
 
+      // Give slower CI PTYs one extra settle point so the first wheel event is not dropped.
+      await session.waitIdle({ timeout: 200 });
       await session.scrollDown(12);
       const scrolled = await harness.waitForSnapshot(
         session,

@@ -168,4 +168,42 @@ describe("Pierre diff rows", () => {
       ).toBe(false);
     }
   });
+
+  test("keeps reserved-color remaps isolated across dark themes", async () => {
+    const file = createMarkdownDiffFile();
+    const highlighted = await loadHighlightedDiff(file, "dark");
+
+    for (const themeId of ["graphite", "midnight", "ember"] as const) {
+      const theme = resolveTheme(themeId, null);
+      const rows = buildStackRows(file, highlighted, theme).filter(
+        (row): row is Extract<DiffRow, { type: "stack-line" }> =>
+          row.type === "stack-line" && row.cell.kind === "addition",
+      );
+
+      const headingRow = rows.find((row) =>
+        row.cell.spans.some((span) => span.text.includes("Heading")),
+      );
+      const inlineCodeRow = rows.find((row) =>
+        row.cell.spans.some((span) => span.text.includes("inline code")),
+      );
+
+      expect(headingRow).toBeDefined();
+      expect(inlineCodeRow).toBeDefined();
+
+      if (!headingRow || !inlineCodeRow) {
+        throw new Error("Expected highlighted markdown rows");
+      }
+
+      expect(
+        headingRow.cell.spans.some(
+          (span) => span.text.includes("Heading") && span.fg === theme.syntaxColors.keyword,
+        ),
+      ).toBe(true);
+      expect(
+        inlineCodeRow.cell.spans.some(
+          (span) => span.text.includes("inline code") && span.fg === theme.syntaxColors.string,
+        ),
+      ).toBe(true);
+    }
+  });
 });
