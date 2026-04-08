@@ -26,6 +26,12 @@ export const HUNK_SESSION_API_PATH = "/session-api";
 export const HUNK_SESSION_CAPABILITIES_PATH = `${HUNK_SESSION_API_PATH}/capabilities`;
 export const HUNK_SESSION_API_VERSION = 1;
 
+/**
+ * Version daemon/session compatibility separately from the HTTP action surface so newer Hunk
+ * builds can refresh an older daemon even when it still exposes the same API endpoints.
+ */
+export const HUNK_SESSION_DAEMON_VERSION = 1;
+
 export type SessionDaemonAction =
   | "list"
   | "get"
@@ -41,6 +47,7 @@ export type SessionDaemonAction =
 
 export interface SessionDaemonCapabilities {
   version: number;
+  daemonVersion: number;
   actions: SessionDaemonAction[];
 }
 

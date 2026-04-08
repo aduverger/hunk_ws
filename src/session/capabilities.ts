@@ -2,6 +2,7 @@ import { resolveHunkMcpConfig, type ResolvedHunkMcpConfig } from "../mcp/config"
 import {
   HUNK_SESSION_API_VERSION,
   HUNK_SESSION_CAPABILITIES_PATH,
+  HUNK_SESSION_DAEMON_VERSION,
   type SessionDaemonCapabilities,
 } from "./protocol";
 
@@ -13,7 +14,10 @@ export function reportHunkDaemonUpgradeRestart(log: (message: string) => void = 
   log(HUNK_DAEMON_UPGRADE_RESTART_NOTICE);
 }
 
-/** Read the live daemon's session API capabilities, returning null for incompatible daemons. */
+/**
+ * Read the live daemon's advertised compatibility, returning null when the daemon is too old for
+ * this Hunk build even if it still answers the same HTTP action list.
+ */
 export async function readHunkSessionDaemonCapabilities(
   config: ResolvedHunkMcpConfig = resolveHunkMcpConfig(),
 ): Promise<SessionDaemonCapabilities | null> {
@@ -37,6 +41,7 @@ export async function readHunkSessionDaemonCapabilities(
     !capabilities ||
     typeof capabilities !== "object" ||
     (capabilities as { version?: unknown }).version !== HUNK_SESSION_API_VERSION ||
+    (capabilities as { daemonVersion?: unknown }).daemonVersion !== HUNK_SESSION_DAEMON_VERSION ||
     !Array.isArray((capabilities as { actions?: unknown }).actions)
   ) {
     return null;

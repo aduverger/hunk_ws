@@ -5,6 +5,7 @@ import {
   HUNK_SESSION_API_PATH,
   HUNK_SESSION_API_VERSION,
   HUNK_SESSION_CAPABILITIES_PATH,
+  HUNK_SESSION_DAEMON_VERSION,
   type SessionDaemonAction,
   type SessionDaemonCapabilities,
   type SessionDaemonRequest,
@@ -59,6 +60,7 @@ function formatDaemonServeError(error: unknown, host: string, port: number) {
 function sessionCapabilities(): SessionDaemonCapabilities {
   return {
     version: HUNK_SESSION_API_VERSION,
+    daemonVersion: HUNK_SESSION_DAEMON_VERSION,
     actions: SUPPORTED_SESSION_ACTIONS,
   };
 }

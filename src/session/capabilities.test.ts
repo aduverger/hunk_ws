@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readHunkSessionDaemonCapabilities } from "./capabilities";
+import { HUNK_SESSION_API_VERSION, HUNK_SESSION_DAEMON_VERSION } from "./protocol";
 
 const servers = new Set<ReturnType<typeof createServer>>();
 
@@ -48,5 +49,33 @@ describe("readHunkSessionDaemonCapabilities", () => {
     });
 
     await expect(readHunkSessionDaemonCapabilities(config)).resolves.toBeNull();
+  });
+
+  test("returns null when the daemon omits the compatibility version field", async () => {
+    const { config } = await listen((_request: IncomingMessage, response: ServerResponse) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ version: HUNK_SESSION_API_VERSION, actions: ["list"] }));
+    });
+
+    await expect(readHunkSessionDaemonCapabilities(config)).resolves.toBeNull();
+  });
+
+  test("accepts capabilities only when both API and daemon compatibility versions match", async () => {
+    const { config } = await listen((_request: IncomingMessage, response: ServerResponse) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          version: HUNK_SESSION_API_VERSION,
+          daemonVersion: HUNK_SESSION_DAEMON_VERSION,
+          actions: ["list", "get"],
+        }),
+      );
+    });
+
+    await expect(readHunkSessionDaemonCapabilities(config)).resolves.toEqual({
+      version: HUNK_SESSION_API_VERSION,
+      daemonVersion: HUNK_SESSION_DAEMON_VERSION,
+      actions: ["list", "get"],
+    });
   });
 });

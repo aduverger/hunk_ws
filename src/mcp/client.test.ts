@@ -5,6 +5,7 @@ import {
   createTestSessionReviewFile,
   createTestSessionSnapshot,
 } from "../../test/helpers/mcp-fixtures";
+import { HUNK_SESSION_API_VERSION, HUNK_SESSION_DAEMON_VERSION } from "../session/protocol";
 import { HunkHostClient } from "./client";
 
 const originalHost = process.env.HUNK_MCP_HOST;
@@ -155,7 +156,11 @@ describe("Hunk MCP client", () => {
         }
 
         if (url.pathname === "/session-api/capabilities") {
-          return Response.json({ version: 1, actions: ["list"] });
+          return Response.json({
+            version: HUNK_SESSION_API_VERSION,
+            daemonVersion: HUNK_SESSION_DAEMON_VERSION,
+            actions: ["list"],
+          });
         }
 
         if (url.pathname === "/session") {
