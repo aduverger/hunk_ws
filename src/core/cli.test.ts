@@ -34,6 +34,7 @@ describe("parseCli", () => {
     expect(parsed.text).toContain("Usage:");
     expect(parsed.text).toContain("hunk diff");
     expect(parsed.text).toContain("hunk show");
+    expect(parsed.text).toContain("hunk skill path");
     expect(parsed.text).toContain("Global options:");
     expect(parsed.text).toContain("Common review options:");
     expect(parsed.text).toContain("auto-reload when the current diff input changes");
@@ -185,6 +186,32 @@ describe("parseCli", () => {
       options: {
         theme: "paper",
       },
+    });
+  });
+
+  test("prints the bundled skill path for hunk skill path", async () => {
+    const parsed = await parseCli(["bun", "hunk", "skill", "path"]);
+
+    expect(parsed.kind).toBe("help");
+    if (parsed.kind !== "help") {
+      throw new Error("Expected bundled skill path output.");
+    }
+
+    expect(parsed.text).toEndWith(`${join("skills", "hunk-review", "SKILL.md")}\n`);
+  });
+
+  test("prints skill help for hunk skill --help", async () => {
+    const parsed = await parseCli(["bun", "hunk", "skill", "--help"]);
+
+    expect(parsed).toEqual({
+      kind: "help",
+      text: [
+        "Usage: hunk skill path",
+        "",
+        "Print the bundled Hunk review skill path.",
+        "Load or symlink that file in your coding agent to keep it in sync across Hunk upgrades.",
+        "",
+      ].join("\n"),
     });
   });
 

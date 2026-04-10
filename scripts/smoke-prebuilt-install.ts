@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { getHostPlatformPackageSpec, releaseNpmDir } from "./prebuilt-package-helpers";
 
@@ -80,6 +80,18 @@ try {
   if (version.stdout !== `${packageVersion}\n`) {
     throw new Error(
       `Expected installed hunk --version to print ${packageVersion}.\n${version.stdout}`,
+    );
+  }
+
+  const skillPath = run([installedHunk, "skill", "path"], {
+    env: commandEnv,
+  }).stdout.trim();
+  if (
+    !skillPath.endsWith(path.join("skills", "hunk-review", "SKILL.md")) ||
+    !existsSync(skillPath)
+  ) {
+    throw new Error(
+      `Expected installed hunk skill path to resolve to the bundled skill.\n${skillPath}`,
     );
   }
 

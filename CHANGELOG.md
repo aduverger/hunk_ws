@@ -6,7 +6,11 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Added
 
+- Added `hunk skill path` to print the bundled Hunk review skill path for direct loading or symlinking in coding agents.
+
 ### Changed
+
+- Show a one-time startup notice after version changes that points users with copied agent skills to `hunk skill path`.
 
 ### Fixed
 

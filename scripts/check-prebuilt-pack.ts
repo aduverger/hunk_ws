@@ -63,7 +63,13 @@ if (!existsSync(metaDir)) {
 }
 
 const metaPack = runPackDryRun(metaDir);
-assertPaths(metaPack, ["bin/hunk.cjs", "README.md", "LICENSE", "package.json"]);
+assertPaths(metaPack, [
+  "bin/hunk.cjs",
+  "skills/hunk-review/SKILL.md",
+  "README.md",
+  "LICENSE",
+  "package.json",
+]);
 
 const packageDirectories = readdirSync(releaseRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && entry.name !== "hunkdiff")

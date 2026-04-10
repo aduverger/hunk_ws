@@ -77,6 +77,7 @@ function stageMetaPackage(
   const metaDir = path.join(releaseRoot, rootPackage.name);
   ensureDirectory(path.join(metaDir, "bin"));
   cpSync(path.join(repoRoot, "bin", "hunk.cjs"), path.join(metaDir, "bin", "hunk.cjs"));
+  cpSync(path.join(repoRoot, "skills"), path.join(metaDir, "skills"), { recursive: true });
   cpSync(path.join(repoRoot, "README.md"), path.join(metaDir, "README.md"));
   cpSync(path.join(repoRoot, "LICENSE"), path.join(metaDir, "LICENSE"));
 
@@ -87,7 +88,7 @@ function stageMetaPackage(
     bin: {
       hunk: "./bin/hunk.cjs",
     },
-    files: ["bin", "README.md", "LICENSE"],
+    files: ["bin", "skills", "README.md", "LICENSE"],
     keywords: rootPackage.keywords,
     repository: rootPackage.repository,
     homepage: rootPackage.homepage,

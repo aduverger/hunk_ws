@@ -69,6 +69,8 @@ git diff --no-color | hunk patch -          # review a patch from stdin
 
 Load the [`skills/hunk-review/SKILL.md`](skills/hunk-review/SKILL.md) skill in your coding agent (e.g. Claude, Codex, Opencode, Pi).
 
+Run `hunk skill path` to print the installed bundled skill path. Prefer loading or symlinking that file in your agent instead of copying it so Hunk upgrades stay in sync automatically.
+
 Open Hunk in another window, then ask your agent to leave comments.
 
 ## Feature comparison
@@ -144,6 +146,7 @@ Hunk supports two agent workflows:
 #### Steer a live Hunk window
 
 Use the Hunk review skill: [`skills/hunk-review/SKILL.md`](skills/hunk-review/SKILL.md).
+If you need the installed absolute path for your agent setup, run `hunk skill path`.
 
 A good generic prompt is:
 

@@ -1,3 +1,6 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { resolveHunkStatePath } from "./paths";
 import { resolveCliVersion, UNKNOWN_CLI_VERSION } from "./version";
 
 const DIST_TAGS_URL = "https://registry.npmjs.org/-/package/hunkdiff/dist-tags";
@@ -5,6 +8,12 @@ const STABLE_SEMVER_PATTERN = /^\d+\.\d+\.\d+$/;
 const PRERELEASE_SEMVER_PATTERN = /^\d+\.\d+\.\d+-[0-9A-Za-z.-]+$/;
 const DEFAULT_UPDATE_NOTICE_FETCH_TIMEOUT_MS = 5_000;
 const DISABLE_STARTUP_UPDATE_NOTICE_ENV = "HUNK_DISABLE_UPDATE_NOTICE";
+const STARTUP_STATE_VERSION = 1;
+
+interface PersistedStartupState {
+  version: number;
+  lastSeenCliVersion?: string;
+}
 
 export type UpdateChannel = "latest" | "beta";
 
@@ -21,9 +30,11 @@ interface ParsedDistTags {
 }
 
 export interface UpdateNoticeDeps {
+  env?: NodeJS.ProcessEnv;
   fetchImpl?: FetchImpl;
   fetchTimeoutMs?: number;
   resolveInstalledVersion?: () => string;
+  statePath?: string;
 }
 
 /** Return whether one version string is a normalized stable semver. */
@@ -147,17 +158,92 @@ function createFetchTimeoutSignal(timeoutMs: number) {
   };
 }
 
-/** Return whether the transient startup notice should stay disabled for deterministic sessions like CI. */
-function startupUpdateNoticeDisabled() {
-  return process.env[DISABLE_STARTUP_UPDATE_NOTICE_ENV] === "1";
+/** Read the persisted startup state from disk, falling back cleanly on missing or invalid files. */
+function readPersistedStartupState(path: string): PersistedStartupState | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<PersistedStartupState>;
+    if (typeof parsed !== "object" || parsed === null) {
+      return null;
+    }
+
+    return {
+      version: typeof parsed.version === "number" ? parsed.version : STARTUP_STATE_VERSION,
+      lastSeenCliVersion:
+        typeof parsed.lastSeenCliVersion === "string" ? parsed.lastSeenCliVersion : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
-/** Resolve the transient startup notice directly from npm dist-tags without persisted state. */
+/** Persist the current installed CLI version for future upgrade detection. */
+function writePersistedStartupState(path: string, installedVersion: string) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(
+    path,
+    JSON.stringify(
+      {
+        version: STARTUP_STATE_VERSION,
+        lastSeenCliVersion: installedVersion,
+      } satisfies PersistedStartupState,
+      null,
+      2,
+    ),
+    {
+      encoding: "utf8",
+      mode: 0o600,
+    },
+  );
+}
+
+/** Return whether the transient startup notice should stay disabled for deterministic sessions like CI. */
+function startupUpdateNoticeDisabled(env: NodeJS.ProcessEnv = process.env) {
+  return env[DISABLE_STARTUP_UPDATE_NOTICE_ENV] === "1";
+}
+
+/** Resolve the one-time copied-skill refresh notice shown after a version change. */
+function resolveStartupSkillRefreshNotice(deps: UpdateNoticeDeps = {}): UpdateNotice | null {
+  const resolveInstalledVersion = deps.resolveInstalledVersion ?? resolveCliVersion;
+  const installedVersion = resolveInstalledVersion();
+  if (installedVersion === UNKNOWN_CLI_VERSION) {
+    return null;
+  }
+
+  const statePath = deps.statePath ?? resolveHunkStatePath(deps.env ?? process.env);
+  if (!statePath) {
+    return null;
+  }
+
+  const previousVersion = readPersistedStartupState(statePath)?.lastSeenCliVersion;
+
+  try {
+    writePersistedStartupState(statePath, installedVersion);
+  } catch {
+    return null;
+  }
+
+  if (!previousVersion || previousVersion === installedVersion) {
+    return null;
+  }
+
+  return {
+    key: `skill:${installedVersion}`,
+    message: `Hunk ${installedVersion} installed • If your agent copied Hunk's skill, run hunk skill path`,
+  };
+}
+
+/** Resolve the transient startup notice directly from local state or npm dist-tags. */
 export async function resolveStartupUpdateNotice(
   deps: UpdateNoticeDeps = {},
 ): Promise<UpdateNotice | null> {
-  if (startupUpdateNoticeDisabled()) {
+  const env = deps.env ?? process.env;
+  if (startupUpdateNoticeDisabled(env)) {
     return null;
+  }
+
+  const skillRefreshNotice = resolveStartupSkillRefreshNotice(deps);
+  if (skillRefreshNotice) {
+    return skillRefreshNotice;
   }
 
   const fetchImpl = deps.fetchImpl ?? fetch;

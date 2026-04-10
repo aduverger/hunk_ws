@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { resolveGlobalConfigPath } from "./paths";
 import type { CliInput, CommonOptions, LayoutMode, PersistedViewPreferences } from "./types";
 
 const DEFAULT_VIEW_PREFERENCES: PersistedViewPreferences = {
@@ -105,19 +106,6 @@ function findRepoRoot(cwd = process.cwd()) {
   }
 }
 
-/** Resolve the global XDG-style config path, if the environment provides one. */
-function globalConfigPath(env: NodeJS.ProcessEnv = process.env) {
-  if (env.XDG_CONFIG_HOME) {
-    return join(env.XDG_CONFIG_HOME, "hunk", "config.toml");
-  }
-
-  if (env.HOME) {
-    return join(env.HOME, ".config", "hunk", "config.toml");
-  }
-
-  return undefined;
-}
-
 /** Parse one TOML config file into a plain object. */
 function readTomlRecord(path: string) {
   if (!fs.existsSync(path)) {
@@ -139,7 +127,7 @@ export function resolveConfiguredCliInput(
 ): HunkConfigResolution {
   const repoRoot = findRepoRoot(cwd);
   const repoConfigPath = repoRoot ? join(repoRoot, ".hunk", "config.toml") : undefined;
-  const userConfigPath = globalConfigPath(env);
+  const userConfigPath = resolveGlobalConfigPath(env);
 
   let resolvedOptions: CommonOptions = {
     mode: DEFAULT_VIEW_PREFERENCES.mode,

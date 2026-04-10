@@ -171,6 +171,7 @@ async function runTtySmoke(options: {
       ...process.env,
       TERM: "xterm-256color",
       HUNK_MCP_DISABLE: "1",
+      HUNK_DISABLE_UPDATE_NOTICE: "1",
     },
   });
 
@@ -204,6 +205,7 @@ async function runStdinPagerSmoke(options?: {
       ...process.env,
       TERM: "xterm-256color",
       HUNK_MCP_DISABLE: "1",
+      HUNK_DISABLE_UPDATE_NOTICE: "1",
     },
   });
 

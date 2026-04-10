@@ -10,6 +10,7 @@ import type {
   ParsedCliInput,
   SessionCommentApplyItemInput,
 } from "./types";
+import { resolveBundledHunkReviewSkillPath } from "./paths";
 import { resolveCliVersion } from "./version";
 
 /** Validate one requested layout mode from CLI input. */
@@ -101,6 +102,22 @@ function renderCliVersion() {
   return `${resolveCliVersion()}\n`;
 }
 
+/** Render the bundled Hunk review skill path for shell usage. */
+function renderHunkReviewSkillPath() {
+  return `${resolveBundledHunkReviewSkillPath()}\n`;
+}
+
+/** Build the `hunk skill` help text. */
+function renderSkillHelp() {
+  return [
+    "Usage: hunk skill path",
+    "",
+    "Print the bundled Hunk review skill path.",
+    "Load or symlink that file in your coding agent to keep it in sync across Hunk upgrades.",
+    "",
+  ].join("\n");
+}
+
 /** Build the top-level help text shown by bare `hunk` and `hunk --help`. */
 function renderCliHelp() {
   return [
@@ -118,6 +135,7 @@ function renderCliHelp() {
     "  hunk pager                              general Git pager wrapper with diff detection",
     "  hunk difftool <left> <right> [path]     review Git difftool file pairs",
     "  hunk session <subcommand>               inspect or control a live Hunk session",
+    "  hunk skill path                         print the bundled Hunk review skill path",
     "  hunk mcp serve                          run the local Hunk session daemon",
     "",
     "Global options:",
@@ -1141,6 +1159,37 @@ async function parseSessionCommand(tokens: string[]): Promise<ParsedCliInput> {
   throw new Error(`Unknown session command: ${subcommand}`);
 }
 
+/** Parse `hunk skill ...` for bundled skill discovery commands. */
+async function parseSkillCommand(tokens: string[]): Promise<HelpCommandInput> {
+  const [subcommand, ...rest] = tokens;
+  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+    return {
+      kind: "help",
+      text: renderSkillHelp(),
+    };
+  }
+
+  if (subcommand !== "path") {
+    throw new Error("Only `hunk skill path` is supported.");
+  }
+
+  if (rest.includes("--help") || rest.includes("-h")) {
+    return {
+      kind: "help",
+      text: renderSkillHelp(),
+    };
+  }
+
+  if (rest.length > 0) {
+    throw new Error("`hunk skill path` does not accept additional arguments.");
+  }
+
+  return {
+    kind: "help",
+    text: renderHunkReviewSkillPath(),
+  };
+}
+
 /** Parse `hunk mcp serve` as the local daemon entrypoint. */
 async function parseMcpCommand(tokens: string[]): Promise<ParsedCliInput> {
   const [subcommand, ...rest] = tokens;
@@ -1258,6 +1307,8 @@ export async function parseCli(argv: string[]): Promise<ParsedCliInput> {
       return parseStashCommand(rest, argv);
     case "session":
       return parseSessionCommand(rest);
+    case "skill":
+      return parseSkillCommand(rest);
     case "mcp":
       return parseMcpCommand(rest);
     default:
