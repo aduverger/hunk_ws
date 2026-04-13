@@ -1,12 +1,15 @@
 import type { AgentAnnotation, CliInput } from "../core/types";
+import type { SessionBrokerClient } from "../session-broker/brokerClient";
+import type {
+  SessionClientMessage,
+  SessionRegistration,
+  SessionServerMessage,
+  SessionSnapshot,
+  SessionTargetInput,
+  SessionTerminalMetadata,
+} from "../session-broker/types";
 
 export type DiffSide = "old" | "new";
-
-export interface SessionTargetInput {
-  sessionId?: string;
-  sessionPath?: string;
-  repoRoot?: string;
-}
 
 export interface SessionFileSummary {
   id: string;
@@ -35,36 +38,16 @@ export interface SelectedHunkSummary {
   newRange?: [number, number];
 }
 
-export interface SessionTerminalLocation {
-  source: string;
-  tty?: string;
-  windowId?: string;
-  tabId?: string;
-  paneId?: string;
-  terminalId?: string;
-  sessionId?: string;
-}
-
-export interface SessionTerminalMetadata {
-  program?: string;
-  locations: SessionTerminalLocation[];
-}
-
-export interface HunkSessionRegistration {
-  registrationVersion: number;
-  sessionId: string;
-  pid: number;
-  cwd: string;
-  repoRoot?: string;
+/** App-owned registration data that the broker carries without interpreting. */
+export interface HunkSessionInfo {
   inputKind: CliInput["kind"];
   title: string;
   sourceLabel: string;
-  launchedAt: string;
-  terminal?: SessionTerminalMetadata;
   files: SessionReviewFile[];
 }
 
-export interface HunkSessionSnapshot {
+/** App-owned live state that the broker snapshots and rebroadcasts. */
+export interface HunkSessionState {
   selectedFileId?: string;
   selectedFilePath?: string;
   selectedHunkIndex: number;
@@ -73,8 +56,10 @@ export interface HunkSessionSnapshot {
   showAgentNotes: boolean;
   liveCommentCount: number;
   liveComments: SessionLiveCommentSummary[];
-  updatedAt: string;
 }
+
+export type HunkSessionRegistration = SessionRegistration<HunkSessionInfo>;
+export type HunkSessionSnapshot = SessionSnapshot<HunkSessionState>;
 
 export interface CommentTargetInput {
   filePath: string;
@@ -97,11 +82,6 @@ export interface CommentBatchToolInput extends SessionTargetInput {
   revealMode?: "none" | "first";
 }
 
-export interface NavigateToFileToolInput extends SessionTargetInput {
-  filePath: string;
-  hunkIndex?: number;
-}
-
 export interface NavigateToHunkToolInput extends SessionTargetInput {
   filePath?: string;
   hunkIndex?: number;
@@ -113,6 +93,18 @@ export interface NavigateToHunkToolInput extends SessionTargetInput {
 export interface ReloadSessionToolInput extends SessionTargetInput {
   nextInput: CliInput;
   sourcePath?: string;
+}
+
+export interface ListCommentsToolInput extends SessionTargetInput {
+  filePath?: string;
+}
+
+export interface RemoveCommentToolInput extends SessionTargetInput {
+  commentId: string;
+}
+
+export interface ClearCommentsToolInput extends SessionTargetInput {
+  filePath?: string;
 }
 
 export interface LiveComment extends AgentAnnotation {
@@ -180,8 +172,19 @@ export interface ReloadedSessionResult {
   selectedHunkIndex: number;
 }
 
-export interface ListedSessionFile extends SessionFileSummary {
-  selected: boolean;
+export interface ListedSession {
+  sessionId: string;
+  pid: number;
+  cwd: string;
+  repoRoot?: string;
+  launchedAt: string;
+  terminal?: SessionTerminalMetadata;
+  inputKind: CliInput["kind"];
+  title: string;
+  sourceLabel: string;
+  fileCount: number;
+  files: SessionFileSummary[];
+  snapshot: HunkSessionSnapshot;
 }
 
 export interface SelectedSessionContext {
@@ -211,7 +214,7 @@ export interface SessionReview {
   files: SessionReviewFile[];
 }
 
-export type SessionCommandResult =
+export type HunkSessionCommandResult =
   | AppliedCommentResult
   | AppliedCommentBatchResult
   | NavigatedSelectionResult
@@ -219,95 +222,23 @@ export type SessionCommandResult =
   | ClearedCommentsResult
   | ReloadedSessionResult;
 
-export type SessionClientMessage =
-  | {
-      type: "register";
-      registration: HunkSessionRegistration;
-      snapshot: HunkSessionSnapshot;
-    }
-  | {
-      type: "snapshot";
-      sessionId: string;
-      snapshot: HunkSessionSnapshot;
-    }
-  | {
-      type: "heartbeat";
-      sessionId: string;
-    }
-  | {
-      type: "command-result";
-      requestId: string;
-      ok: true;
-      result: SessionCommandResult;
-    }
-  | {
-      type: "command-result";
-      requestId: string;
-      ok: false;
-      error: string;
-    };
+export type HunkSessionClientMessage = SessionClientMessage<
+  HunkSessionInfo,
+  HunkSessionState,
+  HunkSessionCommandResult
+>;
 
-export interface ListCommentsToolInput extends SessionTargetInput {
-  filePath?: string;
-}
+export type HunkSessionBrokerClient = SessionBrokerClient<
+  HunkSessionInfo,
+  HunkSessionState,
+  HunkSessionServerMessage,
+  HunkSessionCommandResult
+>;
 
-export interface RemoveCommentToolInput extends SessionTargetInput {
-  commentId: string;
-}
-
-export interface ClearCommentsToolInput extends SessionTargetInput {
-  filePath?: string;
-}
-
-export type SessionServerMessage =
-  | {
-      type: "command";
-      requestId: string;
-      command: "comment";
-      input: CommentToolInput;
-    }
-  | {
-      type: "command";
-      requestId: string;
-      command: "comment_batch";
-      input: CommentBatchToolInput;
-    }
-  | {
-      type: "command";
-      requestId: string;
-      command: "navigate_to_hunk";
-      input: NavigateToHunkToolInput;
-    }
-  | {
-      type: "command";
-      requestId: string;
-      command: "reload_session";
-      input: ReloadSessionToolInput;
-    }
-  | {
-      type: "command";
-      requestId: string;
-      command: "remove_comment";
-      input: RemoveCommentToolInput;
-    }
-  | {
-      type: "command";
-      requestId: string;
-      command: "clear_comments";
-      input: ClearCommentsToolInput;
-    };
-
-export interface ListedSession {
-  sessionId: string;
-  pid: number;
-  cwd: string;
-  repoRoot?: string;
-  inputKind: CliInput["kind"];
-  title: string;
-  sourceLabel: string;
-  launchedAt: string;
-  terminal?: SessionTerminalMetadata;
-  fileCount: number;
-  files: SessionFileSummary[];
-  snapshot: HunkSessionSnapshot;
-}
+export type HunkSessionServerMessage =
+  | SessionServerMessage<"comment", CommentToolInput>
+  | SessionServerMessage<"comment_batch", CommentBatchToolInput>
+  | SessionServerMessage<"navigate_to_hunk", NavigateToHunkToolInput>
+  | SessionServerMessage<"reload_session", ReloadSessionToolInput>
+  | SessionServerMessage<"remove_comment", RemoveCommentToolInput>
+  | SessionServerMessage<"clear_comments", ClearCommentsToolInput>;

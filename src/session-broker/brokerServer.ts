@@ -1,10 +1,21 @@
 import {
-  HUNK_LEGACY_MCP_PATH,
-  HUNK_SESSION_SOCKET_PATH,
-  resolveHunkSessionDaemonConfig,
-} from "./config";
-import { HunkDaemonState } from "./daemonState";
-import type { SessionCommandResult } from "./types";
+  LEGACY_MCP_PATH,
+  SESSION_BROKER_SOCKET_PATH,
+  resolveSessionBrokerConfig,
+} from "./brokerConfig";
+import {
+  createHunkSessionBrokerState,
+  type HunkSessionBrokerState,
+} from "../hunk-session/brokerAdapter";
+import type {
+  AppliedCommentBatchResult,
+  AppliedCommentResult,
+  ClearedCommentsResult,
+  HunkSessionCommandResult,
+  NavigatedSelectionResult,
+  ReloadedSessionResult,
+  RemovedCommentResult,
+} from "../hunk-session/types";
 import {
   HUNK_SESSION_API_PATH,
   HUNK_SESSION_API_VERSION,
@@ -34,13 +45,13 @@ const SUPPORTED_SESSION_ACTIONS: SessionDaemonAction[] = [
   "comment-clear",
 ];
 
-export interface ServeHunkSessionDaemonOptions {
+export interface ServeSessionBrokerDaemonOptions {
   idleTimeoutMs?: number;
   staleSessionTtlMs?: number;
   staleSessionSweepIntervalMs?: number;
 }
 
-export type RunningHunkSessionDaemon = ReturnType<typeof Bun.serve<{}>> & {
+export type RunningSessionBrokerDaemon = ReturnType<typeof Bun.serve<{}>> & {
   stopped: Promise<void>;
 };
 
@@ -53,12 +64,12 @@ function formatDaemonServeError(error: unknown, host: string, port: number) {
     normalized.includes(`is port ${port} in use?`)
   ) {
     return new Error(
-      `Hunk session daemon could not bind ${host}:${port} because the port is already in use. ` +
+      `Session broker daemon could not bind ${host}:${port} because the port is already in use. ` +
         `Stop the conflicting process or set HUNK_MCP_PORT to a different loopback port.`,
     );
   }
 
-  return new Error(`Failed to start the Hunk session daemon on ${host}:${port}: ${message}`);
+  return new Error(`Failed to start the session broker daemon on ${host}:${port}: ${message}`);
 }
 
 function sessionCapabilities(): SessionDaemonCapabilities {
@@ -100,7 +111,7 @@ async function parseJsonRequest(request: Request) {
   }
 }
 
-async function handleSessionApiRequest(state: HunkDaemonState, request: Request) {
+async function handleSessionApiRequest(state: HunkSessionBrokerState, request: Request) {
   if (request.method !== "POST") {
     return jsonError("Session API requests must use POST.", 405);
   }
@@ -134,54 +145,76 @@ async function handleSessionApiRequest(state: HunkDaemonState, request: Request)
         }
 
         response = {
-          result: await state.sendNavigateToHunk({
-            ...input.selector,
-            filePath: input.filePath,
-            hunkIndex: input.hunkNumber !== undefined ? input.hunkNumber - 1 : undefined,
-            side: input.side,
-            line: input.line,
-            commentDirection: input.commentDirection,
+          result: await state.dispatchCommand<NavigatedSelectionResult, "navigate_to_hunk">({
+            selector: input.selector,
+            command: "navigate_to_hunk",
+            input: {
+              ...input.selector,
+              filePath: input.filePath,
+              hunkIndex: input.hunkNumber !== undefined ? input.hunkNumber - 1 : undefined,
+              side: input.side,
+              line: input.line,
+              commentDirection: input.commentDirection,
+            },
+            timeoutMessage: "Timed out waiting for the session to navigate to the requested hunk.",
           }),
         };
         break;
       }
       case "reload":
         response = {
-          result: await state.sendReloadSession({
-            ...input.selector,
-            nextInput: input.nextInput,
-            sourcePath: input.sourcePath,
+          result: await state.dispatchCommand<ReloadedSessionResult, "reload_session">({
+            selector: input.selector,
+            command: "reload_session",
+            input: {
+              ...input.selector,
+              nextInput: input.nextInput,
+              sourcePath: input.sourcePath,
+            },
+            timeoutMessage: "Timed out waiting for the session to reload the requested contents.",
+            timeoutMs: 30_000,
           }),
         };
         break;
       case "comment-add":
         response = {
-          result: await state.sendComment({
-            ...input.selector,
-            filePath: input.filePath,
-            side: input.side,
-            line: input.line,
-            summary: input.summary,
-            rationale: input.rationale,
-            author: input.author,
-            reveal: input.reveal,
+          result: await state.dispatchCommand<AppliedCommentResult, "comment">({
+            selector: input.selector,
+            command: "comment",
+            input: {
+              ...input.selector,
+              filePath: input.filePath,
+              side: input.side,
+              line: input.line,
+              summary: input.summary,
+              rationale: input.rationale,
+              author: input.author,
+              reveal: input.reveal,
+            },
+            timeoutMessage: "Timed out waiting for the session to apply the comment.",
           }),
         };
         break;
       case "comment-apply":
         response = {
-          result: await state.sendCommentBatch({
-            ...input.selector,
-            comments: input.comments.map((comment) => ({
-              filePath: comment.filePath,
-              hunkIndex: comment.hunkNumber !== undefined ? comment.hunkNumber - 1 : undefined,
-              side: comment.side,
-              line: comment.line,
-              summary: comment.summary,
-              rationale: comment.rationale,
-              author: comment.author,
-            })),
-            revealMode: input.revealMode,
+          result: await state.dispatchCommand<AppliedCommentBatchResult, "comment_batch">({
+            selector: input.selector,
+            command: "comment_batch",
+            input: {
+              ...input.selector,
+              comments: input.comments.map((comment) => ({
+                filePath: comment.filePath,
+                hunkIndex: comment.hunkNumber !== undefined ? comment.hunkNumber - 1 : undefined,
+                side: comment.side,
+                line: comment.line,
+                summary: comment.summary,
+                rationale: comment.rationale,
+                author: comment.author,
+              })),
+              revealMode: input.revealMode,
+            },
+            timeoutMessage: "Timed out waiting for the session to apply the comment batch.",
+            timeoutMs: 30_000,
           }),
         };
         break;
@@ -192,17 +225,27 @@ async function handleSessionApiRequest(state: HunkDaemonState, request: Request)
         break;
       case "comment-rm":
         response = {
-          result: await state.sendRemoveComment({
-            ...input.selector,
-            commentId: input.commentId,
+          result: await state.dispatchCommand<RemovedCommentResult, "remove_comment">({
+            selector: input.selector,
+            command: "remove_comment",
+            input: {
+              ...input.selector,
+              commentId: input.commentId,
+            },
+            timeoutMessage: "Timed out waiting for the session to remove the requested comment.",
           }),
         };
         break;
       case "comment-clear":
         response = {
-          result: await state.sendClearComments({
-            ...input.selector,
-            filePath: input.filePath,
+          result: await state.dispatchCommand<ClearedCommentsResult, "clear_comments">({
+            selector: input.selector,
+            command: "clear_comments",
+            input: {
+              ...input.selector,
+              filePath: input.filePath,
+            },
+            timeoutMessage: "Timed out waiting for the session to clear the requested comments.",
           }),
         };
         break;
@@ -216,16 +259,16 @@ async function handleSessionApiRequest(state: HunkDaemonState, request: Request)
   }
 }
 
-/** Serve the local Hunk session daemon and websocket session broker. */
-export function serveHunkSessionDaemon(
-  options: ServeHunkSessionDaemonOptions = {},
-): RunningHunkSessionDaemon {
-  const config = resolveHunkSessionDaemonConfig();
+/** Serve the local session broker daemon and websocket broker transport. */
+export function serveSessionBrokerDaemon(
+  options: ServeSessionBrokerDaemonOptions = {},
+): RunningSessionBrokerDaemon {
+  const config = resolveSessionBrokerConfig();
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
   const staleSessionTtlMs = options.staleSessionTtlMs ?? DEFAULT_STALE_SESSION_TTL_MS;
   const staleSessionSweepIntervalMs =
     options.staleSessionSweepIntervalMs ?? DEFAULT_STALE_SESSION_SWEEP_INTERVAL_MS;
-  const state = new HunkDaemonState();
+  const state = createHunkSessionBrokerState();
   const startedAt = Date.now();
   let resolveStopped: (() => void) | null = null;
   const stopped = new Promise<void>((resolve) => {
@@ -329,7 +372,7 @@ export function serveHunkSessionDaemon(
             uptimeMs: Date.now() - startedAt,
             sessionApi: `${config.httpOrigin}${HUNK_SESSION_API_PATH}`,
             sessionCapabilities: `${config.httpOrigin}${HUNK_SESSION_CAPABILITIES_PATH}`,
-            sessionSocket: `${config.wsOrigin}${HUNK_SESSION_SOCKET_PATH}`,
+            sessionSocket: `${config.wsOrigin}${SESSION_BROKER_SOCKET_PATH}`,
             sessions: state.getSessionCount(),
             pendingCommands: state.getPendingCommandCount(),
             staleSessionTtlMs,
@@ -346,14 +389,14 @@ export function serveHunkSessionDaemon(
           return handleSessionApiRequest(state, request);
         }
 
-        if (url.pathname === HUNK_LEGACY_MCP_PATH) {
+        if (url.pathname === LEGACY_MCP_PATH) {
           return jsonError(
-            "Hunk no longer exposes agent-facing MCP tools. Use `hunk session ...` instead.",
+            "This app no longer exposes agent-facing MCP tools. Use the session CLI instead.",
             410,
           );
         }
 
-        if (url.pathname === HUNK_SESSION_SOCKET_PATH) {
+        if (url.pathname === SESSION_BROKER_SOCKET_PATH) {
           if (bunServer.upgrade(request, { data: {} })) {
             return undefined;
           }
@@ -380,7 +423,7 @@ export function serveHunkSessionDaemon(
                 // Close incompatible clients so old sessions cannot poison the fresh daemon after
                 // an upgrade. The session CLI will then surface a reconnect timeout instead of a
                 // broken listing or command crash.
-                socket.close(1008, "Incompatible Hunk session registration.");
+                socket.close(1008, "Incompatible session registration.");
                 return;
               }
 
@@ -393,12 +436,12 @@ export function serveHunkSessionDaemon(
 
               const updateResult = state.updateSnapshot(parsed.sessionId, parsed.snapshot);
               if (updateResult === "not-found") {
-                socket.close(1008, "Hunk session not registered with daemon.");
+                socket.close(1008, "Session not registered with broker.");
                 return;
               }
 
               if (updateResult === "invalid") {
-                socket.close(1008, "Incompatible Hunk session snapshot.");
+                socket.close(1008, "Incompatible session snapshot.");
                 return;
               }
 
@@ -420,7 +463,7 @@ export function serveHunkSessionDaemon(
               state.handleCommandResult({
                 requestId: parsed.requestId,
                 ok: parsed.ok,
-                result: parsed.result as SessionCommandResult | undefined,
+                result: parsed.result as HunkSessionCommandResult | undefined,
                 error: typeof parsed.error === "string" ? parsed.error : undefined,
               });
               noteActivity();
@@ -447,8 +490,10 @@ export function serveHunkSessionDaemon(
   process.once("SIGTERM", shutdown);
   refreshIdleShutdownTimer();
 
-  console.log(`Hunk session daemon listening on ${config.httpOrigin}${HUNK_SESSION_API_PATH}`);
-  console.log(`Hunk session websocket listening on ${config.wsOrigin}${HUNK_SESSION_SOCKET_PATH}`);
+  console.log(`Session broker API listening on ${config.httpOrigin}${HUNK_SESSION_API_PATH}`);
+  console.log(
+    `Session broker websocket listening on ${config.wsOrigin}${SESSION_BROKER_SOCKET_PATH}`,
+  );
 
-  return Object.assign(server, { stopped }) as RunningHunkSessionDaemon;
+  return Object.assign(server, { stopped }) as RunningSessionBrokerDaemon;
 }

@@ -1,26 +1,19 @@
 import type {
-  AppliedCommentBatchResult,
-  AppliedCommentResult,
-  ClearedCommentsResult,
-  HunkSessionRegistration,
-  HunkSessionSnapshot,
-  NavigatedSelectionResult,
-  ReloadedSessionResult,
-  RemovedCommentResult,
   SessionClientMessage,
-  SessionCommandResult,
+  SessionRegistration,
   SessionServerMessage,
+  SessionSnapshot,
 } from "./types";
 import {
-  HUNK_SESSION_SOCKET_PATH,
-  resolveHunkSessionDaemonConfig,
-  type ResolvedHunkSessionDaemonConfig,
-} from "./config";
+  SESSION_BROKER_SOCKET_PATH,
+  resolveSessionBrokerConfig,
+  type ResolvedSessionBrokerConfig,
+} from "./brokerConfig";
 import {
-  ensureHunkDaemonAvailable,
-  readHunkDaemonHealth,
-  waitForHunkDaemonShutdown,
-} from "./daemonLauncher";
+  ensureSessionBrokerAvailable,
+  readSessionBrokerHealth,
+  waitForSessionBrokerShutdown,
+} from "./brokerLauncher";
 import {
   readHunkSessionDaemonCapabilities,
   reportHunkDaemonUpgradeRestart,
@@ -30,36 +23,27 @@ const DAEMON_STARTUP_TIMEOUT_MS = 3_000;
 const RECONNECT_DELAY_MS = 3_000;
 const HEARTBEAT_INTERVAL_MS = 10_000;
 const INCOMPATIBLE_SESSION_CLOSE_CODE = 1008;
-const INCOMPATIBLE_SESSION_CLOSE_REASON_PREFIX = "Incompatible Hunk session ";
+const INCOMPATIBLE_SESSION_CLOSE_REASON_PREFIX = "Incompatible session ";
 const INCOMPATIBLE_SESSION_CLOSE_MESSAGE =
-  "This Hunk window is too old for the refreshed session daemon. Restart the window to reconnect.";
+  "This window is too old for the refreshed session broker daemon. Restart the window to reconnect.";
 
-interface HunkAppBridge {
-  applyComment: (
-    message: Extract<SessionServerMessage, { command: "comment" }>,
-  ) => Promise<AppliedCommentResult>;
-  applyCommentBatch: (
-    message: Extract<SessionServerMessage, { command: "comment_batch" }>,
-  ) => Promise<AppliedCommentBatchResult>;
-  navigateToHunk: (
-    message: Extract<SessionServerMessage, { command: "navigate_to_hunk" }>,
-  ) => Promise<NavigatedSelectionResult>;
-  reloadSession: (
-    message: Extract<SessionServerMessage, { command: "reload_session" }>,
-  ) => Promise<ReloadedSessionResult>;
-  removeComment: (
-    message: Extract<SessionServerMessage, { command: "remove_comment" }>,
-  ) => Promise<RemovedCommentResult>;
-  clearComments: (
-    message: Extract<SessionServerMessage, { command: "clear_comments" }>,
-  ) => Promise<ClearedCommentsResult>;
+interface SessionAppBridge<
+  ServerMessage extends SessionServerMessage = SessionServerMessage,
+  Result = unknown,
+> {
+  dispatchCommand: (message: ServerMessage) => Promise<Result>;
 }
 
-/** Keep one running Hunk TUI session registered with the local session daemon. */
-export class HunkHostClient {
+/** Keep one running app session registered with the local session broker daemon. */
+export class SessionBrokerClient<
+  Info = unknown,
+  State = unknown,
+  ServerMessage extends SessionServerMessage = SessionServerMessage,
+  Result = unknown,
+> {
   private websocket: WebSocket | null = null;
-  private bridge: HunkAppBridge | null = null;
-  private queuedMessages: SessionServerMessage[] = [];
+  private bridge: SessionAppBridge<ServerMessage, Result> | null = null;
+  private queuedMessages: ServerMessage[] = [];
   private reconnectTimer: Timer | null = null;
   private heartbeatTimer: Timer | null = null;
   private stopped = false;
@@ -67,8 +51,8 @@ export class HunkHostClient {
   private lastConnectionWarning: string | null = null;
 
   constructor(
-    private registration: HunkSessionRegistration,
-    private snapshot: HunkSessionSnapshot,
+    private registration: SessionRegistration<Info>,
+    private snapshot: SessionSnapshot<State>,
   ) {}
 
   start() {
@@ -110,7 +94,7 @@ export class HunkHostClient {
     return this.registration;
   }
 
-  replaceSession(registration: HunkSessionRegistration, snapshot: HunkSessionSnapshot) {
+  replaceSession(registration: SessionRegistration<Info>, snapshot: SessionSnapshot<State>) {
     this.registration = registration;
     this.snapshot = snapshot;
     this.send({
@@ -121,7 +105,7 @@ export class HunkHostClient {
   }
 
   private resolveConfig() {
-    return resolveHunkSessionDaemonConfig();
+    return resolveSessionBrokerConfig();
   }
 
   private async ensureDaemonAndConnect() {
@@ -130,8 +114,8 @@ export class HunkHostClient {
     this.connect(config);
   }
 
-  private async ensureDaemonAvailable(config: ResolvedHunkSessionDaemonConfig) {
-    await ensureHunkDaemonAvailable({
+  private async ensureDaemonAvailable(config: ResolvedSessionBrokerConfig) {
+    await ensureSessionBrokerAvailable({
       config,
       timeoutMs: DAEMON_STARTUP_TIMEOUT_MS,
     });
@@ -139,15 +123,15 @@ export class HunkHostClient {
     const capabilities = await readHunkSessionDaemonCapabilities(config);
     if (!capabilities) {
       await this.restartIncompatibleDaemon(config);
-      await ensureHunkDaemonAvailable({
+      await ensureSessionBrokerAvailable({
         config,
         timeoutMs: DAEMON_STARTUP_TIMEOUT_MS,
       });
 
       if (!(await readHunkSessionDaemonCapabilities(config))) {
         throw new Error(
-          "The running Hunk session daemon is incompatible with this Hunk build. " +
-            "Restart Hunk so it can launch a fresh daemon from the current source tree.",
+          "The running session broker daemon is incompatible with this build. " +
+            "Restart the app so it can launch a fresh daemon from the current source tree.",
         );
       }
     }
@@ -155,14 +139,14 @@ export class HunkHostClient {
     this.lastConnectionWarning = null;
   }
 
-  private async restartIncompatibleDaemon(config: ResolvedHunkSessionDaemonConfig) {
+  private async restartIncompatibleDaemon(config: ResolvedSessionBrokerConfig) {
     reportHunkDaemonUpgradeRestart();
-    const health = await readHunkDaemonHealth(config);
+    const health = await readSessionBrokerHealth(config);
     const pid = health?.pid;
     if (pid === process.pid) {
       throw new Error(
-        "The running Hunk session daemon is incompatible with this Hunk build. " +
-          "Restart Hunk so it can launch a fresh daemon from the current source tree.",
+        "The running session broker daemon is incompatible with this build. " +
+          "Restart the app so it can launch a fresh daemon from the current source tree.",
       );
     }
 
@@ -180,23 +164,23 @@ export class HunkHostClient {
       }
     }
 
-    const shutDown = await waitForHunkDaemonShutdown({
+    const shutDown = await waitForSessionBrokerShutdown({
       config,
       timeoutMs: DAEMON_STARTUP_TIMEOUT_MS,
     });
     if (!shutDown) {
       throw new Error(
-        "Stopped waiting for the old Hunk session daemon to exit after it was found incompatible.",
+        "Stopped waiting for the old session broker daemon to exit after it was found incompatible.",
       );
     }
   }
 
-  setBridge(bridge: HunkAppBridge | null) {
+  setBridge(bridge: SessionAppBridge<ServerMessage, Result> | null) {
     this.bridge = bridge;
     void this.flushQueuedMessages();
   }
 
-  updateSnapshot(snapshot: HunkSessionSnapshot) {
+  updateSnapshot(snapshot: SessionSnapshot<State>) {
     this.snapshot = snapshot;
     this.send({
       type: "snapshot",
@@ -205,12 +189,12 @@ export class HunkHostClient {
     });
   }
 
-  private connect(config: ResolvedHunkSessionDaemonConfig) {
+  private connect(config: ResolvedSessionBrokerConfig) {
     if (this.stopped || this.websocket) {
       return;
     }
 
-    const websocket = new WebSocket(`${config.wsOrigin}${HUNK_SESSION_SOCKET_PATH}`);
+    const websocket = new WebSocket(`${config.wsOrigin}${SESSION_BROKER_SOCKET_PATH}`);
     this.websocket = websocket;
 
     websocket.onopen = () => {
@@ -229,9 +213,9 @@ export class HunkHostClient {
         return;
       }
 
-      let parsed: SessionServerMessage;
+      let parsed: ServerMessage;
       try {
-        parsed = JSON.parse(event.data) as SessionServerMessage;
+        parsed = JSON.parse(event.data) as ServerMessage;
       } catch {
         return;
       }
@@ -297,7 +281,7 @@ export class HunkHostClient {
     this.heartbeatTimer = null;
   }
 
-  private send(message: SessionClientMessage) {
+  private send(message: SessionClientMessage<Info, State, Result>) {
     if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
       return;
     }
@@ -305,14 +289,14 @@ export class HunkHostClient {
     this.websocket.send(JSON.stringify(message));
   }
 
-  private async handleServerMessage(message: SessionServerMessage) {
+  private async handleServerMessage(message: ServerMessage) {
     if (!this.bridge) {
       this.queuedMessages.push(message);
       return;
     }
 
     try {
-      const result = await this.dispatchCommand(message);
+      const result = await this.bridge.dispatchCommand(message);
       this.send({
         type: "command-result",
         requestId: message.requestId,
@@ -324,29 +308,8 @@ export class HunkHostClient {
         type: "command-result",
         requestId: message.requestId,
         ok: false,
-        error: error instanceof Error ? error.message : "Unknown Hunk session error.",
+        error: error instanceof Error ? error.message : "Unknown session error.",
       });
-    }
-  }
-
-  private dispatchCommand(message: SessionServerMessage): Promise<SessionCommandResult> {
-    if (!this.bridge) {
-      throw new Error("Hunk session bridge is not connected.");
-    }
-
-    switch (message.command) {
-      case "comment":
-        return this.bridge.applyComment(message);
-      case "comment_batch":
-        return this.bridge.applyCommentBatch(message);
-      case "navigate_to_hunk":
-        return this.bridge.navigateToHunk(message);
-      case "reload_session":
-        return this.bridge.reloadSession(message);
-      case "remove_comment":
-        return this.bridge.removeComment(message);
-      case "clear_comments":
-        return this.bridge.clearComments(message);
     }
   }
 
@@ -373,12 +336,12 @@ export class HunkHostClient {
 
   private warnUnavailable(error: unknown) {
     const message =
-      error instanceof Error ? error.message : "Unknown Hunk session daemon connection error.";
+      error instanceof Error ? error.message : "Unknown session broker connection error.";
     if (message === this.lastConnectionWarning) {
       return;
     }
 
     this.lastConnectionWarning = message;
-    console.error(`[hunk:session] ${message}`);
+    console.error(`[session:broker] ${message}`);
   }
 }

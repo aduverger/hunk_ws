@@ -1,4 +1,4 @@
-import { HUNK_SESSION_REGISTRATION_VERSION } from "../../src/daemon/sessionWire";
+import { SESSION_BROKER_REGISTRATION_VERSION } from "../../src/session-broker/brokerWire";
 import type {
   HunkSessionRegistration,
   HunkSessionSnapshot,
@@ -9,7 +9,7 @@ import type {
   SessionReview,
   SessionReviewFile,
   SessionReviewHunk,
-} from "../../src/daemon/types";
+} from "../../src/hunk-session/types";
 
 export function createTestSessionFileSummary(
   overrides: Partial<SessionFileSummary> = {},
@@ -53,37 +53,56 @@ function summarizeReviewFile(reviewFile: SessionReviewFile): SessionFileSummary 
 }
 
 export function createTestSessionSnapshot(
-  overrides: Partial<HunkSessionSnapshot> = {},
+  overrides: Partial<HunkSessionSnapshot["state"]> & { updatedAt?: string } = {},
 ): HunkSessionSnapshot {
+  const { updatedAt = "2026-03-22T00:00:00.000Z", ...stateOverrides } = overrides;
+
   return {
-    selectedFileId: "file-1",
-    selectedFilePath: "src/example.ts",
-    selectedHunkIndex: 0,
-    showAgentNotes: false,
-    liveCommentCount: 0,
-    liveComments: [],
-    updatedAt: "2026-03-22T00:00:00.000Z",
-    ...overrides,
+    updatedAt,
+    state: {
+      selectedFileId: "file-1",
+      selectedFilePath: "src/example.ts",
+      selectedHunkIndex: 0,
+      showAgentNotes: false,
+      liveCommentCount: 0,
+      liveComments: [],
+      ...stateOverrides,
+    },
   };
 }
 
 export function createTestSessionRegistration(
-  overrides: Partial<HunkSessionRegistration> = {},
+  overrides: Partial<HunkSessionRegistration> &
+    Partial<
+      Pick<HunkSessionRegistration["info"], "inputKind" | "title" | "sourceLabel" | "files">
+    > & {
+      info?: Partial<HunkSessionRegistration["info"]>;
+    } = {},
 ): HunkSessionRegistration {
-  const files = overrides.files ?? [createTestSessionReviewFile()];
+  const {
+    inputKind,
+    title,
+    sourceLabel,
+    files,
+    info: infoOverrides,
+    ...registrationOverrides
+  } = overrides;
+  const resolvedFiles = files ?? infoOverrides?.files ?? [createTestSessionReviewFile()];
 
   return {
-    registrationVersion: HUNK_SESSION_REGISTRATION_VERSION,
+    registrationVersion: SESSION_BROKER_REGISTRATION_VERSION,
     sessionId: "session-1",
     pid: 123,
     cwd: "/repo",
     repoRoot: "/repo",
-    inputKind: "git",
-    title: "repo working tree",
-    sourceLabel: "/repo",
     launchedAt: "2026-03-22T00:00:00.000Z",
-    ...overrides,
-    files,
+    ...registrationOverrides,
+    info: {
+      inputKind: inputKind ?? infoOverrides?.inputKind ?? "git",
+      title: title ?? infoOverrides?.title ?? "repo working tree",
+      sourceLabel: sourceLabel ?? infoOverrides?.sourceLabel ?? "/repo",
+      files: resolvedFiles,
+    },
   };
 }
 
@@ -96,10 +115,10 @@ export function createTestListedSession(overrides: Partial<ListedSession> = {}):
     pid: 123,
     cwd: "/repo",
     repoRoot: "/repo",
+    launchedAt: "2026-03-22T00:00:00.000Z",
     inputKind: "git",
     title: "repo working tree",
     sourceLabel: "/repo",
-    launchedAt: "2026-03-22T00:00:00.000Z",
     ...overrides,
     fileCount: overrides.fileCount ?? files.length,
     files,

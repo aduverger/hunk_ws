@@ -4,8 +4,8 @@ import {
   createTestSessionRegistration,
   createTestSessionSnapshot,
 } from "../../test/helpers/session-daemon-fixtures";
-import { HunkDaemonState } from "./daemonState";
-import { serveHunkSessionDaemon } from "./server";
+import { SessionBrokerState } from "./brokerState";
+import { serveSessionBrokerDaemon } from "./brokerServer";
 
 const originalHost = process.env.HUNK_MCP_HOST;
 const originalPort = process.env.HUNK_MCP_PORT;
@@ -180,7 +180,7 @@ describe("Hunk session daemon server", () => {
     process.env.HUNK_MCP_PORT = "47657";
     delete process.env.HUNK_MCP_UNSAFE_ALLOW_REMOTE;
 
-    expect(() => serveHunkSessionDaemon()).toThrow("local-only by default");
+    expect(() => serveSessionBrokerDaemon()).toThrow("local-only by default");
   });
 
   test("reports a clear error when the daemon port is already in use", async () => {
@@ -196,7 +196,7 @@ describe("Hunk session daemon server", () => {
     process.env.HUNK_MCP_PORT = String(port);
 
     try {
-      expect(() => serveHunkSessionDaemon()).toThrow("port is already in use");
+      expect(() => serveSessionBrokerDaemon()).toThrow("port is already in use");
     } finally {
       await new Promise<void>((resolve) => listener.close(() => resolve()));
     }
@@ -207,14 +207,14 @@ describe("Hunk session daemon server", () => {
     process.env.HUNK_MCP_HOST = "127.0.0.1";
     process.env.HUNK_MCP_PORT = String(port);
 
-    const server = serveHunkSessionDaemon();
+    const server = serveSessionBrokerDaemon();
 
     try {
       const capabilities = await fetch(`http://127.0.0.1:${port}/session-api/capabilities`);
       expect(capabilities.status).toBe(200);
       await expect(capabilities.json()).resolves.toMatchObject({
         version: 1,
-        daemonVersion: 1,
+        daemonVersion: 2,
         actions: [
           "list",
           "get",
@@ -239,7 +239,7 @@ describe("Hunk session daemon server", () => {
       });
       expect(legacyMcp.status).toBe(410);
       await expect(legacyMcp.json()).resolves.toMatchObject({
-        error: expect.stringContaining("Use `hunk session ...` instead"),
+        error: "This app no longer exposes agent-facing MCP tools. Use the session CLI instead.",
       });
     } finally {
       server.stop(true);
@@ -251,7 +251,7 @@ describe("Hunk session daemon server", () => {
     process.env.HUNK_MCP_HOST = "127.0.0.1";
     process.env.HUNK_MCP_PORT = String(port);
 
-    const server = serveHunkSessionDaemon({
+    const server = serveSessionBrokerDaemon({
       idleTimeoutMs: 250,
       staleSessionTtlMs: 500,
       staleSessionSweepIntervalMs: 25,
@@ -270,7 +270,7 @@ describe("Hunk session daemon server", () => {
 
       await expect(closed).resolves.toEqual({
         code: 1008,
-        reason: "Hunk session not registered with daemon.",
+        reason: "Session not registered with broker.",
       });
     } finally {
       socket.close();
@@ -283,7 +283,7 @@ describe("Hunk session daemon server", () => {
     process.env.HUNK_MCP_HOST = "127.0.0.1";
     process.env.HUNK_MCP_PORT = String(port);
 
-    const server = serveHunkSessionDaemon({
+    const server = serveSessionBrokerDaemon({
       idleTimeoutMs: 250,
       staleSessionTtlMs: 500,
       staleSessionSweepIntervalMs: 25,
@@ -351,7 +351,7 @@ describe("Hunk session daemon server", () => {
     process.env.HUNK_MCP_HOST = "127.0.0.1";
     process.env.HUNK_MCP_PORT = String(port);
 
-    const server = serveHunkSessionDaemon({
+    const server = serveSessionBrokerDaemon({
       idleTimeoutMs: 60,
       staleSessionTtlMs: 500,
       staleSessionSweepIntervalMs: 25,
@@ -375,7 +375,7 @@ describe("Hunk session daemon server", () => {
     process.env.HUNK_MCP_HOST = "127.0.0.1";
     process.env.HUNK_MCP_PORT = String(port);
 
-    const server = serveHunkSessionDaemon({
+    const server = serveSessionBrokerDaemon({
       idleTimeoutMs: 75,
       staleSessionTtlMs: 500,
       staleSessionSweepIntervalMs: 25,
@@ -397,7 +397,7 @@ describe("Hunk session daemon server", () => {
     process.env.HUNK_MCP_HOST = "127.0.0.1";
     process.env.HUNK_MCP_PORT = String(port);
 
-    const server = serveHunkSessionDaemon({
+    const server = serveSessionBrokerDaemon({
       idleTimeoutMs: 75,
       staleSessionTtlMs: 80,
       staleSessionSweepIntervalMs: 20,
@@ -417,8 +417,8 @@ describe("Hunk session daemon server", () => {
     process.env.HUNK_MCP_HOST = "127.0.0.1";
     process.env.HUNK_MCP_PORT = String(port);
 
-    const original = HunkDaemonState.prototype.getSessionReview;
-    HunkDaemonState.prototype.getSessionReview = function (selector, options) {
+    const original = SessionBrokerState.prototype.getSessionReview;
+    SessionBrokerState.prototype.getSessionReview = function (selector, options) {
       expect(selector).toEqual({ sessionId: "session-1" });
       expect(options).toEqual({ includePatch: true });
 
@@ -473,7 +473,7 @@ describe("Hunk session daemon server", () => {
       };
     };
 
-    const server = serveHunkSessionDaemon();
+    const server = serveSessionBrokerDaemon();
 
     try {
       const response = await fetch(`http://127.0.0.1:${port}/session-api`, {
@@ -500,7 +500,7 @@ describe("Hunk session daemon server", () => {
         },
       });
     } finally {
-      HunkDaemonState.prototype.getSessionReview = original;
+      SessionBrokerState.prototype.getSessionReview = original;
       server.stop(true);
     }
   });
@@ -510,8 +510,9 @@ describe("Hunk session daemon server", () => {
     process.env.HUNK_MCP_HOST = "127.0.0.1";
     process.env.HUNK_MCP_PORT = String(port);
 
-    const original = HunkDaemonState.prototype.sendReloadSession;
-    HunkDaemonState.prototype.sendReloadSession = function (input) {
+    const original = SessionBrokerState.prototype.dispatchCommand;
+    SessionBrokerState.prototype.dispatchCommand = (({ command, input }: any) => {
+      expect(command).toBe("reload_session");
       expect(input).toMatchObject({
         sessionPath: "/tmp/live-session",
         sourcePath: "/tmp/source-repo",
@@ -530,9 +531,9 @@ describe("Hunk session daemon server", () => {
         fileCount: 0,
         selectedHunkIndex: 0,
       });
-    };
+    }) as SessionBrokerState["dispatchCommand"];
 
-    const server = serveHunkSessionDaemon();
+    const server = serveSessionBrokerDaemon();
 
     try {
       const response = await fetch(`http://127.0.0.1:${port}/session-api`, {
@@ -561,7 +562,7 @@ describe("Hunk session daemon server", () => {
         },
       });
     } finally {
-      HunkDaemonState.prototype.sendReloadSession = original;
+      SessionBrokerState.prototype.dispatchCommand = original;
       server.stop(true);
     }
   });
@@ -571,8 +572,9 @@ describe("Hunk session daemon server", () => {
     process.env.HUNK_MCP_HOST = "127.0.0.1";
     process.env.HUNK_MCP_PORT = String(port);
 
-    const original = HunkDaemonState.prototype.sendCommentBatch;
-    HunkDaemonState.prototype.sendCommentBatch = function (input) {
+    const original = SessionBrokerState.prototype.dispatchCommand;
+    SessionBrokerState.prototype.dispatchCommand = (({ command, input }: any) => {
+      expect(command).toBe("comment_batch");
       expect(input).toMatchObject({
         sessionId: "session-1",
         revealMode: "none",
@@ -613,9 +615,9 @@ describe("Hunk session daemon server", () => {
           },
         ],
       });
-    };
+    }) as SessionBrokerState["dispatchCommand"];
 
-    const server = serveHunkSessionDaemon();
+    const server = serveSessionBrokerDaemon();
 
     try {
       const response = await fetch(`http://127.0.0.1:${port}/session-api`, {
@@ -655,7 +657,7 @@ describe("Hunk session daemon server", () => {
         },
       });
     } finally {
-      HunkDaemonState.prototype.sendCommentBatch = original;
+      SessionBrokerState.prototype.dispatchCommand = original;
       server.stop(true);
     }
   });

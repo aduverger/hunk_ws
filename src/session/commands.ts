@@ -1,62 +1,35 @@
-import { resolve } from "node:path";
 import type {
   SessionCommandInput,
   SessionCommandOutput,
-  SessionCommentAddCommandInput,
-  SessionCommentApplyCommandInput,
-  SessionCommentClearCommandInput,
-  SessionCommentListCommandInput,
-  SessionCommentRemoveCommandInput,
-  SessionNavigateCommandInput,
-  SessionReloadCommandInput,
-  SessionReviewCommandInput,
   SessionSelectorInput,
 } from "../core/types";
 import {
-  ensureHunkDaemonAvailable,
-  isHunkDaemonHealthy,
+  ensureSessionBrokerAvailable,
+  isSessionBrokerHealthy,
   isLoopbackPortReachable,
-  readHunkDaemonHealth,
-  waitForHunkDaemonShutdown,
-} from "../daemon/daemonLauncher";
-import { resolveHunkSessionDaemonConfig } from "../daemon/config";
-import type {
-  AppliedCommentBatchResult,
-  AppliedCommentResult,
-  ClearedCommentsResult,
-  ListedSession,
-  NavigatedSelectionResult,
-  ReloadedSessionResult,
-  RemovedCommentResult,
-  SelectedSessionContext,
-  SessionLiveCommentSummary,
-  SessionReview,
-  SessionTerminalLocation,
-  SessionTerminalMetadata,
-} from "../daemon/types";
-import { readHunkSessionDaemonCapabilities, reportHunkDaemonUpgradeRestart } from "./capabilities";
+  readSessionBrokerHealth,
+  waitForSessionBrokerShutdown,
+} from "../session-broker/brokerLauncher";
+import { resolveSessionBrokerConfig } from "../session-broker/brokerConfig";
+import { matchesSessionSelector, normalizeSessionSelector } from "../session-broker/selectors";
 import {
-  HUNK_SESSION_API_PATH,
-  HUNK_SESSION_API_VERSION,
-  type SessionDaemonAction,
-  type SessionDaemonCapabilities,
-  type SessionDaemonRequest,
-} from "./protocol";
-
-export interface HunkDaemonCliClient {
-  getCapabilities(): Promise<SessionDaemonCapabilities | null>;
-  listSessions(): Promise<ListedSession[]>;
-  getSession(selector: SessionSelectorInput): Promise<ListedSession>;
-  getSelectedContext(selector: SessionSelectorInput): Promise<SelectedSessionContext>;
-  getSessionReview(input: SessionReviewCommandInput): Promise<SessionReview>;
-  navigateToHunk(input: SessionNavigateCommandInput): Promise<NavigatedSelectionResult>;
-  reloadSession(input: SessionReloadCommandInput): Promise<ReloadedSessionResult>;
-  addComment(input: SessionCommentAddCommandInput): Promise<AppliedCommentResult>;
-  applyComments(input: SessionCommentApplyCommandInput): Promise<AppliedCommentBatchResult>;
-  listComments(input: SessionCommentListCommandInput): Promise<SessionLiveCommentSummary[]>;
-  removeComment(input: SessionCommentRemoveCommandInput): Promise<RemovedCommentResult>;
-  clearComments(input: SessionCommentClearCommandInput): Promise<ClearedCommentsResult>;
-}
+  createHttpHunkSessionCliClient,
+  formatClearCommentsOutput,
+  formatCommentApplyOutput,
+  formatCommentListOutput,
+  formatCommentOutput,
+  formatContextOutput,
+  formatListOutput,
+  formatNavigationOutput,
+  formatReloadOutput,
+  formatRemoveCommentOutput,
+  formatReviewOutput,
+  formatSessionOutput,
+  stringifyJson,
+  type HunkSessionCliClient,
+} from "../hunk-session/cli";
+import { reportHunkDaemonUpgradeRestart } from "./capabilities";
+import { HUNK_SESSION_API_VERSION, type SessionDaemonAction } from "./protocol";
 
 const REQUIRED_ACTION_BY_COMMAND: Record<SessionCommandInput["action"], SessionDaemonAction> = {
   list: "list",
@@ -72,8 +45,10 @@ const REQUIRED_ACTION_BY_COMMAND: Record<SessionCommandInput["action"], SessionD
   "comment-clear": "comment-clear",
 };
 
+export type HunkDaemonCliClient = HunkSessionCliClient;
+
 interface SessionCommandTestHooks {
-  createClient?: () => HunkDaemonCliClient;
+  createClient?: () => HunkSessionCliClient;
   resolveDaemonAvailability?: (action: SessionCommandInput["action"]) => Promise<boolean>;
   restartDaemonForMissingAction?: (
     action: SessionDaemonAction,
@@ -88,171 +63,7 @@ export function setSessionCommandTestHooks(hooks: SessionCommandTestHooks | null
 }
 
 function createDaemonCliClient() {
-  return sessionCommandTestHooks?.createClient?.() ?? new HttpHunkDaemonCliClient();
-}
-
-async function extractResponseError(response: Response) {
-  try {
-    const parsed = (await response.json()) as { error?: string };
-    if (typeof parsed.error === "string" && parsed.error.length > 0) {
-      return parsed.error;
-    }
-  } catch {
-    // Fall through to status text.
-  }
-
-  return response.statusText || "Unknown Hunk session daemon error.";
-}
-
-class HttpHunkDaemonCliClient implements HunkDaemonCliClient {
-  private readonly config = resolveHunkSessionDaemonConfig();
-
-  private async request<ResultType>(input: SessionDaemonRequest) {
-    const response = await fetch(`${this.config.httpOrigin}${HUNK_SESSION_API_PATH}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(input),
-    });
-
-    if (!response.ok) {
-      throw new Error(await extractResponseError(response));
-    }
-
-    return (await response.json()) as ResultType;
-  }
-
-  async getCapabilities() {
-    return readHunkSessionDaemonCapabilities(this.config);
-  }
-
-  async listSessions() {
-    return (await this.request<{ sessions: ListedSession[] }>({ action: "list" })).sessions;
-  }
-
-  async getSession(selector: SessionSelectorInput) {
-    return (await this.request<{ session: ListedSession }>({ action: "get", selector })).session;
-  }
-
-  async getSelectedContext(selector: SessionSelectorInput) {
-    return (
-      await this.request<{ context: SelectedSessionContext }>({ action: "context", selector })
-    ).context;
-  }
-
-  async getSessionReview(input: SessionReviewCommandInput) {
-    return (
-      await this.request<{ review: SessionReview }>({
-        action: "review",
-        selector: input.selector,
-        includePatch: input.includePatch,
-      })
-    ).review;
-  }
-
-  async navigateToHunk(input: SessionNavigateCommandInput) {
-    return (
-      await this.request<{ result: NavigatedSelectionResult }>({
-        action: "navigate",
-        selector: input.selector,
-        filePath: input.filePath,
-        hunkNumber: input.hunkNumber,
-        side: input.side,
-        line: input.line,
-        commentDirection: input.commentDirection,
-      })
-    ).result;
-  }
-
-  async reloadSession(input: SessionReloadCommandInput) {
-    return (
-      await this.request<{ result: ReloadedSessionResult }>({
-        action: "reload",
-        selector: input.selector,
-        nextInput: input.nextInput,
-        sourcePath: input.sourcePath,
-      })
-    ).result;
-  }
-
-  async addComment(input: SessionCommentAddCommandInput) {
-    return (
-      await this.request<{ result: AppliedCommentResult }>({
-        action: "comment-add",
-        selector: input.selector,
-        filePath: input.filePath,
-        side: input.side,
-        line: input.line,
-        summary: input.summary,
-        rationale: input.rationale,
-        author: input.author,
-        reveal: input.reveal,
-      })
-    ).result;
-  }
-
-  async applyComments(input: SessionCommentApplyCommandInput) {
-    return (
-      await this.request<{ result: AppliedCommentBatchResult }>({
-        action: "comment-apply",
-        selector: input.selector,
-        comments: input.comments,
-        revealMode: input.revealMode,
-      })
-    ).result;
-  }
-
-  async listComments(input: SessionCommentListCommandInput) {
-    return (
-      await this.request<{ comments: SessionLiveCommentSummary[] }>({
-        action: "comment-list",
-        selector: input.selector,
-        filePath: input.filePath,
-      })
-    ).comments;
-  }
-
-  async removeComment(input: SessionCommentRemoveCommandInput) {
-    return (
-      await this.request<{ result: RemovedCommentResult }>({
-        action: "comment-rm",
-        selector: input.selector,
-        commentId: input.commentId,
-      })
-    ).result;
-  }
-
-  async clearComments(input: SessionCommentClearCommandInput) {
-    return (
-      await this.request<{ result: ClearedCommentsResult }>({
-        action: "comment-clear",
-        selector: input.selector,
-        filePath: input.filePath,
-      })
-    ).result;
-  }
-}
-
-function sessionMatchesSelector(session: ListedSession, selector?: SessionSelectorInput) {
-  if (!selector) {
-    return true;
-  }
-
-  if (selector.sessionId) {
-    return session.sessionId === selector.sessionId;
-  }
-
-  const sessionPath = selector?.sessionPath;
-  if (sessionPath) {
-    return session.cwd === sessionPath;
-  }
-
-  if (selector.repoRoot) {
-    return session.repoRoot === selector.repoRoot;
-  }
-
-  return true;
+  return sessionCommandTestHooks?.createClient?.() ?? createHttpHunkSessionCliClient();
 }
 
 async function waitForSessionRegistration(selector?: SessionSelectorInput, timeoutMs = 8_000) {
@@ -263,7 +74,7 @@ async function waitForSessionRegistration(selector?: SessionSelectorInput, timeo
 
     try {
       const sessions = await client.listSessions();
-      if (sessions.some((session) => sessionMatchesSelector(session, selector))) {
+      if (sessions.some((session) => matchesSessionSelector(session, selector))) {
         return true;
       }
     } catch {
@@ -280,7 +91,7 @@ async function restartDaemonForMissingAction(
   action: SessionDaemonAction,
   selector?: SessionSelectorInput,
 ) {
-  const health = await readHunkDaemonHealth();
+  const health = await readSessionBrokerHealth();
   const pid = health?.pid;
   const hadSessions = (health?.sessions ?? 0) > 0;
   if (!pid || pid === process.pid) {
@@ -292,15 +103,15 @@ async function restartDaemonForMissingAction(
 
   process.kill(pid, "SIGTERM");
 
-  const shutDown = await waitForHunkDaemonShutdown();
+  const shutDown = await waitForSessionBrokerShutdown();
   if (!shutDown) {
     throw new Error(
       `Stopped waiting for the old Hunk session daemon to exit after it was found missing ${action}.`,
     );
   }
 
-  const config = resolveHunkSessionDaemonConfig();
-  await ensureHunkDaemonAvailable({
+  const config = resolveSessionBrokerConfig();
+  await ensureSessionBrokerAvailable({
     config,
     timeoutMs: 3_000,
     timeoutMessage: "Timed out waiting for the refreshed Hunk session daemon to start.",
@@ -331,264 +142,9 @@ async function ensureRequiredAction(action: SessionDaemonAction, selector?: Sess
     restartDaemonForMissingAction(action, selector));
 }
 
-function stringifyJson(value: unknown) {
-  return `${JSON.stringify(value, null, 2)}\n`;
-}
-
-function formatSelector(selector: SessionSelectorInput) {
-  if (selector.sessionId) {
-    return `session ${selector.sessionId}`;
-  }
-
-  if (selector.sessionPath) {
-    return `session path ${selector.sessionPath}`;
-  }
-
-  if (selector.repoRoot) {
-    return `repo ${selector.repoRoot}`;
-  }
-
-  return "session";
-}
-
-function formatSelectedSummary(session: ListedSession) {
-  const filePath = session.snapshot.selectedFilePath ?? "(none)";
-  const hunkNumber = session.snapshot.selectedFilePath ? session.snapshot.selectedHunkIndex + 1 : 0;
-  return filePath === "(none)" ? filePath : `${filePath} hunk ${hunkNumber}`;
-}
-
-function formatTerminalLocation(location: SessionTerminalLocation) {
-  const parts: string[] = [];
-
-  if (location.tty) {
-    parts.push(location.tty);
-  }
-
-  if (location.windowId) {
-    parts.push(`window ${location.windowId}`);
-  }
-
-  if (location.tabId) {
-    parts.push(`tab ${location.tabId}`);
-  }
-
-  if (location.paneId) {
-    parts.push(`pane ${location.paneId}`);
-  }
-
-  if (location.terminalId) {
-    parts.push(`terminal ${location.terminalId}`);
-  }
-
-  if (location.sessionId) {
-    parts.push(`session ${location.sessionId}`);
-  }
-
-  return parts.length > 0 ? parts.join(", ") : "present";
-}
-
-function resolveSessionTerminal(session: ListedSession) {
-  return session.terminal;
-}
-
-function formatTerminalLines(
-  terminal: SessionTerminalMetadata | undefined,
-  {
-    headerLabel,
-    locationLabel,
-  }: {
-    headerLabel: string;
-    locationLabel: string;
-  },
-) {
-  if (!terminal) {
-    return [];
-  }
-
-  return [
-    ...(terminal.program ? [`${headerLabel}: ${terminal.program}`] : []),
-    ...terminal.locations.map(
-      (location) => `${locationLabel}[${location.source}]: ${formatTerminalLocation(location)}`,
-    ),
-  ];
-}
-
-function formatListOutput(sessions: ListedSession[]) {
-  if (sessions.length === 0) {
-    return "No active Hunk sessions.\n";
-  }
-
-  return `${sessions
-    .map((session) => {
-      const terminal = resolveSessionTerminal(session);
-      return [
-        `${session.sessionId}  ${session.title}`,
-        `  path: ${session.cwd}`,
-        `  repo: ${session.repoRoot ?? "-"}`,
-        ...formatTerminalLines(terminal, {
-          headerLabel: "  terminal",
-          locationLabel: "  location",
-        }),
-        `  focus: ${formatSelectedSummary(session)}`,
-        `  files: ${session.fileCount}`,
-        `  comments: ${session.snapshot.liveCommentCount}`,
-      ].join("\n");
-    })
-    .join("\n\n")}\n`;
-}
-
-function formatSessionOutput(session: ListedSession) {
-  const terminal = resolveSessionTerminal(session);
-
-  return [
-    `Session: ${session.sessionId}`,
-    `Title: ${session.title}`,
-    `Source: ${session.sourceLabel}`,
-    `Path: ${session.cwd}`,
-    `Repo: ${session.repoRoot ?? "-"}`,
-    `Input: ${session.inputKind}`,
-    `Launched: ${session.launchedAt}`,
-    ...formatTerminalLines(terminal, {
-      headerLabel: "Terminal",
-      locationLabel: "Location",
-    }),
-    `Selected: ${formatSelectedSummary(session)}`,
-    `Agent notes visible: ${session.snapshot.showAgentNotes ? "yes" : "no"}`,
-    `Live comments: ${session.snapshot.liveCommentCount}`,
-    "Files:",
-    ...session.files.map(
-      (file) =>
-        `  - ${file.path} (+${file.additions} -${file.deletions}, hunks: ${file.hunkCount})`,
-    ),
-    "",
-  ].join("\n");
-}
-
-function formatContextOutput(context: SelectedSessionContext) {
-  const selectedFile = context.selectedFile?.path ?? "(none)";
-  const hunkNumber = context.selectedHunk ? context.selectedHunk.index + 1 : 0;
-  const oldRange = context.selectedHunk?.oldRange
-    ? `${context.selectedHunk.oldRange[0]}..${context.selectedHunk.oldRange[1]}`
-    : "-";
-  const newRange = context.selectedHunk?.newRange
-    ? `${context.selectedHunk.newRange[0]}..${context.selectedHunk.newRange[1]}`
-    : "-";
-
-  return [
-    `Session: ${context.sessionId}`,
-    `Title: ${context.title}`,
-    `Path: ${context.cwd ?? "-"}`,
-    `Repo: ${context.repoRoot ?? "-"}`,
-    `File: ${selectedFile}`,
-    `Hunk: ${context.selectedHunk ? hunkNumber : "-"}`,
-    `Old range: ${oldRange}`,
-    `New range: ${newRange}`,
-    `Agent notes visible: ${context.showAgentNotes ? "yes" : "no"}`,
-    `Live comments: ${context.liveCommentCount}`,
-    "",
-  ].join("\n");
-}
-
-/** Render one human-readable summary of the exported live session review model. */
-function formatReviewOutput(review: SessionReview) {
-  const selectedFile = review.selectedFile?.path ?? "(none)";
-  const hunkNumber = review.selectedHunk ? review.selectedHunk.index + 1 : "-";
-
-  return [
-    `Session: ${review.sessionId}`,
-    `Title: ${review.title}`,
-    `Source: ${review.sourceLabel}`,
-    `Path: ${review.cwd ?? "-"}`,
-    `Repo: ${review.repoRoot ?? "-"}`,
-    `Input: ${review.inputKind}`,
-    `Selected file: ${selectedFile}`,
-    `Selected hunk: ${hunkNumber}`,
-    `Agent notes visible: ${review.showAgentNotes ? "yes" : "no"}`,
-    `Live comments: ${review.liveCommentCount}`,
-    "Files:",
-    ...review.files.flatMap((file) => [
-      `  - ${file.path} (+${file.additions} -${file.deletions}, hunks: ${file.hunkCount})`,
-      ...file.hunks.map((hunk) => `      hunk ${hunk.index + 1}: ${hunk.header}`),
-    ]),
-    "",
-  ].join("\n");
-}
-
-function formatNavigationOutput(selector: SessionSelectorInput, result: NavigatedSelectionResult) {
-  return `Focused ${result.filePath} hunk ${result.hunkIndex + 1} in ${formatSelector(selector)}.\n`;
-}
-
-function formatReloadOutput(selector: SessionSelectorInput, result: ReloadedSessionResult) {
-  const selected = result.selectedFilePath
-    ? `${result.selectedFilePath} hunk ${result.selectedHunkIndex + 1}`
-    : "(no files)";
-  return `Reloaded ${formatSelector(selector)} with ${result.title} (${result.fileCount} files). Selected: ${selected}.\n`;
-}
-
-function formatCommentOutput(selector: SessionSelectorInput, result: AppliedCommentResult) {
-  return `Added live comment ${result.commentId} on ${result.filePath}:${result.line} (${result.side}) in hunk ${result.hunkIndex + 1} for ${formatSelector(selector)}.\n`;
-}
-
-function formatCommentApplyOutput(
-  selector: SessionSelectorInput,
-  result: AppliedCommentBatchResult,
-) {
-  if (result.applied.length === 0) {
-    return `Applied 0 live comments to ${formatSelector(selector)}.\n`;
-  }
-
-  return `${[
-    `Applied ${result.applied.length} live comments to ${formatSelector(selector)}:`,
-    ...result.applied.map(
-      (comment) =>
-        `  - ${comment.commentId} on ${comment.filePath}:${comment.line} (${comment.side}) hunk ${comment.hunkIndex + 1}`,
-    ),
-    "",
-  ].join("\n")}`;
-}
-
-function formatCommentListOutput(
-  selector: SessionSelectorInput,
-  comments: SessionLiveCommentSummary[],
-) {
-  if (comments.length === 0) {
-    return `No live comments for ${formatSelector(selector)}.\n`;
-  }
-
-  return `${comments
-    .map((comment) =>
-      [
-        `${comment.commentId}  ${comment.filePath}:${comment.line} (${comment.side})`,
-        `  hunk: ${comment.hunkIndex + 1}`,
-        `  summary: ${comment.summary}`,
-        ...(comment.author ? [`  author: ${comment.author}`] : []),
-      ].join("\n"),
-    )
-    .join("\n\n")}\n`;
-}
-
-function formatRemoveCommentOutput(selector: SessionSelectorInput, result: RemovedCommentResult) {
-  return `Removed live comment ${result.commentId} from ${formatSelector(selector)}. Remaining comments: ${result.remainingCommentCount}.\n`;
-}
-
-function formatClearCommentsOutput(selector: SessionSelectorInput, result: ClearedCommentsResult) {
-  const scope = result.filePath
-    ? `${result.filePath} in ${formatSelector(selector)}`
-    : formatSelector(selector);
-  return `Cleared ${result.removedCount} live comments from ${scope}. Remaining comments: ${result.remainingCommentCount}.\n`;
-}
-
-function normalizeSessionSelector(selector: SessionSelectorInput) {
-  return {
-    ...selector,
-    sessionPath: selector.sessionPath ? resolve(selector.sessionPath) : undefined,
-    repoRoot: selector.repoRoot ? resolve(selector.repoRoot) : undefined,
-  };
-}
-
 async function resolveDaemonAvailability(action: SessionCommandInput["action"]) {
-  const config = resolveHunkSessionDaemonConfig();
-  const healthy = await isHunkDaemonHealthy(config);
+  const config = resolveSessionBrokerConfig();
+  const healthy = await isSessionBrokerHealthy(config);
   if (healthy) {
     return true;
   }

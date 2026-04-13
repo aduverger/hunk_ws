@@ -1,6 +1,6 @@
 import type { Hunk } from "@pierre/diffs";
 import type { DiffFile } from "./types";
-import type { CommentTargetInput, DiffSide, LiveComment } from "../daemon/types";
+import type { CommentTargetInput, DiffSide, LiveComment } from "../hunk-session/types";
 
 export interface ResolvedCommentTarget {
   hunkIndex: number;

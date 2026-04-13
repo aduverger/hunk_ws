@@ -7,8 +7,7 @@ import { useRenderer, useTerminalDimensions } from "@opentui/react";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import type { AppBootstrap, CliInput, LayoutMode } from "../core/types";
 import { canReloadInput, computeWatchSignature } from "../core/watch";
-import { HunkHostClient } from "../daemon/client";
-import type { ReloadedSessionResult } from "../daemon/types";
+import type { HunkSessionBrokerClient, ReloadedSessionResult } from "../hunk-session/types";
 import { MenuBar } from "./components/chrome/MenuBar";
 import { StatusBar } from "./components/chrome/StatusBar";
 import { DiffPane } from "./components/panes/DiffPane";
@@ -80,7 +79,7 @@ export function App({
   onReloadSession,
 }: {
   bootstrap: AppBootstrap;
-  hostClient?: HunkHostClient;
+  hostClient?: HunkSessionBrokerClient;
   noticeText?: string | null;
   onQuit?: () => void;
   onReloadSession: (

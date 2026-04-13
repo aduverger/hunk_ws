@@ -8,12 +8,18 @@ import { shutdownSession } from "./core/shutdown";
 import { prepareStartupPlan } from "./core/startup";
 import { resolveStartupUpdateNotice } from "./core/updateNotice";
 import { AppHost } from "./ui/AppHost";
-import { HunkHostClient } from "./daemon/client";
-import { serveHunkSessionDaemon } from "./daemon/server";
+import { SessionBrokerClient } from "./session-broker/brokerClient";
+import { serveSessionBrokerDaemon } from "./session-broker/brokerServer";
 import {
   createInitialSessionSnapshot,
   createSessionRegistration,
-} from "./daemon/sessionRegistration";
+} from "./hunk-session/sessionRegistration";
+import type {
+  HunkSessionCommandResult,
+  HunkSessionInfo,
+  HunkSessionServerMessage,
+  HunkSessionState,
+} from "./hunk-session/types";
 import { runSessionCommand } from "./session/commands";
 
 async function main() {
@@ -25,7 +31,7 @@ async function main() {
   }
 
   if (startupPlan.kind === "daemon-serve") {
-    const server = serveHunkSessionDaemon();
+    const server = serveSessionBrokerDaemon();
     await server.stopped;
     return;
   }
@@ -45,10 +51,12 @@ async function main() {
   }
 
   const { bootstrap, cliInput, controllingTerminal } = startupPlan;
-  const hostClient = new HunkHostClient(
-    createSessionRegistration(bootstrap),
-    createInitialSessionSnapshot(bootstrap),
-  );
+  const hostClient = new SessionBrokerClient<
+    HunkSessionInfo,
+    HunkSessionState,
+    HunkSessionServerMessage,
+    HunkSessionCommandResult
+  >(createSessionRegistration(bootstrap), createInitialSessionSnapshot(bootstrap));
   hostClient.start();
 
   const renderer = await createCliRenderer({

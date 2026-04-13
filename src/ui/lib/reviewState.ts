@@ -8,7 +8,11 @@
  */
 import { findDiffFileByPath, findHunkIndexForLine, hunkLineRange } from "../../core/liveComments";
 import type { DiffFile } from "../../core/types";
-import type { LiveComment, NavigateToHunkToolInput, SelectedHunkSummary } from "../../daemon/types";
+import type {
+  LiveComment,
+  NavigateToHunkToolInput,
+  SelectedHunkSummary,
+} from "../../hunk-session/types";
 import {
   buildSidebarEntries,
   filterReviewFiles,

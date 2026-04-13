@@ -4,11 +4,11 @@ import { loadAppBootstrap } from "../core/loaders";
 import { resolveRuntimeCliInput } from "../core/terminal";
 import type { AppBootstrap, CliInput } from "../core/types";
 import type { UpdateNotice } from "../core/updateNotice";
-import { HunkHostClient } from "../daemon/client";
 import {
   createInitialSessionSnapshot,
   updateSessionRegistration,
-} from "../daemon/sessionRegistration";
+} from "../hunk-session/sessionRegistration";
+import type { HunkSessionBrokerClient } from "../hunk-session/types";
 import { App } from "./App";
 import { useStartupUpdateNotice } from "./hooks/useStartupUpdateNotice";
 
@@ -20,7 +20,7 @@ export function AppHost({
   startupNoticeResolver,
 }: {
   bootstrap: AppBootstrap;
-  hostClient?: HunkHostClient;
+  hostClient?: HunkSessionBrokerClient;
   onQuit?: () => void;
   startupNoticeResolver?: () => Promise<UpdateNotice | null>;
 }) {
@@ -72,8 +72,8 @@ export function AppHost({
         title: nextBootstrap.changeset.title,
         sourceLabel: nextBootstrap.changeset.sourceLabel,
         fileCount: nextBootstrap.changeset.files.length,
-        selectedFilePath: nextSnapshot.selectedFilePath,
-        selectedHunkIndex: nextSnapshot.selectedHunkIndex,
+        selectedFilePath: nextSnapshot.state.selectedFilePath,
+        selectedHunkIndex: nextSnapshot.state.selectedHunkIndex,
       };
     },
     [hostClient],

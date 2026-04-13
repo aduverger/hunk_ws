@@ -3,8 +3,8 @@ import { spawnSync } from "node:child_process";
 import { formatHunkHeader } from "../core/hunkHeader";
 import { hunkLineRange } from "../core/liveComments";
 import type { AppBootstrap } from "../core/types";
-import { resolveSessionTerminalMetadata } from "./sessionTerminalMetadata";
-import { HUNK_SESSION_REGISTRATION_VERSION } from "./sessionWire";
+import { SESSION_BROKER_REGISTRATION_VERSION } from "../session-broker/brokerWire";
+import { resolveSessionTerminalMetadata } from "../session-broker/sessionTerminalMetadata";
 import type { HunkSessionRegistration, HunkSessionSnapshot, SessionReviewFile } from "./types";
 
 /** Resolve the TTY device path for the current process, if available. */
@@ -31,7 +31,7 @@ function inferRepoRoot(bootstrap: AppBootstrap) {
     : undefined;
 }
 
-/** Convert the loaded changeset into the daemon's file-and-hunk review export model. */
+/** Convert the loaded changeset into the app-owned file-and-hunk review export model. */
 function buildSessionFiles(bootstrap: AppBootstrap): SessionReviewFile[] {
   return bootstrap.changeset.files.map((file) => ({
     id: file.id,
@@ -49,22 +49,24 @@ function buildSessionFiles(bootstrap: AppBootstrap): SessionReviewFile[] {
   }));
 }
 
-/** Build the daemon-facing metadata for one live Hunk TUI session. */
+/** Build the broker-facing envelope for one live Hunk review session. */
 export function createSessionRegistration(bootstrap: AppBootstrap): HunkSessionRegistration {
   const terminal = resolveSessionTerminalMetadata({ tty: ttyname() });
 
   return {
-    registrationVersion: HUNK_SESSION_REGISTRATION_VERSION,
+    registrationVersion: SESSION_BROKER_REGISTRATION_VERSION,
     sessionId: randomUUID(),
     pid: process.pid,
     cwd: process.cwd(),
     repoRoot: inferRepoRoot(bootstrap),
-    inputKind: bootstrap.input.kind,
-    title: bootstrap.changeset.title,
-    sourceLabel: bootstrap.changeset.sourceLabel,
     launchedAt: new Date().toISOString(),
     terminal,
-    files: buildSessionFiles(bootstrap),
+    info: {
+      inputKind: bootstrap.input.kind,
+      title: bootstrap.changeset.title,
+      sourceLabel: bootstrap.changeset.sourceLabel,
+      files: buildSessionFiles(bootstrap),
+    },
   };
 }
 
@@ -75,12 +77,14 @@ export function updateSessionRegistration(
 ): HunkSessionRegistration {
   return {
     ...current,
-    registrationVersion: HUNK_SESSION_REGISTRATION_VERSION,
+    registrationVersion: SESSION_BROKER_REGISTRATION_VERSION,
     repoRoot: inferRepoRoot(bootstrap),
-    inputKind: bootstrap.input.kind,
-    title: bootstrap.changeset.title,
-    sourceLabel: bootstrap.changeset.sourceLabel,
-    files: buildSessionFiles(bootstrap),
+    info: {
+      inputKind: bootstrap.input.kind,
+      title: bootstrap.changeset.title,
+      sourceLabel: bootstrap.changeset.sourceLabel,
+      files: buildSessionFiles(bootstrap),
+    },
   };
 }
 
@@ -91,14 +95,16 @@ export function createInitialSessionSnapshot(bootstrap: AppBootstrap): HunkSessi
   const firstRange = firstHunk ? hunkLineRange(firstHunk) : null;
 
   return {
-    selectedFileId: firstFile?.id,
-    selectedFilePath: firstFile?.path,
-    selectedHunkIndex: 0,
-    selectedHunkOldRange: firstRange?.oldRange,
-    selectedHunkNewRange: firstRange?.newRange,
-    showAgentNotes: bootstrap.initialShowAgentNotes ?? false,
-    liveCommentCount: 0,
-    liveComments: [],
     updatedAt: new Date().toISOString(),
+    state: {
+      selectedFileId: firstFile?.id,
+      selectedFilePath: firstFile?.path,
+      selectedHunkIndex: 0,
+      selectedHunkOldRange: firstRange?.oldRange,
+      selectedHunkNewRange: firstRange?.newRange,
+      showAgentNotes: bootstrap.initialShowAgentNotes ?? false,
+      liveCommentCount: 0,
+      liveComments: [],
+    },
   };
 }
