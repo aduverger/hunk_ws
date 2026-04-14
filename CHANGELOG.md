@@ -14,7 +14,18 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Fixed
 
-- Fixed a bottom-edge scroll trap that could snap the review pane back when the last short file or hunk was selected near the end of the stream.
+## [0.9.3] - 2026-04-13
+
+### Fixed
+
+- Normalized rename-only diff paths so pure renames keep one clean `old/path -> new/path` header in the review UI ([#194](https://github.com/modem-dev/hunk/pull/194)).
+- Stripped Pierre's empty-line newline placeholder spans so blank additions and deletions keep stable line numbers and diff row backgrounds ([#201](https://github.com/modem-dev/hunk/pull/201)).
+
+## [0.9.2] - 2026-04-11
+
+### Fixed
+
+- Fixed a bottom-edge scrolling regression where short last files could snap back and make upward navigation feel stuck near the end of the review stream ([#196](https://github.com/modem-dev/hunk/pull/196)).
 
 ## [0.9.1] - 2026-04-10
 
