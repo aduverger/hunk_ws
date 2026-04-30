@@ -24,13 +24,17 @@ function pierreThemeName(appearance: AppTheme["appearance"]) {
 const PIERRE_RENDER_OPTIONS_BY_APPEARANCE = {
   light: {
     theme: pierreThemeName("light"),
+    useTokenTransformer: false,
     tokenizeMaxLineLength: 1_000,
     lineDiffType: "word-alt" as const,
+    maxLineDiffLength: 10_000,
   },
   dark: {
     theme: pierreThemeName("dark"),
+    useTokenTransformer: false,
     tokenizeMaxLineLength: 1_000,
     lineDiffType: "word-alt" as const,
+    maxLineDiffLength: 10_000,
   },
 } as const;
 
