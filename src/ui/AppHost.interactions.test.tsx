@@ -264,7 +264,7 @@ function createCrossFileHunkNavigationBootstrap(): AppBootstrap {
   shortAfterLines[1] = "export const top = 2;";
   shortAfterLines[30] = "export const mid = 4;";
 
-  return createTestGitAppBootstrap({
+  return createTestVcsAppBootstrap({
     changesetId: "changeset:cross-file-hunk-navigation",
     files: [
       createTestDiffFile(
