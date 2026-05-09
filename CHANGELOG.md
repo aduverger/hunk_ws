@@ -8,6 +8,8 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Changed
 
+- Auto-detect Jujutsu checkouts for `hunk diff` and `hunk show`, while keeping explicit `vcs` config overrides.
+
 ### Fixed
 
 - Fixed `hunk pager` parsing for Git diffs emitted with `diff.mnemonicPrefix=true` so file paths do not keep `i/`, `w/`, `c/`, `1/`, or `2/` side prefixes.
