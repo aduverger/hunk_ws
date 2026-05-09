@@ -1001,6 +1001,34 @@ describe("UI components", () => {
     }
   });
 
+  test("DiffPane keeps a distant selected hunk visible when row windowing narrows one file body", async () => {
+    const theme = resolveTheme("midnight", null);
+    const props = createDiffPaneProps([createWideTwoHunkDiffFile("target", "target.ts")], theme, {
+      diffContentWidth: 96,
+      headerLabelWidth: 48,
+      selectedFileId: "target",
+      selectedHunkIndex: 1,
+      separatorWidth: 92,
+      width: 100,
+    });
+    const setup = await testRender(<DiffPane {...props} />, {
+      width: 104,
+      height: 12,
+    });
+
+    try {
+      await settleDiffPane(setup);
+      const frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("line60 = 5901"));
+
+      expect(frame).toContain("line60 = 5901");
+      expect(frame).not.toContain("line1 = 1001");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
   test("DiffPane keeps a selected hunk with inline notes fully visible when it fits", async () => {
     const theme = resolveTheme("midnight", null);
     const file = createViewportSizedBottomHunkDiffFile("target", "target.ts");

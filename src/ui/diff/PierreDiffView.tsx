@@ -2,12 +2,14 @@ import { useMemo } from "react";
 import type { DiffFile, LayoutMode } from "../../core/types";
 import { AgentInlineNote, AgentInlineNoteGuideCap } from "../components/panes/AgentInlineNote";
 import type { VisibleAgentNote } from "../lib/agentAnnotations";
+import type { DiffSectionGeometry } from "../lib/diffSectionGeometry";
 import { reviewRowId } from "../lib/ids";
 import type { AppTheme } from "../themes";
 import { findMaxLineNumber } from "./codeColumns";
 import { buildSplitRows, buildStackRows } from "./pierre";
 import { plannedReviewRowVisible } from "./plannedReviewRows";
 import { buildReviewRenderPlan } from "./reviewRenderPlan";
+import { resolveVisiblePlannedRowWindow, type VisibleBodyBounds } from "./rowWindowing";
 import { diffMessage, DiffRowView, fitText } from "./renderRows";
 import { useHighlightedDiff } from "./useHighlightedDiff";
 
@@ -28,8 +30,10 @@ export function PierreDiffView({
   visibleAgentNotes = EMPTY_VISIBLE_AGENT_NOTES,
   width,
   selectedHunkIndex,
+  sectionGeometry,
   shouldLoadHighlight = true,
   scrollable = true,
+  visibleBodyBounds,
 }: {
   annotatedHunkIndices?: Set<number>;
   codeHorizontalOffset?: number;
@@ -43,8 +47,10 @@ export function PierreDiffView({
   visibleAgentNotes?: VisibleAgentNote[];
   width: number;
   selectedHunkIndex: number;
+  sectionGeometry?: DiffSectionGeometry;
   shouldLoadHighlight?: boolean;
   scrollable?: boolean;
+  visibleBodyBounds?: VisibleBodyBounds;
 }) {
   const resolvedHighlighted = useHighlightedDiff({
     file,
@@ -74,6 +80,35 @@ export function PierreDiffView({
     [file, rows, showHunkHeaders, visibleAgentNotes],
   );
   const lineNumberDigits = useMemo(() => String(file ? findMaxLineNumber(file) : 1).length, [file]);
+  const visiblePlannedRowWindow = useMemo(() => {
+    // Fall back to the full row list unless all three row-windowing inputs are ready:
+    // - the complete planned row stream for this file
+    // - measured per-row geometry for that same stream
+    // - one file-local visible body slice from DiffPane
+    // The helper relies on those structures staying in lockstep, so any missing input means
+    // "render everything" instead of risking a mismatched partial slice.
+    if (!sectionGeometry || !visibleBodyBounds) {
+      return {
+        bottomSpacerHeight: 0,
+        plannedRows,
+        topSpacerHeight: 0,
+      };
+    }
+
+    // `visibleBodyBounds` is already relative to this file body, not the whole review stream.
+    // Example: if DiffPane says "mount rows 120..260 within package-lock.json", this helper keeps
+    // only the planned rows whose measured bounds overlap that interval.
+    //
+    // The return value is not just the sliced rows. It also includes spacer heights for the skipped
+    // region above and below so the file still occupies its original total body height inside the
+    // scroll stream. That lets navigation, sticky headers, and reveal math keep using the same
+    // absolute geometry even though most rows are temporarily unmounted.
+    return resolveVisiblePlannedRowWindow({
+      plannedRows,
+      sectionGeometry,
+      visibleBodyBounds,
+    });
+  }, [plannedRows, sectionGeometry, visibleBodyBounds]);
 
   if (!file) {
     return (
@@ -93,7 +128,18 @@ export function PierreDiffView({
 
   const content = (
     <box style={{ width: "100%", flexDirection: "column" }}>
-      {plannedRows.map((plannedRow) => {
+      {visiblePlannedRowWindow.topSpacerHeight > 0 ? (
+        // Reserve the skipped height above the mounted slice so the file body keeps its original
+        // absolute row positions inside the larger review stream.
+        <box
+          style={{
+            width: "100%",
+            height: visiblePlannedRowWindow.topSpacerHeight,
+            backgroundColor: theme.panel,
+          }}
+        />
+      ) : null}
+      {visiblePlannedRowWindow.plannedRows.map((plannedRow) => {
         // Mirror the same visibility/id decisions used by the scroll-bound helpers so the mounted
         // tree can be measured by hunk later.
         const rowId = reviewRowId(plannedRow.key);
@@ -154,6 +200,16 @@ export function PierreDiffView({
           </box>
         );
       })}
+      {visiblePlannedRowWindow.bottomSpacerHeight > 0 ? (
+        // Mirror that reservation below the mounted slice so total file-body height stays stable.
+        <box
+          style={{
+            width: "100%",
+            height: visiblePlannedRowWindow.bottomSpacerHeight,
+            backgroundColor: theme.panel,
+          }}
+        />
+      ) : null}
     </box>
   );
 

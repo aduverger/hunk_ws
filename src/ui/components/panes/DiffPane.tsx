@@ -37,6 +37,7 @@ import { DiffSection } from "./DiffSection";
 import { DiffFileHeaderRow } from "./DiffFileHeaderRow";
 import { DiffSectionPlaceholder } from "./DiffSectionPlaceholder";
 import { VerticalScrollbar, type VerticalScrollbarHandle } from "../scrollbar/VerticalScrollbar";
+import type { VisibleBodyBounds } from "../../diff/rowWindowing";
 import { prefetchHighlightedDiff } from "../../diff/useHighlightedDiff";
 
 const EMPTY_VISIBLE_AGENT_NOTES: VisibleAgentNote[] = [];
@@ -385,9 +386,9 @@ export function DiffPane({
   );
 
   const visibleViewportFileIds = useMemo(() => {
-    const overscanRows = 8;
-    const minVisibleY = Math.max(0, scrollViewport.top - overscanRows);
-    const maxVisibleY = scrollViewport.top + scrollViewport.height + overscanRows;
+    const overscanTerminalRows = 8;
+    const minVisibleY = Math.max(0, scrollViewport.top - overscanTerminalRows);
+    const maxVisibleY = scrollViewport.top + scrollViewport.height + overscanTerminalRows;
     return collectIntersectingFileSectionIds(baseFileSectionLayouts, minVisibleY, maxVisibleY);
   }, [baseFileSectionLayouts, scrollViewport.height, scrollViewport.top]);
 
@@ -589,6 +590,56 @@ export function DiffPane({
 
     return next;
   }, [adjacentPrefetchFileIds, selectedFileId, visibleViewportFileIds, windowingEnabled]);
+  const visibleBodyBoundsByFile = useMemo(() => {
+    const next = new Map<string, VisibleBodyBounds>();
+    if (scrollViewport.height <= 0) {
+      return next;
+    }
+
+    const overscanTerminalRows = Math.max(24, scrollViewport.height * 2);
+
+    files.forEach((file, index) => {
+      const sectionLayout = fileSectionLayouts[index];
+      const geometry = sectionGeometry[index];
+      if (!sectionLayout || !geometry) {
+        return;
+      }
+
+      const shouldRenderSection = visibleWindowedFileIds?.has(file.id) ?? true;
+      if (!shouldRenderSection) {
+        return;
+      }
+
+      // Convert the absolute review-stream viewport into file-body-local coordinates.
+      // Example: if the viewport starts at row 2_000 globally and this file body starts at row
+      // 1_940, then the file-local visible top is 60 rows into this file.
+      const minTop = scrollViewport.top - sectionLayout.bodyTop - overscanTerminalRows;
+      const maxBottom =
+        scrollViewport.top + scrollViewport.height - sectionLayout.bodyTop + overscanTerminalRows;
+
+      // Keep the mounted rows bounded to the viewport slice. Selection reveal uses planned hunk
+      // geometry as its fallback, so mounting an offscreen selected hunk is not necessary and would
+      // remount very large hunks in full.
+
+      // Clamp the requested file-local interval back into the real body extent, then store it as
+      // { top, height } so the row slicer can rebuild the matching [top, bottom) window later.
+      const clampedTop = Math.min(geometry.bodyHeight, Math.max(0, minTop));
+      const clampedBottom = Math.min(geometry.bodyHeight, Math.max(clampedTop, maxBottom));
+      next.set(file.id, {
+        top: clampedTop,
+        height: clampedBottom - clampedTop,
+      });
+    });
+
+    return next;
+  }, [
+    fileSectionLayouts,
+    files,
+    scrollViewport.height,
+    scrollViewport.top,
+    sectionGeometry,
+    visibleWindowedFileIds,
+  ]);
 
   const selectedFileIndex = selectedFileId
     ? files.findIndex((file) => file.id === selectedFileId)
@@ -1085,6 +1136,7 @@ export function DiffPane({
                       layout={layout}
                       selectedHunkIndex={file.id === selectedFileId ? selectedHunkIndex : -1}
                       shouldLoadHighlight={highlightPrefetchFileIds.has(file.id)}
+                      sectionGeometry={sectionGeometry[index]}
                       separatorWidth={separatorWidth}
                       showHeader={shouldRenderInStreamFileHeader(index)}
                       showSeparator={index > 0}
@@ -1096,6 +1148,7 @@ export function DiffPane({
                       visibleAgentNotes={
                         visibleAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES
                       }
+                      visibleBodyBounds={visibleBodyBoundsByFile.get(file.id)}
                       onOpenAgentNotesAtHunk={(hunkIndex) =>
                         onOpenAgentNotesAtHunk(file.id, hunkIndex)
                       }

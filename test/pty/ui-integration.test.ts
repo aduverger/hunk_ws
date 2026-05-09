@@ -163,6 +163,46 @@ describe("live UI integration", () => {
     }
   });
 
+  test("PTY sessions can navigate forward and backward between distant hunks in one large file", async () => {
+    const fixture = harness.createMultiHunkFilePair();
+    const session = await harness.launchHunk({
+      args: ["diff", fixture.before, fixture.after, "--mode", "split"],
+      cols: 104,
+      rows: 12,
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Theme\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      expect(initial).toContain("line1 = 100");
+      expect(initial).not.toContain("line60 = 6000");
+
+      await session.press("]");
+      const secondHunk = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("line60 = 6000") && !text.includes("line1 = 100"),
+        5_000,
+      );
+
+      expect(secondHunk).toContain("line60 = 6000");
+      expect(secondHunk).not.toContain("line1 = 100");
+
+      await session.press("[");
+      const firstHunk = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("line1 = 100") && !text.includes("line60 = 6000"),
+        5_000,
+      );
+
+      expect(firstHunk).toContain("line1 = 100");
+      expect(firstHunk).not.toContain("line60 = 6000");
+    } finally {
+      session.close();
+    }
+  });
+
   test("a short last file does not trap upward scrolling at the bottom edge", async () => {
     const fixture = harness.createBottomClampedRepoFixture();
     const session = await harness.launchHunk({
