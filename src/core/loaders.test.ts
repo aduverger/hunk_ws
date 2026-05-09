@@ -1058,4 +1058,125 @@ describe("loadAppBootstrap", () => {
     expect(bootstrap.changeset.files[0]?.path.endsWith("after.ts")).toBe(true);
     expect(bootstrap.changeset.files[0]?.stats.additions).toBeGreaterThan(0);
   });
+
+  test("loads patch text emitted with diff.noprefix=true (e.g. from `hunk pager` stdin)", async () => {
+    const bootstrap = await loadAppBootstrap({
+      kind: "patch",
+      text: [
+        "diff --git src/example.ts src/example.ts",
+        "index 0000000..1111111 100644",
+        "--- src/example.ts",
+        "+++ src/example.ts",
+        "@@ -1,1 +1,2 @@",
+        " const value = 1;",
+        "+const added = 2;",
+      ].join("\n"),
+      options: { mode: "auto" },
+    });
+
+    expect(bootstrap.changeset.files).toHaveLength(1);
+    expect(bootstrap.changeset.files[0]).toMatchObject({
+      path: "src/example.ts",
+      metadata: { name: "src/example.ts", type: "change" },
+    });
+    expect(bootstrap.changeset.files[0]?.stats.additions).toBe(1);
+  });
+
+  test("loads noprefix rename patches by recovering the rename pair from the headers", async () => {
+    const bootstrap = await loadAppBootstrap({
+      kind: "patch",
+      text: [
+        "diff --git old/path.ts new/path.ts",
+        "similarity index 100%",
+        "rename from old/path.ts",
+        "rename to new/path.ts",
+      ].join("\n"),
+      options: { mode: "auto" },
+    });
+
+    expect(bootstrap.changeset.files).toHaveLength(1);
+    expect(bootstrap.changeset.files[0]).toMatchObject({
+      path: "new/path.ts",
+      previousPath: "old/path.ts",
+      metadata: { type: "rename-pure" },
+    });
+  });
+
+  test("loads quoted noprefix patch text emitted for escaped git paths", async () => {
+    const dir = createTempRepo("hunk-patch-quoted-noprefix-");
+    const fileName = "src\tfile.txt";
+
+    writeFileSync(join(dir, fileName), "one\n");
+    git(dir, "add", ".");
+    git(dir, "commit", "-m", "initial");
+
+    writeFileSync(join(dir, fileName), "two\n");
+    const patchText = git(dir, "-c", "diff.noprefix=true", "diff", "--", fileName);
+
+    expect(patchText).toContain('diff --git "src\\tfile.txt" "src\\tfile.txt"');
+
+    const bootstrap = await loadAppBootstrap({
+      kind: "patch",
+      text: patchText,
+      options: { mode: "auto" },
+    });
+
+    expect(bootstrap.changeset.files).toHaveLength(1);
+    expect(bootstrap.changeset.files[0]).toMatchObject({
+      path: "src\\tfile.txt",
+      metadata: { name: "src\\tfile.txt", type: "change" },
+    });
+    expect(bootstrap.changeset.files[0]?.stats).toEqual({ additions: 1, deletions: 1 });
+  });
+
+  test("does not mangle a deleted SQL `-- comment` line in a noprefix patch", async () => {
+    // The original source line `-- drop table users;` (a SQL comment) is encoded in a unified
+    // diff deletion as `--- drop table users;` — three dashes (one for the deletion marker,
+    // two from the comment) and a space. That looks identical to a `--- a/path` file header
+    // on its own, so the noprefix prefix-restorer must stop rewriting `--- ` lines once the
+    // `+++ ` line of the current block has been emitted.
+    const bootstrap = await loadAppBootstrap({
+      kind: "patch",
+      text: [
+        "diff --git db/schema.sql db/schema.sql",
+        "index 0000000..1111111 100644",
+        "--- db/schema.sql",
+        "+++ db/schema.sql",
+        "@@ -1,3 +1,2 @@",
+        " CREATE TABLE users (id INT);",
+        "--- drop table users;",
+        " CREATE TABLE posts (id INT);",
+      ].join("\n"),
+      options: { mode: "auto" },
+    });
+
+    expect(bootstrap.changeset.files).toHaveLength(1);
+    const file = bootstrap.changeset.files[0]!;
+    expect(file.path).toBe("db/schema.sql");
+    expect(file.stats.deletions).toBe(1);
+    // The deleted content must round-trip as `-- drop table users;` (the original SQL line),
+    // not as `-- a/drop table users;` (the corruption produced when the rewriter is still
+    // active inside the hunk body).
+    expect(file.metadata.deletionLines).toContain("-- drop table users;\n");
+    expect(file.metadata.deletionLines.some((line) => line.includes("a/"))).toBe(false);
+  });
+
+  test("leaves correctly prefixed patches untouched even when paths sit inside an `a/` directory", async () => {
+    const bootstrap = await loadAppBootstrap({
+      kind: "patch",
+      text: [
+        "diff --git a/a/inner.ts b/a/inner.ts",
+        "index 0000000..1111111 100644",
+        "--- a/a/inner.ts",
+        "+++ b/a/inner.ts",
+        "@@ -1,1 +1,2 @@",
+        " const x = 1;",
+        "+const y = 2;",
+      ].join("\n"),
+      options: { mode: "auto" },
+    });
+
+    expect(bootstrap.changeset.files).toHaveLength(1);
+    expect(bootstrap.changeset.files[0]?.path).toBe("a/inner.ts");
+  });
 });
