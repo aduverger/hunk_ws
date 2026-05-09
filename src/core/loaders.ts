@@ -6,13 +6,15 @@ import {
   type FileDiffMetadata,
 } from "@pierre/diffs";
 import { createTwoFilesPatch } from "diff";
-import { resolve as resolvePath } from "node:path";
+import fs from "node:fs";
+import { join, resolve as resolvePath } from "node:path";
 import { findAgentFileContext, loadAgentContext } from "./agent";
 import { createSkippedBinaryMetadata, isProbablyBinaryFile, patchLooksBinary } from "./binary";
 import { normalizeDiffMetadataPaths, normalizeDiffPath } from "./diffPaths";
 import { HunkUserError } from "./errors";
 import {
   buildGitDiffArgs,
+  buildGitDiffNumstatArgs,
   buildGitShowArgs,
   buildGitStashShowArgs,
   listGitUntrackedFiles,
@@ -44,6 +46,10 @@ import type {
 interface LoadAppBootstrapOptions {
   cwd?: string;
 }
+
+const LARGE_DIFF_FILE_MAX_BYTES = 1_000_000;
+const LARGE_DIFF_FILE_MAX_LINES = 20_000;
+const LARGE_DIFF_FILE_SNIFF_BYTES = 256 * 1024;
 
 /** Return the final path segment for display-oriented labels. */
 function basename(path: string) {
@@ -205,6 +211,9 @@ interface BuildDiffFileOptions {
   isUntracked?: boolean;
   previousPath?: string;
   isBinary?: boolean;
+  isTooLarge?: boolean;
+  stats?: DiffFile["stats"];
+  statsTruncated?: boolean;
 }
 
 /** Build the normalized per-file model used by the UI regardless of input mode. */
@@ -214,7 +223,14 @@ function buildDiffFile(
   index: number,
   sourcePrefix: string,
   agentContext: AgentContext | null,
-  { isUntracked, previousPath, isBinary }: BuildDiffFileOptions = {},
+  {
+    isUntracked,
+    previousPath,
+    isBinary,
+    isTooLarge,
+    stats,
+    statsTruncated,
+  }: BuildDiffFileOptions = {},
 ): DiffFile {
   const normalizedMetadata = normalizeDiffMetadataPaths(metadata);
   const path = normalizedMetadata.name;
@@ -226,11 +242,13 @@ function buildDiffFile(
     previousPath: resolvedPreviousPath,
     patch,
     language: getFiletypeFromFileName(path) ?? undefined,
-    stats: countDiffStats(normalizedMetadata),
+    stats: stats ?? countDiffStats(normalizedMetadata),
     metadata: normalizedMetadata,
     agent: findAgentFileContext(agentContext, path, resolvedPreviousPath),
     isUntracked,
     isBinary: isBinary ?? patchLooksBinary(patch),
+    isTooLarge,
+    statsTruncated,
   };
 }
 
@@ -266,6 +284,162 @@ function normalizeUntrackedPatchHeaders(patchText: string, filePath: string) {
       return line;
     })
     .join("\n");
+}
+
+interface CountedLines {
+  complete: boolean;
+  lines: number;
+}
+
+/** Count text lines with a byte cap so huge skipped-file stats do not block startup. */
+function countLinesInFile(path: string, maxBytes: number, size: number): CountedLines {
+  let fd: number | undefined;
+
+  try {
+    fd = fs.openSync(path, "r");
+    const buffer = Buffer.alloc(Math.min(64 * 1024, maxBytes));
+    let position = 0;
+    let lineCount = 0;
+    let lastByte: number | undefined;
+
+    while (position < maxBytes) {
+      const bytesToRead = Math.min(buffer.length, maxBytes - position);
+      const bytesRead = fs.readSync(fd, buffer, 0, bytesToRead, position);
+      if (bytesRead === 0) {
+        break;
+      }
+
+      position += bytesRead;
+      for (let index = 0; index < bytesRead; index += 1) {
+        lastByte = buffer[index];
+        if (lastByte === 0x0a) {
+          lineCount += 1;
+        }
+      }
+    }
+
+    return {
+      complete: position >= size,
+      lines: lastByte !== undefined && lastByte !== 0x0a ? lineCount + 1 : lineCount,
+    };
+  } catch {
+    return { complete: true, lines: 0 };
+  } finally {
+    if (fd !== undefined) {
+      fs.closeSync(fd);
+    }
+  }
+}
+
+interface LargeUntrackedFileCheck {
+  shouldSkip: boolean;
+  stats?: DiffFile["stats"];
+  statsTruncated?: boolean;
+}
+
+/** Return whether an untracked file is too large to synthesize into a full in-memory patch. */
+function inspectLargeUntrackedFile(repoRoot: string, filePath: string): LargeUntrackedFileCheck {
+  const absolutePath = join(repoRoot, filePath);
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(absolutePath);
+  } catch {
+    return { shouldSkip: false };
+  }
+
+  const byteLimit =
+    stat.size > LARGE_DIFF_FILE_MAX_BYTES ? LARGE_DIFF_FILE_MAX_BYTES : LARGE_DIFF_FILE_SNIFF_BYTES;
+  const counted = countLinesInFile(absolutePath, byteLimit, stat.size);
+  const shouldSkip =
+    stat.size > LARGE_DIFF_FILE_MAX_BYTES || counted.lines > LARGE_DIFF_FILE_MAX_LINES;
+
+  return {
+    shouldSkip,
+    stats: shouldSkip ? { additions: counted.lines, deletions: 0 } : undefined,
+    statsTruncated: shouldSkip ? !counted.complete : undefined,
+  };
+}
+
+/** Build placeholder metadata for a file whose full diff would be too expensive. */
+function createSkippedLargeMetadata(
+  filePath: string,
+  type: FileDiffMetadata["type"],
+): FileDiffMetadata {
+  return {
+    name: filePath,
+    type,
+    hunks: [],
+    splitLineCount: 0,
+    unifiedLineCount: 0,
+    isPartial: true,
+    additionLines: [],
+    deletionLines: [],
+    cacheKey: `${filePath}:large-diff-skipped`,
+  };
+}
+
+interface GitNumstatFile {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+/** Parse `git diff --numstat -z` output for normal path entries. */
+function parseGitNumstat(text: string): GitNumstatFile[] {
+  return text
+    .split("\0")
+    .filter(Boolean)
+    .flatMap((entry) => {
+      const [additionsText, deletionsText, path] = entry.split("\t");
+      if (!additionsText || !deletionsText || !path) {
+        return [];
+      }
+
+      const additions = Number.parseInt(additionsText, 10);
+      const deletions = Number.parseInt(deletionsText, 10);
+      if (!Number.isFinite(additions) || !Number.isFinite(deletions)) {
+        return [];
+      }
+
+      return [{ path, additions, deletions }];
+    });
+}
+
+/** Return whether tracked diff stats are too large to render by default. */
+function shouldSkipLargeTrackedDiff(file: GitNumstatFile, repoRoot: string) {
+  if (file.additions + file.deletions > LARGE_DIFF_FILE_MAX_LINES) {
+    return true;
+  }
+
+  try {
+    return fs.statSync(join(repoRoot, file.path)).size > LARGE_DIFF_FILE_MAX_BYTES;
+  } catch {
+    return false;
+  }
+}
+
+/** Build a tracked placeholder for a file whose diff would be too expensive to render. */
+function buildSkippedLargeTrackedDiffFile(
+  file: GitNumstatFile,
+  index: number,
+  sourcePrefix: string,
+  agentContext: AgentContext | null,
+) {
+  return buildDiffFile(
+    createSkippedLargeMetadata(file.path, "change"),
+    "",
+    index,
+    sourcePrefix,
+    agentContext,
+    {
+      isTooLarge: true,
+      stats: {
+        additions: file.additions,
+        deletions: file.deletions,
+      },
+    },
+  );
 }
 
 /** Parse one synthetic untracked-file patch and reattach the real path after header normalization. */
@@ -305,6 +479,23 @@ function buildUntrackedDiffFile(
   sourcePrefix: string,
   agentContext: AgentContext | null,
 ) {
+  const largeFileCheck = inspectLargeUntrackedFile(repoRoot, filePath);
+  if (largeFileCheck.shouldSkip) {
+    return buildDiffFile(
+      createSkippedLargeMetadata(filePath, "new"),
+      "",
+      index,
+      sourcePrefix,
+      agentContext,
+      {
+        isTooLarge: true,
+        isUntracked: true,
+        stats: largeFileCheck.stats,
+        statsTruncated: largeFileCheck.statsTruncated,
+      },
+    );
+  }
+
   const patch = normalizeUntrackedPatchHeaders(
     runGitUntrackedFileDiffText(input, filePath, { repoRoot }),
     filePath,
@@ -527,17 +718,40 @@ async function loadGitChangeset(
     : input.range
       ? `${repoName} ${input.range}`
       : `${repoName} working tree`;
+  const largeTrackedFiles = parseGitNumstat(
+    runGitText({ input, args: buildGitDiffNumstatArgs(input), cwd }),
+  ).filter((file) => shouldSkipLargeTrackedDiff(file, repoRoot));
   const trackedChangeset = normalizePatchChangeset(
-    runGitText({ input, args: buildGitDiffArgs(input), cwd }),
+    runGitText({
+      input,
+      args: buildGitDiffArgs(
+        input,
+        largeTrackedFiles.map((file) => file.path),
+      ),
+      cwd,
+    }),
     title,
     repoRoot,
     agentContext,
   );
-  const trackedFiles = trackedChangeset.files;
+  const trackedFiles = [
+    ...trackedChangeset.files,
+    ...largeTrackedFiles.map((file, index) =>
+      buildSkippedLargeTrackedDiffFile(
+        file,
+        trackedChangeset.files.length + index,
+        repoRoot,
+        agentContext,
+      ),
+    ),
+  ];
   const untrackedFiles = listGitUntrackedFiles(input, { cwd, repoRoot });
 
   if (untrackedFiles.length === 0) {
-    return trackedChangeset;
+    return {
+      ...trackedChangeset,
+      files: trackedFiles,
+    } satisfies Changeset;
   }
 
   return {

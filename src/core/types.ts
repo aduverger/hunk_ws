@@ -42,6 +42,8 @@ export interface DiffFile {
   agent: AgentFileContext | null;
   isUntracked?: boolean;
   isBinary?: boolean;
+  isTooLarge?: boolean;
+  statsTruncated?: boolean;
 }
 
 export interface Changeset {

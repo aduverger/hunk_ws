@@ -297,6 +297,71 @@ describe("loadAppBootstrap", () => {
     expect(bootstrap.changeset.files[1]?.patch).toContain("new file mode");
   });
 
+  test("keeps generated large tracked diffs as skipped placeholders", async () => {
+    const dir = createTempRepo("hunk-git-large-tracked-");
+
+    writeFileSync(join(dir, "large.txt"), "original\n");
+    git(dir, "add", "large.txt");
+    git(dir, "commit", "-m", "initial");
+    writeFileSync(join(dir, "large.txt"), `${"x\n".repeat(100_000)}widest generated line\n`);
+
+    const bootstrap = await loadFromRepo(dir, {
+      kind: "vcs",
+      staged: false,
+      options: { mode: "auto" },
+    });
+
+    expect(bootstrap.changeset.files).toHaveLength(1);
+    expect(bootstrap.changeset.files[0]?.path).toBe("large.txt");
+    expect(bootstrap.changeset.files[0]?.isTooLarge).toBe(true);
+    expect(bootstrap.changeset.files[0]?.stats).toEqual({ additions: 100_001, deletions: 1 });
+    expect(bootstrap.changeset.files[0]?.metadata.hunks).toHaveLength(0);
+  });
+
+  test("keeps generated large untracked files as skipped placeholders", async () => {
+    const dir = createTempRepo("hunk-git-large-untracked-");
+
+    writeFileSync(join(dir, "tracked.ts"), "export const value = 1;\n");
+    git(dir, "add", "tracked.ts");
+    git(dir, "commit", "-m", "initial");
+    writeFileSync(join(dir, "large.txt"), `${"x\n".repeat(100_000)}widest generated line\n`);
+
+    const bootstrap = await loadFromRepo(dir, {
+      kind: "vcs",
+      staged: false,
+      options: { mode: "auto" },
+    });
+
+    expect(bootstrap.changeset.files).toHaveLength(1);
+    expect(bootstrap.changeset.files[0]?.path).toBe("large.txt");
+    expect(bootstrap.changeset.files[0]?.isTooLarge).toBe(true);
+    expect(bootstrap.changeset.files[0]?.stats).toEqual({ additions: 100_001, deletions: 0 });
+    expect(bootstrap.changeset.files[0]?.statsTruncated).toBe(false);
+    expect(bootstrap.changeset.files[0]?.metadata.hunks).toHaveLength(0);
+  });
+
+  test("caps skipped untracked-file stats when byte-size detection would require a full huge read", async () => {
+    const dir = createTempRepo("hunk-git-byte-large-untracked-");
+
+    writeFileSync(join(dir, "tracked.ts"), "export const value = 1;\n");
+    git(dir, "add", "tracked.ts");
+    git(dir, "commit", "-m", "initial");
+    writeFileSync(join(dir, "large-single-line.txt"), "x".repeat(1_000_001));
+
+    const bootstrap = await loadFromRepo(dir, {
+      kind: "vcs",
+      staged: false,
+      options: { mode: "auto" },
+    });
+
+    expect(bootstrap.changeset.files).toHaveLength(1);
+    expect(bootstrap.changeset.files[0]?.path).toBe("large-single-line.txt");
+    expect(bootstrap.changeset.files[0]?.isTooLarge).toBe(true);
+    expect(bootstrap.changeset.files[0]?.stats).toEqual({ additions: 1, deletions: 0 });
+    expect(bootstrap.changeset.files[0]?.statsTruncated).toBe(true);
+    expect(bootstrap.changeset.files[0]?.metadata.hunks).toHaveLength(0);
+  });
+
   test("skips untracked symlinks to directories while loading the rest of the review", async () => {
     const dir = createTempRepo("hunk-git-untracked-dir-symlink-");
 

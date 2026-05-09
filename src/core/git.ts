@@ -49,8 +49,33 @@ function withNormalizedDiffPrefixes(args: string[]) {
 }
 
 /** Build the exact `git diff` arguments used for the shared working-tree and range review path. */
-export function buildGitDiffArgs(input: VcsCommandInput) {
+export function buildGitDiffArgs(input: VcsCommandInput, excludedPathspecs: string[] = []) {
   const args = ["diff", "--no-ext-diff", "--find-renames", "--no-color"];
+
+  if (input.staged) {
+    args.push("--staged");
+  }
+
+  if (input.range) {
+    args.push(input.range);
+  }
+
+  if (excludedPathspecs.length > 0) {
+    args.push(
+      "--",
+      ...(input.pathspecs ?? []),
+      ...excludedPathspecs.map((path) => `:(exclude)${path}`),
+    );
+  } else {
+    appendGitPathspecs(args, input.pathspecs);
+  }
+
+  return withNormalizedDiffPrefixes(args);
+}
+
+/** Build the cheap tracked-file stats query used to skip huge file diffs before patch output. */
+export function buildGitDiffNumstatArgs(input: VcsCommandInput) {
+  const args = ["diff", "--no-ext-diff", "--find-renames", "--no-color", "--numstat", "-z"];
 
   if (input.staged) {
     args.push("--staged");

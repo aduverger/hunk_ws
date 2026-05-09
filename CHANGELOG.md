@@ -10,6 +10,8 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Fixed
 
+- Fixed large tracked and untracked file handling so very large diffs render as skipped placeholders instead of slowing startup or overflowing the JavaScript call stack.
+
 ## [0.11.0] - 2026-05-09
 
 ### Added

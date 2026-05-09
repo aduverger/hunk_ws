@@ -543,6 +543,10 @@ export function diffMessage(file: DiffFile) {
     return "Binary file skipped";
   }
 
+  if (file.isTooLarge) {
+    return "File too large to render automatically.";
+  }
+
   if (file.metadata.type === "new") {
     return "No textual hunks. The file is marked as new.";
   }
