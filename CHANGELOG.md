@@ -10,7 +10,7 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Fixed
 
-## [0.12.0-beta.0] - 2026-05-10
+## [0.12.0-beta.1] - 2026-05-10
 
 ### Added
 
@@ -22,6 +22,7 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Fixed
 
+- Fixed the prebuilt beta npm package so the `hunkdiff/opentui` export and bundled type declarations are included.
 - Made `hunk pager` emit static highlighted diff output for captured pager contexts like LazyGit, and pass diff input through unchanged when stdout is non-interactive.
 - Fixed Ctrl-Z job-control suspend support so Hunk can suspend and resume cleanly from a terminal.
 - Fixed Windows compatibility issues across paths, packaging, and tests.
@@ -303,8 +304,8 @@ All notable user-visible changes to Hunk are documented in this file.
 
 - Stabilized diff repainting, active-hunk scrolling, syntax highlighting, pager stdin patch handling, and terminal cleanup on exit.
 
-[Unreleased]: https://github.com/modem-dev/hunk/compare/v0.12.0-beta.0...HEAD
-[0.12.0-beta.0]: https://github.com/modem-dev/hunk/compare/v0.11.1...v0.12.0-beta.0
+[Unreleased]: https://github.com/modem-dev/hunk/compare/v0.12.0-beta.1...HEAD
+[0.12.0-beta.1]: https://github.com/modem-dev/hunk/compare/v0.11.1...v0.12.0-beta.1
 [0.11.1]: https://github.com/modem-dev/hunk/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/modem-dev/hunk/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/modem-dev/hunk/compare/v0.9.5...v0.10.0
