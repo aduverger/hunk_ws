@@ -171,6 +171,8 @@ Each example includes the exact command to run from the repository root.
 
 ## Contributing
 
+💬 _Join us on the Modem Discord: https://discord.gg/MKkTFvQ4_
+
 For source setup, tests, packaging checks, and repo architecture, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Sponsor
