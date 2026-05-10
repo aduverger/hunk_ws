@@ -99,8 +99,11 @@ function buildGitStatusArgs(input: VcsCommandInput) {
 
 /** Build the synthetic patch used to render one untracked file as a new-file diff. */
 function buildGitNewFileDiffArgs(filePath: string) {
+  // `--no-ext-diff` keeps user-configured `diff.external` tools (difftastic, delta, etc.)
+  // from replacing the unified-diff output Pierre needs to parse this synthetic patch.
   return withNormalizedDiffPrefixes([
     "diff",
+    "--no-ext-diff",
     "--no-index",
     "--no-color",
     "--",
@@ -123,7 +126,7 @@ export function buildGitShowArgs(input: ShowCommandInput) {
 
 /** Build the exact `git stash show -p` arguments used for stash review. */
 export function buildGitStashShowArgs(input: StashShowCommandInput) {
-  const args = ["stash", "show", "-p", "--find-renames", "--no-color"];
+  const args = ["stash", "show", "-p", "--no-ext-diff", "--find-renames", "--no-color"];
 
   if (input.ref) {
     args.push(input.ref);
