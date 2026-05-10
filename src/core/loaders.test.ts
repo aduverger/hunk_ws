@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadAppBootstrap } from "./loaders";
 import type { CliInput } from "./types";
@@ -20,6 +20,12 @@ function createTempDir(prefix: string) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   tempDirs.push(dir);
   return dir;
+}
+
+/** Normalize Windows short/long temp path spellings before path equality assertions. */
+function normalizeComparablePath(path: string) {
+  const resolvedPath = platform() === "win32" ? realpathSync.native(path) : path;
+  return resolvedPath.replace(/\\/g, "/");
 }
 
 function git(cwd: string, ...cmd: string[]) {
@@ -201,7 +207,9 @@ describe("loadAppBootstrap", () => {
       ),
     );
 
-    expect(bootstrap.changeset.sourceLabel).toBe(dir);
+    expect(normalizeComparablePath(bootstrap.changeset.sourceLabel)).toBe(
+      normalizeComparablePath(dir),
+    );
     expect(bootstrap.changeset.files[0]?.path).toBe("example.ts");
     expect(bootstrap.changeset.files[0]?.agent?.annotations).toHaveLength(1);
   });
@@ -411,7 +419,7 @@ describe("loadAppBootstrap", () => {
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
     git(dir, "commit", "-m", "initial");
-    git(dir, "branch", "main");
+    git(dir, "branch", "base-branch");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 2;\n");
     git(dir, "add", "tracked.ts");
@@ -422,7 +430,7 @@ describe("loadAppBootstrap", () => {
 
     const bootstrap = await loadFromRepo(dir, {
       kind: "vcs",
-      range: "main",
+      range: "base-branch",
       staged: false,
       options: { mode: "auto" },
     });
@@ -439,7 +447,7 @@ describe("loadAppBootstrap", () => {
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
     git(dir, "commit", "-m", "initial");
-    git(dir, "branch", "main");
+    git(dir, "branch", "base-branch");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 2;\n");
     git(dir, "add", "tracked.ts");
@@ -450,7 +458,7 @@ describe("loadAppBootstrap", () => {
 
     const bootstrap = await loadFromRepo(dir, {
       kind: "vcs",
-      range: "main..HEAD",
+      range: "base-branch..HEAD",
       staged: false,
       options: { mode: "auto" },
     });
@@ -489,12 +497,13 @@ describe("loadAppBootstrap", () => {
     git(dir, "add", "tracked.ts");
     git(dir, "commit", "-m", "initial");
 
-    const quoteFile = 'quote"name.txt';
-    const tabFile = "tab\tname.txt";
-    const backslashFile = "back\\slash.txt";
-    writeFileSync(join(dir, quoteFile), "quote\n");
-    writeFileSync(join(dir, tabFile), "tab\n");
-    writeFileSync(join(dir, backslashFile), "backslash\n");
+    const portableFiles = ["space name.txt"];
+    const unixOnlyFiles = ['quote"name.txt', "tab\tname.txt", "back\\slash.txt"];
+    const fixtureFiles =
+      platform() === "win32" ? portableFiles : [...portableFiles, ...unixOnlyFiles];
+    for (const file of fixtureFiles) {
+      writeFileSync(join(dir, file), `${file}\n`);
+    }
 
     const bootstrap = await loadFromRepo(dir, {
       kind: "vcs",
@@ -503,10 +512,10 @@ describe("loadAppBootstrap", () => {
     });
     const paths = bootstrap.changeset.files.map((file) => file.path);
 
-    expect(paths).toContain(quoteFile);
-    expect(paths).toContain(tabFile);
-    expect(paths).toContain(backslashFile);
-    expect(paths).toHaveLength(3);
+    for (const file of fixtureFiles) {
+      expect(paths).toContain(file);
+    }
+    expect(paths).toHaveLength(fixtureFiles.length);
   });
 
   test("still shows an untracked agent sidecar when it lives inside the repo", async () => {
@@ -1032,7 +1041,7 @@ describe("loadAppBootstrap", () => {
     writeFileSync(after, "export const answer = 42;\nexport const added = true;\n");
 
     const diffProc = Bun.spawnSync(
-      ["git", "diff", "--no-index", "--color=always", "--", before, after],
+      ["git", "diff", "--no-index", "--color=always", "--", "before.ts", "after.ts"],
       {
         cwd: dir,
         stdin: "ignore",
@@ -1185,17 +1194,16 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads quoted noprefix patch text emitted for escaped git paths", async () => {
-    const dir = createTempRepo("hunk-patch-quoted-noprefix-");
-    const fileName = "src\tfile.txt";
-
-    writeFileSync(join(dir, fileName), "one\n");
-    git(dir, "add", ".");
-    git(dir, "commit", "-m", "initial");
-
-    writeFileSync(join(dir, fileName), "two\n");
-    const patchText = git(dir, "-c", "diff.noprefix=true", "diff", "--", fileName);
-
-    expect(patchText).toContain('diff --git "src\\tfile.txt" "src\\tfile.txt"');
+    const patchText = [
+      'diff --git "src\\tfile.txt" "src\\tfile.txt"',
+      "index 5626abf..f719efd 100644",
+      '--- "src\\tfile.txt"',
+      '+++ "src\\tfile.txt"',
+      "@@ -1 +1 @@",
+      "-one",
+      "+two",
+      "",
+    ].join("\n");
 
     const bootstrap = await loadAppBootstrap({
       kind: "patch",

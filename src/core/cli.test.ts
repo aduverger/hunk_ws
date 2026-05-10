@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { parseCli } from "./cli";
 import { resolveCliVersion } from "./version";
 
@@ -371,8 +371,8 @@ describe("parseCli", () => {
     expect(parsed).toEqual({
       kind: "session",
       action: "reload",
-      selector: { sessionPath: "/tmp/live-window" },
-      sourcePath: "/tmp/source-repo",
+      selector: { sessionPath: resolve("/tmp/live-window") },
+      sourcePath: resolve("/tmp/source-repo"),
       nextInput: {
         kind: "vcs",
         staged: false,
@@ -626,7 +626,7 @@ describe("parseCli", () => {
     expect(parsed).toEqual({
       kind: "session",
       action: "navigate",
-      selector: { repoRoot: "/tmp/repo" },
+      selector: { repoRoot: resolve("/tmp/repo") },
       commentDirection: "next",
       output: "text",
     });
