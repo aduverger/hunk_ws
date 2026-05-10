@@ -3,6 +3,7 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { formatCliError } from "./core/errors";
+import { installJobControlSuspendSupport } from "./core/jobControl";
 import { pagePlainText } from "./core/pager";
 import { shutdownSession } from "./core/shutdown";
 import { prepareStartupPlan } from "./core/startup";
@@ -72,7 +73,9 @@ async function main() {
     onDestroy: () => controllingTerminal?.close(),
   });
 
-  const root = createRoot(renderer);
+  const appRenderer = renderer;
+  const jobControlSuspendSupport = installJobControlSuspendSupport(appRenderer);
+  const root = createRoot(appRenderer);
   let shuttingDown = false;
 
   /** Tear down the renderer before exit so the primary terminal screen comes back cleanly. */
@@ -82,8 +85,9 @@ async function main() {
     }
 
     shuttingDown = true;
+    jobControlSuspendSupport.dispose();
     hostClient.stop();
-    shutdownSession({ root, renderer });
+    shutdownSession({ root, renderer: appRenderer });
   }
 
   // The app owns the full alternate screen session from this point on.
