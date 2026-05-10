@@ -6,6 +6,7 @@ import { formatCliError } from "./core/errors";
 import { installJobControlSuspendSupport } from "./core/jobControl";
 import { pagePlainText } from "./core/pager";
 import { shutdownSession } from "./core/shutdown";
+import { renderStaticDiffPager } from "./ui/staticDiffPager";
 import { prepareStartupPlan } from "./core/startup";
 import { shouldUseMouseForApp } from "./core/terminal";
 import { resolveStartupUpdateNotice } from "./core/updateNotice";
@@ -45,6 +46,16 @@ async function main() {
 
   if (startupPlan.kind === "plain-text-pager") {
     await pagePlainText(startupPlan.text);
+    process.exit(0);
+  }
+
+  if (startupPlan.kind === "passthrough") {
+    process.stdout.write(startupPlan.text);
+    process.exit(0);
+  }
+
+  if (startupPlan.kind === "static-diff-pager") {
+    process.stdout.write(await renderStaticDiffPager(startupPlan.text, startupPlan.options));
     process.exit(0);
   }
 
