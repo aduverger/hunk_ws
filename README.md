@@ -72,7 +72,7 @@ git diff --no-color | hunk patch -          # review a patch from stdin
 ### Working with agents
 
 1. Open Hunk in another terminal with `hunk diff` or `hunk show`.
-2. Load the Hunk review skill: [`skills/hunk-review/SKILL.md`](skills/hunk-review/SKILL.md).
+2. Tell your agent to add the skill file returned by `hunk skill path`.
 3. Ask your agent to use the skill against the live Hunk session.
 
 A good generic prompt is:
@@ -80,9 +80,6 @@ A good generic prompt is:
 ```text
 Load the Hunk skill and use it for this review.
 ```
-
-> [!NOTE]
-> `hunk skill path` is available in Hunk 0.10.0 and newer. On older installs, load the skill from the repo path above.
 
 For the full live-session and `--agent-context` workflow guide, see [docs/agent-workflows.md](docs/agent-workflows.md).
 
