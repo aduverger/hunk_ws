@@ -6,9 +6,18 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.12.0-beta.2] - 2026-05-11
+
+### Added
+
 - Added Windows x64 prebuilt artifact publishing to the release workflow.
+- Added native Windows support in the README, contributor guide, and local build/install scripts.
 - Added Nix flake app outputs for `nix run` and a named `hunk` package output.
-- Documented native Windows support in the README and contributor guide.
+- Added automatic light/dark theme detection from the terminal background when `theme = "auto"` is enabled.
 
 ### Changed
 
@@ -312,7 +321,8 @@ All notable user-visible changes to Hunk are documented in this file.
 
 - Stabilized diff repainting, active-hunk scrolling, syntax highlighting, pager stdin patch handling, and terminal cleanup on exit.
 
-[Unreleased]: https://github.com/modem-dev/hunk/compare/v0.12.0-beta.1...HEAD
+[Unreleased]: https://github.com/modem-dev/hunk/compare/v0.12.0-beta.2...HEAD
+[0.12.0-beta.2]: https://github.com/modem-dev/hunk/compare/v0.12.0-beta.1...v0.12.0-beta.2
 [0.12.0-beta.1]: https://github.com/modem-dev/hunk/compare/v0.11.1...v0.12.0-beta.1
 [0.11.1]: https://github.com/modem-dev/hunk/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/modem-dev/hunk/compare/v0.10.0...v0.11.0
