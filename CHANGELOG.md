@@ -16,6 +16,8 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Fixed
 
+- Fixed Ctrl-C in the live TUI so it exits through Hunk's full shutdown path instead of only destroying the renderer.
+
 ## [0.12.0-beta.1] - 2026-05-10
 
 ### Added
