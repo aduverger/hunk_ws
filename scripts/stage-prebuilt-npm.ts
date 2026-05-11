@@ -171,12 +171,13 @@ const artifactRoot = options.artifactRoot ? path.resolve(options.artifactRoot) :
 rmSync(releaseRoot, { recursive: true, force: true });
 ensureDirectory(releaseRoot);
 
+const hostSpec = artifactRoot ? undefined : getHostPlatformPackageSpec();
 const artifacts = artifactRoot
   ? collectArtifactSpecs(artifactRoot)
   : [
       {
-        spec: getHostPlatformPackageSpec(),
-        compiledBinary: path.join(repoRoot, "dist", "hunk"),
+        spec: hostSpec!,
+        compiledBinary: path.join(repoRoot, "dist", binaryFilenameForSpec(hostSpec!)),
       },
     ];
 
@@ -195,5 +196,5 @@ for (const spec of stagedSpecs) {
 if (artifactRoot) {
   console.log(`Artifacts source: ${artifactRoot}`);
 } else {
-  console.log(`Artifacts source: ${path.join(repoRoot, "dist", "hunk")}`);
+  console.log(`Artifacts source: ${path.join(repoRoot, "dist", binaryFilenameForSpec(hostSpec!))}`);
 }
