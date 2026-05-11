@@ -363,10 +363,14 @@ describe("ui helpers", () => {
     const midnight = resolveTheme("midnight", null);
     const missingLight = resolveTheme("missing", "light");
     const missingDark = resolveTheme("missing", "dark");
+    const autoLight = resolveTheme("auto", "light");
+    const autoDark = resolveTheme("auto", "dark");
 
     expect(midnight.id).toBe("midnight");
     expect(missingLight.id).toBe("graphite");
     expect(missingDark.id).toBe("graphite");
+    expect(autoLight.id).toBe("paper");
+    expect(autoDark.id).toBe("graphite");
     expect(resolveTheme("ember", null).syntaxStyle).toBeDefined();
   });
 });

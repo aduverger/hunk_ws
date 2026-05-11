@@ -237,6 +237,76 @@ describe("startup planning", () => {
     ).rejects.toBeInstanceOf(HunkUserError);
   });
 
+  test("opens the controlling terminal for any app startup with piped stdin", async () => {
+    const cliInput: CliInput = {
+      kind: "vcs",
+      staged: false,
+      options: {
+        theme: "graphite",
+      },
+    };
+    const controllingTerminal = { stdin: {} as never, close: () => {} };
+    let opened = 0;
+
+    const plan = await prepareStartupPlan(["bun", "hunk", "diff", "--theme", "graphite"], {
+      parseCliImpl: async () => cliInput as ParsedCliInput,
+      resolveRuntimeCliInputImpl: (input) => input,
+      resolveConfiguredCliInputImpl: (input) => ({ input }) as never,
+      loadAppBootstrapImpl: async (input) => createBootstrap(input),
+      openControllingTerminalImpl: () => {
+        opened += 1;
+        return controllingTerminal;
+      },
+      stdinIsTTY: false,
+      stdoutIsTTY: true,
+    });
+
+    expect(plan).toMatchObject({
+      kind: "app",
+      cliInput,
+      controllingTerminal,
+    });
+    expect(opened).toBe(1);
+  });
+
+  test("detects auto theme through the controlling terminal before app startup", async () => {
+    const cliInput: CliInput = {
+      kind: "patch",
+      file: "-",
+      options: {
+        theme: "auto",
+        pager: true,
+      },
+    };
+    const controllingTerminal = { stdin: {} as never, close: () => {} };
+    let opened = 0;
+
+    const plan = await prepareStartupPlan(["bun", "hunk", "patch", "-", "--theme", "auto"], {
+      parseCliImpl: async () => cliInput as ParsedCliInput,
+      resolveRuntimeCliInputImpl: (input) => input,
+      resolveConfiguredCliInputImpl: (input) => ({ input }) as never,
+      loadAppBootstrapImpl: async (input) => createBootstrap(input),
+      openControllingTerminalImpl: () => {
+        opened += 1;
+        return controllingTerminal;
+      },
+      detectTerminalThemeModeFromBackgroundImpl: async ({ input }) => {
+        expect(input).toBe(controllingTerminal.stdin);
+        return "dark";
+      },
+      stdinIsTTY: false,
+      stdoutIsTTY: true,
+      stdout: { write: () => true } as never,
+    });
+
+    expect(plan).toMatchObject({
+      kind: "app",
+      controllingTerminal,
+      bootstrap: { initialThemeMode: "dark" },
+    });
+    expect(opened).toBe(1);
+  });
+
   test("opens the controlling terminal for piped patch startup", async () => {
     const cliInput: CliInput = {
       kind: "patch",

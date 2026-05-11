@@ -102,8 +102,10 @@ export function App({
   const layoutToggleScrollTopRef = useRef<number | null>(null);
   const [layoutToggleRequestId, setLayoutToggleRequestId] = useState(0);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(bootstrap.initialMode);
-  const [themeId, setThemeId] = useState(
-    () => resolveTheme(bootstrap.initialTheme, renderer.themeMode).id,
+  const [themeId, setThemeId] = useState(() =>
+    bootstrap.initialTheme === "auto"
+      ? "auto"
+      : resolveTheme(bootstrap.initialTheme, bootstrap.initialThemeMode ?? null).id,
   );
   const [showAgentNotes, setShowAgentNotes] = useState(bootstrap.initialShowAgentNotes ?? false);
   const [showLineNumbers, setShowLineNumbers] = useState(bootstrap.initialShowLineNumbers ?? true);
@@ -118,7 +120,7 @@ export function App({
   const [resizeDragOriginX, setResizeDragOriginX] = useState<number | null>(null);
   const [resizeStartWidth, setResizeStartWidth] = useState<number | null>(null);
 
-  const activeTheme = resolveTheme(themeId, renderer.themeMode);
+  const activeTheme = resolveTheme(themeId, bootstrap.initialThemeMode ?? null);
   const review = useReviewController({ files: bootstrap.changeset.files });
   const filteredFiles = review.visibleFiles;
   const selectedFile = review.selectedFile;
