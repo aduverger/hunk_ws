@@ -22,7 +22,7 @@ Nix users can install Hunk from source instead of using npm.
 ```nix
 {
   environment.systemPackages = [
-    inputs.hunk.packages.${pkgs.stdenv.hostPlatform.system}.default
+    inputs.hunk.packages.${pkgs.stdenv.hostPlatform.system}.hunk
   ];
 }
 ```
@@ -32,7 +32,7 @@ Or in Home Manager `home.packages`:
 ```nix
 {
   home.packages = [
-    inputs.hunk.packages.${pkgs.stdenv.hostPlatform.system}.default
+    inputs.hunk.packages.${pkgs.stdenv.hostPlatform.system}.hunk
   ];
 }
 ```
@@ -63,6 +63,14 @@ Hunk provides a Home Manager module to manage both the package and its configura
 
 `enableGitIntegration` writes to Home Manager's Git configuration, so it requires Home Manager's Git module to be enabled with `programs.git.enable = true;`.
 
+## Running from a flake
+
+Run Hunk directly with Nix:
+
+```bash
+nix run github:modem-dev/hunk -- --help
+```
+
 ## Updating Hunk
 
 Flake users update Hunk by updating their own pinned `flake.lock` input:
@@ -73,8 +81,13 @@ nix flake lock --update-input hunk
 
 ## Building using Nix
 
-Simply run `nix build .#packages.{YOUR_SYSTEM}.default` where YOUR_SYSTEM is one of `x86_64-linux`, `x86_64-darwin`, `aarch64-linux` or `aarch64-darwin`. The resulting
-Hunk binary will be `./result/bin/hunk`.
+Run `nix build` to build the default package for the current system. The resulting Hunk binary will be `./result/bin/hunk`.
+
+You can also build the named package explicitly:
+
+```bash
+nix build .#hunk
+```
 
 ## Maintainer dependency updates
 
@@ -83,3 +96,5 @@ When JavaScript or Bun dependencies change, regenerate the Nix dependency lockfi
 ```bash
 bun run nix:update-lock
 ```
+
+This script requires Nix and runs the flake-pinned `bun2nix` version from `flake.lock`.

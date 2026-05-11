@@ -71,7 +71,7 @@
     "bench:highlight-prefetch": "bun run benchmarks/highlight-prefetch.ts",
     "bench:large-stream": "bun run benchmarks/large-stream.ts",
     "bench:large-stream-profile": "bun run benchmarks/large-stream-profile.ts",
-    "nix:update-lock": "bunx bun2nix -o nix/bun.lock.nix -c ../"
+    "nix:update-lock": "nix run .#update-bun-lock"
   },
   "dependencies": {
     "@pierre/diffs": "^1.1.19",
@@ -87,7 +87,7 @@
     "@hunk/session-broker-node": "workspace:*",
     "@opentui/core": "^0.1.88",
     "@opentui/react": "^0.1.88",
-    "@types/bun": "latest",
+    "@types/bun": "1.3.13",
     "@types/react": "^19.2.14",
     "@types/ws": "^8.18.1",
     "lint-staged": "^16.4.0",
