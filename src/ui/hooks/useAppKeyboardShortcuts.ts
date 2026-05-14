@@ -19,6 +19,27 @@ type ScrollUnit = "step" | "viewport" | "content" | "half";
 
 const FAST_CODE_HORIZONTAL_SCROLL_COLUMNS = 8;
 
+type JumpShortcut = "top" | "bottom";
+
+/** Detect an unmodified lowercase g keypress. */
+function isLowercaseGKey(key: KeyEvent) {
+  return (
+    (key.name === "g" || key.sequence === "g") &&
+    !key.shift &&
+    !key.option &&
+    !key.ctrl &&
+    !key.meta
+  );
+}
+
+/** Detect an unmodified uppercase G keypress. */
+function isUppercaseGKey(key: KeyEvent) {
+  return (
+    (key.sequence === "G" && !key.option && !key.ctrl && !key.meta) ||
+    (key.name === "g" && key.shift && !key.option && !key.ctrl && !key.meta)
+  );
+}
+
 export interface UseAppKeyboardShortcutsOptions {
   activeMenuId: MenuId | null;
   activateCurrentMenuItem: () => void;
@@ -91,6 +112,18 @@ export function useAppKeyboardShortcuts({
   pagerModeRef.current = pagerMode;
   showHelpRef.current = showHelp;
 
+  const resolveJumpShortcut = (key: KeyEvent): JumpShortcut | null => {
+    if (isUppercaseGKey(key)) {
+      return "bottom";
+    }
+
+    if (isLowercaseGKey(key)) {
+      return "top";
+    }
+
+    return null;
+  };
+
   const runAndCloseMenu = (action: () => void) => {
     action();
     closeMenu();
@@ -115,6 +148,17 @@ export function useAppKeyboardShortcuts({
   };
 
   const handlePagerShortcut = (key: KeyEvent) => {
+    const jumpShortcut = resolveJumpShortcut(key);
+    if (jumpShortcut === "top") {
+      scrollDiff(-1, "content");
+      return;
+    }
+
+    if (jumpShortcut === "bottom") {
+      scrollDiff(1, "content");
+      return;
+    }
+
     if (key.name === "q" || isEscapeKey(key)) {
       requestQuit();
       return;
@@ -242,6 +286,17 @@ export function useAppKeyboardShortcuts({
   };
 
   const handleAppShortcut = (key: KeyEvent) => {
+    const jumpShortcut = resolveJumpShortcut(key);
+    if (jumpShortcut === "top") {
+      scrollDiff(-1, "content");
+      return;
+    }
+
+    if (jumpShortcut === "bottom") {
+      scrollDiff(1, "content");
+      return;
+    }
+
     if (key.name === "q") {
       requestQuit();
       return;

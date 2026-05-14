@@ -18,6 +18,9 @@ import { createTestDiffFile as buildTestDiffFile, lines } from "../../test/helpe
 const { loadAppBootstrap } = await import("../core/loaders");
 const { AppHost } = await import("./AppHost");
 
+const TEST_KEY_PAGE_UP = "\x1B[5~";
+const TEST_KEY_PAGE_DOWN = "\x1B[6~";
+
 function createTestDiffFile(
   id: string,
   path: string,
@@ -1604,7 +1607,7 @@ describe("App interactions", () => {
       setup.captureCharFrame();
 
       await act(async () => {
-        await setup.mockInput.pressKey("pageup");
+        await setup.mockInput.pressKey(TEST_KEY_PAGE_UP);
       });
       await flush(setup);
 
@@ -1683,6 +1686,129 @@ describe("App interactions", () => {
       await flush(setup);
       frame = setup.captureCharFrame();
       expect(frame).toContain("export const line");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("G jumps to the bottom and g jumps back to the top", async () => {
+    const before =
+      Array.from(
+        { length: 120 },
+        (_, index) => `export const line${String(index + 1).padStart(2, "0")} = ${index + 1};`,
+      ).join("\n") + "\n";
+    const after =
+      Array.from(
+        { length: 120 },
+        (_, index) => `export const line${String(index + 1).padStart(2, "0")} = ${index + 1001};`,
+      ).join("\n") + "\n";
+
+    const bootstrap: AppBootstrap = {
+      input: {
+        kind: "vcs",
+        staged: false,
+        options: {
+          mode: "split",
+        },
+      },
+      changeset: {
+        id: "changeset:g-capital-g",
+        sourceLabel: "repo",
+        title: "repo working tree",
+        files: [createTestDiffFile("g", "g.ts", before, after)],
+      },
+      initialMode: "split",
+      initialTheme: "midnight",
+    };
+
+    const setup = await testRender(<AppHost bootstrap={bootstrap} />, {
+      width: 220,
+      height: 12,
+      otherModifiersMode: true,
+    });
+
+    try {
+      await flush(setup);
+      let frame = setup.captureCharFrame();
+      expect(frame).toContain("line01 = 1001");
+
+      await act(async () => {
+        await setup.mockInput.pressKey("g", { shift: true });
+      });
+      await flush(setup);
+      frame = setup.captureCharFrame();
+      expect(frame).toContain("line120 = 1120");
+
+      await act(async () => {
+        await setup.mockInput.pressKey("g");
+      });
+      await flush(setup);
+      frame = setup.captureCharFrame();
+      expect(frame).toContain("line01 = 1001");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("pager mode also supports G and g top/bottom jumps", async () => {
+    const before =
+      Array.from(
+        { length: 120 },
+        (_, index) => `export const line${String(index + 1).padStart(2, "0")} = ${index + 1};`,
+      ).join("\n") + "\n";
+    const after =
+      Array.from(
+        { length: 120 },
+        (_, index) => `export const line${String(index + 1).padStart(2, "0")} = ${index + 1001};`,
+      ).join("\n") + "\n";
+
+    const bootstrap: AppBootstrap = {
+      input: {
+        kind: "vcs",
+        staged: false,
+        options: {
+          mode: "split",
+          pager: true,
+        },
+      },
+      changeset: {
+        id: "changeset:pager-g-capital-g",
+        sourceLabel: "repo",
+        title: "repo working tree",
+        files: [createTestDiffFile("pager-g", "pager-g.ts", before, after)],
+      },
+      initialMode: "split",
+      initialTheme: "midnight",
+    };
+
+    const setup = await testRender(<AppHost bootstrap={bootstrap} />, {
+      width: 220,
+      height: 12,
+      otherModifiersMode: true,
+    });
+
+    try {
+      await flush(setup);
+      let frame = setup.captureCharFrame();
+      expect(frame).toContain("line01 = 1001");
+
+      await act(async () => {
+        await setup.mockInput.pressKey("g", { shift: true });
+      });
+      await flush(setup);
+      frame = setup.captureCharFrame();
+      expect(frame).toContain("line120 = 1120");
+
+      await act(async () => {
+        await setup.mockInput.pressKey("g");
+      });
+      await flush(setup);
+      frame = setup.captureCharFrame();
+      expect(frame).toContain("line01 = 1001");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -2245,7 +2371,7 @@ describe("App interactions", () => {
       let snapshot = getLatestSnapshot();
       for (let index = 0; index < 8; index += 1) {
         await act(async () => {
-          await setup.mockInput.pressKey("pagedown");
+          await setup.mockInput.pressKey(TEST_KEY_PAGE_DOWN);
         });
         await flush(setup);
 
@@ -2269,7 +2395,7 @@ describe("App interactions", () => {
 
       for (let index = 0; index < 8; index += 1) {
         await act(async () => {
-          await setup.mockInput.pressKey("pageup");
+          await setup.mockInput.pressKey(TEST_KEY_PAGE_UP);
         });
         await flush(setup);
 
