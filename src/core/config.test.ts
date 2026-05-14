@@ -161,7 +161,7 @@ describe("config resolution", () => {
     expect(fallbackResolved.input.options.excludeUntracked).toBe(false);
   });
 
-  test("defaults to git VCS mode and accepts jj from config", () => {
+  test("defaults to git VCS mode and accepts registered VCS modes from config", () => {
     const home = createTempDir("hunk-config-home-");
     mkdirSync(join(home, ".config", "hunk"), { recursive: true });
     writeFileSync(join(home, ".config", "hunk", "config.toml"), 'vcs = "jj"\n');
@@ -188,7 +188,7 @@ describe("config resolution", () => {
     expect(configuredResolved.input.options.vcs).toBe("jj");
   });
 
-  test("auto-detects jj checkouts before falling back to git mode", () => {
+  test("auto-detects registered VCS checkouts before falling back to git mode", () => {
     const home = createTempDir("hunk-config-home-");
     const jjRepo = createTempDir("hunk-config-jj-repo-");
     const colocatedRepo = createTempDir("hunk-config-colocated-repo-");

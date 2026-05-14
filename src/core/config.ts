@@ -1,6 +1,7 @@
 import fs from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import { resolveGlobalConfigPath } from "./paths";
+import { detectVcs, findVcsRepoRootCandidate, isVcsId } from "./vcs";
 import type {
   CliInput,
   CommonOptions,
@@ -39,7 +40,7 @@ function normalizeLayoutMode(value: unknown): LayoutMode | undefined {
 
 /** Accept only the VCS backends Hunk can load directly. */
 function normalizeVcsMode(value: unknown): VcsMode | undefined {
-  return value === "git" || value === "jj" ? value : undefined;
+  return isVcsId(value) ? value : undefined;
 }
 
 /** Accept only plain booleans from config files. */
@@ -101,31 +102,9 @@ function resolveConfigLayer(source: Record<string, unknown>, input: CliInput): C
   return resolved;
 }
 
-/** Return the first parent that looks like a repository root. */
-function findRepoRoot(cwd = process.cwd()) {
-  let current = resolve(cwd);
-
-  for (;;) {
-    if (fs.existsSync(join(current, ".git")) || fs.existsSync(join(current, ".jj"))) {
-      return current;
-    }
-
-    const parent = dirname(current);
-    if (parent === current) {
-      return undefined;
-    }
-
-    current = parent;
-  }
-}
-
 /** Choose the VCS backend that best matches the discovered checkout. */
-function detectRepoVcsMode(repoRoot?: string): VcsMode {
-  if (repoRoot && fs.existsSync(join(repoRoot, ".jj"))) {
-    return "jj";
-  }
-
-  return "git";
+function detectRepoVcsMode(cwd: string): VcsMode {
+  return detectVcs(cwd)?.id ?? "git";
 }
 
 /** Parse one TOML config file into a plain object. */
@@ -147,13 +126,13 @@ export function resolveConfiguredCliInput(
   input: CliInput,
   { cwd = process.cwd(), env = process.env }: ConfigResolutionOptions = {},
 ): HunkConfigResolution {
-  const repoRoot = findRepoRoot(cwd);
+  const repoRoot = findVcsRepoRootCandidate(cwd);
   const repoConfigPath = repoRoot ? join(repoRoot, ".hunk", "config.toml") : undefined;
   const userConfigPath = resolveGlobalConfigPath(env);
 
   let resolvedOptions: CommonOptions = {
     mode: DEFAULT_VIEW_PREFERENCES.mode,
-    vcs: detectRepoVcsMode(repoRoot),
+    vcs: detectRepoVcsMode(cwd),
     // Keep the built-in theme default explicit so stdin-backed startup paths do not depend on
     // renderer theme-mode detection for their initial palette.
     theme: "graphite",

@@ -11,24 +11,8 @@ import { join, resolve as resolvePath } from "node:path";
 import { findAgentFileContext, loadAgentContext } from "./agent";
 import { createSkippedBinaryMetadata, isProbablyBinaryFile, patchLooksBinary } from "./binary";
 import { normalizeDiffMetadataPaths, normalizeDiffPath } from "./diffPaths";
-import { HunkUserError } from "./errors";
-import {
-  buildGitDiffArgs,
-  buildGitDiffNumstatArgs,
-  buildGitShowArgs,
-  buildGitStashShowArgs,
-  listGitUntrackedFiles,
-  resolveGitRepoRoot,
-  runGitText,
-  runGitUntrackedFileDiffText,
-} from "./git";
-import {
-  buildJjDiffArgs,
-  buildJjShowArgs,
-  createJjStagedError,
-  resolveJjRepoRoot,
-  runJjText,
-} from "./jj";
+import { runGitUntrackedFileDiffText } from "./git";
+import { createUnsupportedVcsOperationError, getVcsAdapter, operationFromInput } from "./vcs";
 import type {
   AppBootstrap,
   AgentContext,
@@ -640,69 +624,6 @@ function createSkippedLargeMetadata(
   };
 }
 
-interface GitNumstatFile {
-  path: string;
-  additions: number;
-  deletions: number;
-}
-
-/** Parse `git diff --numstat -z` output for normal path entries. */
-function parseGitNumstat(text: string): GitNumstatFile[] {
-  return text
-    .split("\0")
-    .filter(Boolean)
-    .flatMap((entry) => {
-      const [additionsText, deletionsText, path] = entry.split("\t");
-      if (!additionsText || !deletionsText || !path) {
-        return [];
-      }
-
-      const additions = Number.parseInt(additionsText, 10);
-      const deletions = Number.parseInt(deletionsText, 10);
-      if (!Number.isFinite(additions) || !Number.isFinite(deletions)) {
-        return [];
-      }
-
-      return [{ path, additions, deletions }];
-    });
-}
-
-/** Return whether tracked diff stats are too large to render by default. */
-function shouldSkipLargeTrackedDiff(file: GitNumstatFile, repoRoot: string) {
-  if (file.additions + file.deletions > LARGE_DIFF_FILE_MAX_LINES) {
-    return true;
-  }
-
-  try {
-    return fs.statSync(join(repoRoot, file.path)).size > LARGE_DIFF_FILE_MAX_BYTES;
-  } catch {
-    return false;
-  }
-}
-
-/** Build a tracked placeholder for a file whose diff would be too expensive to render. */
-function buildSkippedLargeTrackedDiffFile(
-  file: GitNumstatFile,
-  index: number,
-  sourcePrefix: string,
-  agentContext: AgentContext | null,
-) {
-  return buildDiffFile(
-    createSkippedLargeMetadata(file.path, "change"),
-    "",
-    index,
-    sourcePrefix,
-    agentContext,
-    {
-      isTooLarge: true,
-      stats: {
-        additions: file.additions,
-        deletions: file.deletions,
-      },
-    },
-  );
-}
-
 /** Parse one synthetic untracked-file patch and reattach the real path after header normalization. */
 function parseUntrackedPatchFile(patchText: string, filePath: string) {
   let parsedPatches: ReturnType<typeof parsePatchFiles>;
@@ -966,151 +887,55 @@ async function loadFileDiffChangeset(
   } satisfies Changeset;
 }
 
-/** Build a changeset from the current repository working tree or a git range. */
-async function loadGitChangeset(
-  input: VcsCommandInput,
+/** Build a changeset from an adapter-backed VCS review operation. */
+async function loadVcsChangeset(
+  input: VcsCommandInput | ShowCommandInput | StashShowCommandInput,
   agentContext: AgentContext | null,
   cwd = process.cwd(),
 ) {
-  const repoRoot = resolveGitRepoRoot(input, { cwd });
-  const repoName = basename(repoRoot);
-  const title = input.staged
-    ? `${repoName} staged changes`
-    : input.range
-      ? `${repoName} ${input.range}`
-      : `${repoName} working tree`;
-  const largeTrackedFiles = parseGitNumstat(
-    runGitText({ input, args: buildGitDiffNumstatArgs(input), cwd }),
-  ).filter((file) => shouldSkipLargeTrackedDiff(file, repoRoot));
-  const trackedChangeset = normalizePatchChangeset(
-    runGitText({
-      input,
-      args: buildGitDiffArgs(
-        input,
-        largeTrackedFiles.map((file) => file.path),
-      ),
-      cwd,
-    }),
-    title,
-    repoRoot,
+  const adapter = getVcsAdapter(input.options.vcs ?? "git");
+  const operation = operationFromInput(input);
+  if (!adapter.capabilities.reviewOperations.has(operation.kind)) {
+    throw createUnsupportedVcsOperationError(adapter, operation);
+  }
+
+  const result = await adapter.loadReview(operation, { cwd });
+  const parsedChangeset = normalizePatchChangeset(
+    result.patchText,
+    result.title,
+    result.sourceLabel,
     agentContext,
   );
-  const trackedFiles = [
-    ...trackedChangeset.files,
-    ...largeTrackedFiles.map((file, index) =>
-      buildSkippedLargeTrackedDiffFile(
-        file,
-        trackedChangeset.files.length + index,
-        repoRoot,
-        agentContext,
-      ),
-    ),
-  ];
-  const untrackedFiles = listGitUntrackedFiles(input, { cwd, repoRoot });
+  const adapterFiles = (result.extraFiles ?? []).map((file, index) => ({
+    ...file,
+    id: `${file.id}:extra:${index}`,
+    agent: findAgentFileContext(agentContext, file.path, file.previousPath),
+  }));
+  const trackedFiles = [...parsedChangeset.files, ...adapterFiles];
 
-  if (untrackedFiles.length === 0) {
+  if (operation.kind !== "working-tree-diff" || !result.untrackedFiles?.length) {
     return {
-      ...trackedChangeset,
+      ...parsedChangeset,
       files: trackedFiles,
     } satisfies Changeset;
   }
 
   return {
-    ...trackedChangeset,
+    ...parsedChangeset,
     files: [
       ...trackedFiles,
-      ...untrackedFiles.map((filePath, index) =>
+      ...result.untrackedFiles.map((filePath, index) =>
         buildUntrackedDiffFile(
-          input,
+          operation.input,
           filePath,
           trackedFiles.length + index,
-          repoRoot,
-          repoRoot,
+          result.repoRoot,
+          result.sourceLabel,
           agentContext,
         ),
       ),
     ],
   } satisfies Changeset;
-}
-
-/** Build a changeset from the current Jujutsu working-copy commit or a revset. */
-async function loadJjDiffChangeset(
-  input: VcsCommandInput,
-  agentContext: AgentContext | null,
-  cwd = process.cwd(),
-) {
-  if (input.staged) {
-    throw createJjStagedError(input);
-  }
-
-  const repoRoot = resolveJjRepoRoot(input, { cwd });
-  const repoName = basename(repoRoot);
-  const title = input.range ? `${repoName} ${input.range}` : `${repoName} working copy`;
-
-  return normalizePatchChangeset(
-    runJjText({ input, args: buildJjDiffArgs(input), cwd }),
-    title,
-    repoRoot,
-    agentContext,
-  );
-}
-
-/** Build a changeset from `git show`, suppressing commit-message chrome so only the patch feeds the UI. */
-async function loadShowChangeset(
-  input: ShowCommandInput,
-  agentContext: AgentContext | null,
-  cwd = process.cwd(),
-) {
-  const repoRoot = resolveGitRepoRoot(input, { cwd });
-  const repoName = basename(repoRoot);
-
-  return normalizePatchChangeset(
-    runGitText({ input, args: buildGitShowArgs(input), cwd }),
-    input.ref ? `${repoName} show ${input.ref}` : `${repoName} show HEAD`,
-    repoRoot,
-    agentContext,
-  );
-}
-
-/** Build a changeset from one Jujutsu revset using Git-format patch output. */
-async function loadJjShowChangeset(
-  input: ShowCommandInput,
-  agentContext: AgentContext | null,
-  cwd = process.cwd(),
-) {
-  const repoRoot = resolveJjRepoRoot(input, { cwd });
-  const repoName = basename(repoRoot);
-  const revset = input.ref ?? "@";
-
-  return normalizePatchChangeset(
-    runJjText({ input, args: buildJjShowArgs(input), cwd }),
-    `${repoName} show ${revset}`,
-    repoRoot,
-    agentContext,
-  );
-}
-
-/** Build a changeset from `git stash show -p`, which naturally maps to one reviewable patch. */
-async function loadStashShowChangeset(
-  input: StashShowCommandInput,
-  agentContext: AgentContext | null,
-  cwd = process.cwd(),
-) {
-  if (input.options.vcs === "jj") {
-    throw new HunkUserError("`hunk stash show` requires Git VCS mode.", [
-      'Set `vcs = "git"` in Hunk config, then try again.',
-    ]);
-  }
-
-  const repoRoot = resolveGitRepoRoot(input, { cwd });
-  const repoName = basename(repoRoot);
-
-  return normalizePatchChangeset(
-    runGitText({ input, args: buildGitStashShowArgs(input), cwd }),
-    input.ref ? `${repoName} stash ${input.ref}` : `${repoName} stash`,
-    repoRoot,
-    agentContext,
-  );
 }
 
 /** Build a changeset from patch text supplied by file or stdin. */
@@ -1145,19 +970,9 @@ export async function loadAppBootstrap(
 
   switch (input.kind) {
     case "vcs":
-      changeset =
-        input.options.vcs === "jj"
-          ? await loadJjDiffChangeset(input, agentContext, cwd)
-          : await loadGitChangeset(input, agentContext, cwd);
-      break;
     case "show":
-      changeset =
-        input.options.vcs === "jj"
-          ? await loadJjShowChangeset(input, agentContext, cwd)
-          : await loadShowChangeset(input, agentContext, cwd);
-      break;
     case "stash-show":
-      changeset = await loadStashShowChangeset(input, agentContext, cwd);
+      changeset = await loadVcsChangeset(input, agentContext, cwd);
       break;
     case "diff":
       changeset = await loadFileDiffChangeset(input, agentContext, cwd);
