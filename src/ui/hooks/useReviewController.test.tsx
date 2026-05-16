@@ -454,4 +454,120 @@ describe("useReviewController", () => {
       });
     }
   });
+
+  test("sidecar annotations are exposed as AI review notes", async () => {
+    const controllerRef: { current: ReviewController | null } = { current: null };
+    const setup = await testRender(
+      <ReviewControllerHarness
+        initialFiles={[
+          createDiffFile(
+            "alpha",
+            "alpha.ts",
+            "export const alpha = 1;\n",
+            "export const alpha = 2;\n",
+            {
+              path: "alpha.ts",
+              annotations: [
+                {
+                  id: "ai:1",
+                  source: "ai",
+                  summary: "Prefer a named constant.",
+                  rationale: "It documents the changed value.",
+                  newRange: [1, 1],
+                  author: "assistant",
+                },
+              ],
+            },
+          ),
+        ]}
+        onController={(nextController) => {
+          controllerRef.current = nextController;
+        }}
+      />,
+      { width: 80, height: 4 },
+    );
+
+    try {
+      await flush(setup);
+
+      expect(expectValue(controllerRef.current).reviewNoteSummaries).toMatchObject([
+        {
+          noteId: "ai:1",
+          source: "ai",
+          filePath: "alpha.ts",
+          newRange: [1, 1],
+          body: "Prefer a named constant.\n\nIt documents the changed value.",
+          author: "assistant",
+          editable: false,
+        },
+      ]);
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("user note drafts can be saved, removed, and exposed as review notes", async () => {
+    const controllerRef: { current: ReviewController | null } = { current: null };
+    const setup = await testRender(
+      <ReviewControllerHarness
+        initialFiles={[
+          createDiffFile(
+            "alpha",
+            "alpha.ts",
+            "export const alpha = 1;\n",
+            "export const alpha = 2;\n",
+          ),
+        ]}
+        onController={(nextController) => {
+          controllerRef.current = nextController;
+        }}
+      />,
+      { width: 80, height: 4 },
+    );
+
+    try {
+      await flush(setup);
+
+      await act(async () => {
+        expectValue(controllerRef.current).startUserNote();
+        expectValue(controllerRef.current).updateDraftNote("Please add a regression test.");
+      });
+      await flush(setup);
+
+      let savedNoteId = "";
+      await act(async () => {
+        const saved = expectValue(controllerRef.current).saveDraftNote();
+        savedNoteId = saved?.id ?? "";
+      });
+      await flush(setup);
+
+      expect(savedNoteId).toStartWith("user:");
+      expect(expectValue(controllerRef.current).userNotesByFileId.alpha).toHaveLength(1);
+      expect(expectValue(controllerRef.current).reviewNoteSummaries).toMatchObject([
+        {
+          noteId: savedNoteId,
+          source: "user",
+          filePath: "alpha.ts",
+          hunkIndex: 0,
+          newRange: [1, 1],
+          body: "Please add a regression test.",
+          editable: true,
+        },
+      ]);
+
+      await act(async () => {
+        expectValue(controllerRef.current).removeUserNote(savedNoteId);
+      });
+      await flush(setup);
+
+      expect(expectValue(controllerRef.current).userNotesByFileId.alpha).toBeUndefined();
+      expect(expectValue(controllerRef.current).reviewNoteSummaries).toEqual([]);
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
 });

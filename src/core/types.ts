@@ -4,6 +4,14 @@ export type LayoutMode = "auto" | "split" | "stack";
 export type VcsMode = "git" | "jj";
 export type TerminalThemeMode = "light" | "dark";
 
+export type ReviewNoteSource = "ai" | "agent" | "user";
+export type SessionCommentListType = "live" | "all" | ReviewNoteSource;
+
+export interface UserNoteLineTarget {
+  side: "old" | "new";
+  line: number;
+}
+
 export interface AgentAnnotation {
   id?: string;
   oldRange?: [number, number];
@@ -13,8 +21,11 @@ export interface AgentAnnotation {
   tags?: string[];
   confidence?: "low" | "medium" | "high";
   source?: string;
+  title?: string;
   author?: string;
   createdAt?: string;
+  updatedAt?: string;
+  editable?: boolean;
 }
 
 export interface AgentFileContext {
@@ -120,6 +131,7 @@ export interface SessionReviewCommandInput {
   output: SessionCommandOutput;
   selector: SessionSelectorInput;
   includePatch: boolean;
+  includeNotes?: boolean;
 }
 
 export interface SessionNavigateCommandInput {
@@ -182,6 +194,7 @@ export interface SessionCommentListCommandInput {
   output: SessionCommandOutput;
   selector: SessionSelectorInput;
   filePath?: string;
+  type?: SessionCommentListType;
 }
 
 export interface SessionCommentRemoveCommandInput {
