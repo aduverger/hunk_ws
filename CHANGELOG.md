@@ -10,7 +10,7 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Fixed
 
-## [0.13.0-beta.0] - 2026-05-16
+## [0.13.0] - 2026-05-18
 
 ### Added
 
@@ -27,6 +27,12 @@ All notable user-visible changes to Hunk are documented in this file.
 
 - Fixed draft note focus handling so app shortcuts resume after the note textarea blurs without discarding the draft.
 - Preserved the resolved auto theme across `--watch` refreshes instead of falling back to the default dark theme.
+- Fixed standalone release archive generation so staged npm package directories are not accidentally packaged as GitHub release assets.
+
+## [0.12.1] - 2026-05-14
+
+### Fixed
+
 - Included the bundled Hunk review skill in standalone prebuilt release archives so `hunk skill path` works after extracting a tarball or installing via Homebrew.
 
 ## [0.12.0] - 2026-05-12
@@ -331,8 +337,9 @@ All notable user-visible changes to Hunk are documented in this file.
 
 - Stabilized diff repainting, active-hunk scrolling, syntax highlighting, pager stdin patch handling, and terminal cleanup on exit.
 
-[Unreleased]: https://github.com/modem-dev/hunk/compare/v0.13.0-beta.0...HEAD
-[0.13.0-beta.0]: https://github.com/modem-dev/hunk/compare/v0.12.0...v0.13.0-beta.0
+[Unreleased]: https://github.com/modem-dev/hunk/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/modem-dev/hunk/compare/v0.12.1...v0.13.0
+[0.12.1]: https://github.com/modem-dev/hunk/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/modem-dev/hunk/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/modem-dev/hunk/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/modem-dev/hunk/compare/v0.10.0...v0.11.0
