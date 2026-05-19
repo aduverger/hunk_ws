@@ -10,6 +10,11 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Fixed
 
+## [0.13.1] - 2026-05-19
+
+### Fixed
+
+- Hid the inline add-note affordance while scrolling and only show it after deliberate pointer movement, so it no longer flickers during review navigation.
 - Hardened the local session daemon against browser-originated requests by validating Host and Origin headers and requiring JSON content types for API posts.
 - Disabled the generic broker HTTP API by default so Hunk's supported session API is the only app-daemon command surface.
 - Bounded session daemon memory by capping HTTP request body and websocket message sizes and rejecting session registrations with oversized file, hunk, patch, comment, or note payloads.
