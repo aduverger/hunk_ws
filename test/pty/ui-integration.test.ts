@@ -21,6 +21,20 @@ async function moveMouse(session: Session, x: number, y: number) {
   await session.waitIdle();
 }
 
+/** Reveal the hover-only add-note badge across fixture-specific row offsets. */
+async function revealAddNoteAffordance(session: Session, x: number, yCandidates: number[]) {
+  for (const y of yCandidates) {
+    await moveMouse(session, x, y);
+    try {
+      return await session.waitForText(/\[\+\]/, { timeout: 1_000 });
+    } catch {
+      // Keep trying nearby rows; hunk header visibility changes the diff row offset.
+    }
+  }
+
+  throw new Error(`Failed to reveal add-note affordance at x=${x}.`);
+}
+
 /** Drag with the left mouse button using zero-based terminal coordinates. */
 async function dragMouse(
   session: Session,
@@ -655,12 +669,11 @@ describe("live UI integration", () => {
         timeout: 15_000,
       });
 
-      await moveMouse(session, 8, 5);
-      await session.waitForText(/\[\+\]/, { timeout: 5_000 });
+      await revealAddNoteAffordance(session, 8, [4, 5]);
       await session.click(/\[\+\]/);
       await session.waitForText(/Draft note/, { timeout: 5_000 });
       await session.type("Cancel this shortcut draft.");
-      await session.press("escape");
+      await session.type("\x1b");
       const cancelled = await harness.waitForSnapshot(
         session,
         (text) => !text.includes("Draft note") && !text.includes("Cancel this shortcut draft."),
@@ -669,8 +682,7 @@ describe("live UI integration", () => {
 
       expect(cancelled).not.toContain("Your note");
 
-      await moveMouse(session, 8, 5);
-      await session.waitForText(/\[\+\]/, { timeout: 5_000 });
+      await revealAddNoteAffordance(session, 8, [4, 5]);
       await session.click(/\[\+\]/);
       await session.waitForText(/Draft note/, { timeout: 5_000 });
       await session.type("Save this shortcut draft.");
@@ -752,8 +764,7 @@ describe("live UI integration", () => {
         timeout: 15_000,
       });
 
-      await moveMouse(session, 8, 5);
-      await session.waitForText(/\[\+\]/, { timeout: 5_000 });
+      await revealAddNoteAffordance(session, 8, [4, 5]);
       await session.click(/\[\+\]/);
       await session.waitForText(/Draft note/, { timeout: 5_000 });
       await session.type("Cancel this draft.");
@@ -766,8 +777,7 @@ describe("live UI integration", () => {
 
       expect(cancelled).not.toContain("Your note");
 
-      await moveMouse(session, 8, 5);
-      await session.waitForText(/\[\+\]/, { timeout: 5_000 });
+      await revealAddNoteAffordance(session, 8, [4, 5]);
       await session.click(/\[\+\]/);
       await session.waitForText(/Draft note/, { timeout: 5_000 });
       await session.type("Save this clicked draft.");

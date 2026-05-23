@@ -25,6 +25,7 @@ import type {
   AgentContext,
   Changeset,
   CliInput,
+  CustomThemeConfig,
   DiffFile,
   DiffToolCommandInput,
   FileCommandInput,
@@ -36,6 +37,7 @@ import type {
 
 interface LoadAppBootstrapOptions {
   cwd?: string;
+  customTheme?: CustomThemeConfig;
   gitExecutable?: string;
 }
 
@@ -492,9 +494,11 @@ async function loadPatchChangeset(
 /** Resolve CLI input into the fully loaded app bootstrap state. */
 export async function loadAppBootstrap(
   input: CliInput,
-  { cwd = process.cwd(), gitExecutable = "git" }: LoadAppBootstrapOptions = {},
+  { cwd = process.cwd(), customTheme, gitExecutable = "git" }: LoadAppBootstrapOptions = {},
 ): Promise<AppBootstrap> {
-  const agentContext = await loadAgentContext(input.options.agentContext, { cwd });
+  const agentContext = await loadAgentContext(input.options.agentContext, {
+    cwd,
+  });
 
   let changeset: Changeset;
 
@@ -525,6 +529,7 @@ export async function loadAppBootstrap(
     changeset,
     initialMode: input.options.mode ?? "auto",
     initialTheme: input.options.theme,
+    customTheme,
     initialShowLineNumbers: input.options.lineNumbers ?? true,
     initialWrapLines: input.options.wrapLines ?? false,
     initialShowHunkHeaders: input.options.hunkHeaders ?? true,

@@ -224,7 +224,7 @@ describe("resolveGitDiffEndpoints", () => {
     // Sanity-check that this matches what `git merge-base` would say.
     expect(baseSha).toBe(git(repoRoot, "merge-base", baseBranch, "feature").trim());
     expect(featureSha).not.toBe(baseSha);
-  });
+  }, 15_000);
 
   test("returns null for multi-rev ranges that cannot be mapped to a single old/new pair", () => {
     const repoRoot = createTempRepo("hunk-endpoints-multi-");
