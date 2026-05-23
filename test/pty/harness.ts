@@ -125,6 +125,17 @@ export function createPtyHarness() {
     return { dir, before, after };
   }
 
+  function createDeletionOnlyFilePair() {
+    const dir = makeTempDir("hunk-tuistory-deletion-");
+    const before = join(dir, "before.ts");
+    const after = join(dir, "after.ts");
+
+    writeText(before, "export const keep = true;\nexport const removeMe = true;\n");
+    writeText(after, "export const keep = true;\n");
+
+    return { dir, before, after };
+  }
+
   function createAgentFilePair() {
     const dir = makeTempDir("hunk-tuistory-agent-");
     const before = join(dir, "before.ts");
@@ -606,6 +617,7 @@ export function createPtyHarness() {
     createCollapsedTopRepoFixture,
     createExpandableContextFilePair,
     createCrossFileHunkNavigationRepoFixture,
+    createDeletionOnlyFilePair,
     createLongWrapFilePair,
     createMultiHunkFilePair,
     createPagerPatchFixture,
