@@ -258,6 +258,44 @@ describe("live UI integration", () => {
     }
   });
 
+  test("real PTY sessions can expand and collapse unchanged context", async () => {
+    const fixture = harness.createExpandableContextFilePair();
+    const session = await harness.launchHunk({
+      args: ["diff", fixture.before, fixture.after, "--mode", "split"],
+      cols: 140,
+      rows: 16,
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Theme\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      expect(initial).toContain("▾ 1 unchanged line");
+      expect(initial).not.toContain("hiddenLine01");
+
+      await session.press("z");
+      const expanded = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("Hide 1 unchanged line") && text.includes("hiddenLine01"),
+        5_000,
+      );
+
+      expect(expanded).toContain("hiddenLine01");
+
+      await session.press("z");
+      const collapsed = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("▾ 1 unchanged line") && !text.includes("hiddenLine01"),
+        5_000,
+      );
+
+      expect(collapsed).not.toContain("hiddenLine01");
+    } finally {
+      session.close();
+    }
+  });
+
   test("backward cross-file hunk navigation reveals the target hunk in a real PTY", async () => {
     const fixture = harness.createCrossFileHunkNavigationRepoFixture();
     const session = await harness.launchHunk({
@@ -1669,7 +1707,7 @@ describe("live UI integration", () => {
       });
 
       expect(initial).toContain("aaa-collapsed.ts");
-      expect(initial).toContain("··· 362 unchanged lines ···");
+      expect(initial).toContain("▾ 362 unchanged lines");
       expect(initial).not.toContain("366 - export const line366 = 366;");
 
       await session.scrollDown(1);
@@ -1711,12 +1749,12 @@ describe("live UI integration", () => {
       const restored = await harness.waitForSnapshot(
         session,
         (text) =>
-          text.includes("··· 362 unchanged lines ···") &&
+          text.includes("▾ 362 unchanged lines") &&
           harness.countMatches(text, /aaa-collapsed\.ts/g) === initialHeaderCount,
         5_000,
       );
 
-      expect(restored).toContain("··· 362 unchanged lines ···");
+      expect(restored).toContain("▾ 362 unchanged lines");
       expect(restored).not.toContain("366 - export const line366 = 366;");
       expect(harness.countMatches(restored, /aaa-collapsed\.ts/g)).toBe(initialHeaderCount);
     } finally {
