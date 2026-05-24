@@ -306,7 +306,9 @@ describe("PTY notes", () => {
       );
       expect(whileFocused).toContain("Draft note");
 
-      await session.type("\x1b");
+      // Keyboard cancellation is covered above; click the explicit control here so this test can
+      // focus on whether app-level shortcuts are blocked only while the composer is active.
+      await session.click(/Cancel \(Esc\)/);
       await harness.waitForSnapshot(session, (text) => !text.includes("Draft note"), 5_000);
       await session.press("]");
       const afterCancel = await harness.waitForSnapshot(
