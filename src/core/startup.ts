@@ -143,6 +143,14 @@ export async function prepareStartupPlan(
     };
 
     if (!looksLikePatchInputImpl(stdinText)) {
+      // Dumb-terminal and captured pager hosts cannot safely own an interactive text pager.
+      if (env.TERM === "dumb") {
+        return {
+          kind: "passthrough",
+          text: stdinText,
+        };
+      }
+
       return {
         kind: "plain-text-pager",
         text: stdinText,
