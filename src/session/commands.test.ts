@@ -932,6 +932,123 @@ describe("session command compatibility checks", () => {
       },
     });
   });
+
+  // Intent: session list uses a cheap no-daemon fallback without creating a client.
+  test("list reports an empty session set when no daemon is available", async () => {
+    setSessionCommandTestHooks({
+      createClient: () => {
+        throw new Error("list should not create a client without a daemon");
+      },
+      resolveDaemonAvailability: async () => false,
+    });
+
+    const output = await runSessionCommand({
+      kind: "session",
+      action: "list",
+      output: "text",
+    } satisfies SessionCommandInput);
+
+    expect(output).toBe("No active Hunk sessions.\n");
+  });
+
+  // Intent: remaining command branches dispatch to the daemon and keep text output stable.
+  test("routes remaining session actions through the daemon and formats text output", async () => {
+    const selector: SessionSelectorInput = { sessionId: "session-1" };
+    const calls: string[] = [];
+
+    setSessionCommandTestHooks({
+      createClient: () =>
+        createClient({
+          navigateToHunk: async (input) => {
+            calls.push("navigate");
+            expect(input.selector).toEqual(selector);
+            expect(input.filePath).toBe("README.md");
+            expect(input.hunkNumber).toBe(1);
+            return { fileId: "file-1", filePath: "README.md", hunkIndex: 0 };
+          },
+          listComments: async (input) => {
+            calls.push("comment-list");
+            expect(input.selector).toEqual(selector);
+            return [
+              {
+                commentId: "comment-1",
+                filePath: "README.md",
+                hunkIndex: 0,
+                side: "new",
+                line: 2,
+                summary: "Explain this line",
+                author: "agent",
+                createdAt: "2026-05-10T00:00:00.000Z",
+              },
+            ];
+          },
+          removeComment: async (input) => {
+            calls.push("comment-rm");
+            expect(input.selector).toEqual(selector);
+            expect(input.commentId).toBe("comment-1");
+            return {
+              commentId: "comment-1",
+              removed: true,
+              remainingCommentCount: 1,
+            };
+          },
+          clearComments: async (input) => {
+            calls.push("comment-clear");
+            expect(input.selector).toEqual(selector);
+            expect(input.filePath).toBe("README.md");
+            return {
+              filePath: "README.md",
+              removedCount: 2,
+              remainingCommentCount: 0,
+            };
+          },
+        }),
+      resolveDaemonAvailability: async () => true,
+    });
+
+    expect(
+      await runSessionCommand({
+        kind: "session",
+        action: "navigate",
+        selector,
+        filePath: "README.md",
+        hunkNumber: 1,
+        output: "text",
+      } satisfies SessionCommandInput),
+    ).toBe("Focused README.md hunk 1 in session session-1.\n");
+
+    expect(
+      await runSessionCommand({
+        kind: "session",
+        action: "comment-list",
+        selector,
+        output: "text",
+      } satisfies SessionCommandInput),
+    ).toContain("comment-1  README.md:2 (new)");
+
+    expect(
+      await runSessionCommand({
+        kind: "session",
+        action: "comment-rm",
+        selector,
+        commentId: "comment-1",
+        output: "text",
+      } satisfies SessionCommandInput),
+    ).toBe("Removed live comment comment-1 from session session-1. Remaining comments: 1.\n");
+
+    expect(
+      await runSessionCommand({
+        kind: "session",
+        action: "comment-clear",
+        selector,
+        filePath: "README.md",
+        confirmed: true,
+        output: "text",
+      } satisfies SessionCommandInput),
+    ).toBe("Cleared 2 live comments from README.md in session session-1. Remaining comments: 0.\n");
+
+    expect(calls).toEqual(["navigate", "comment-list", "comment-rm", "comment-clear"]);
+  });
 });
 
 describe("session list includes terminal metadata", () => {
