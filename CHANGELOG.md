@@ -10,6 +10,10 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Fixed
 
+## [0.14.0-beta.2] - 2026-05-25
+
+### Fixed
+
 - Capped inline context expansion source reads so huge files cannot freeze or exhaust memory when expanding unchanged lines.
 - Hardened terminal rendering against control-sequence injection from diffs, file paths, notes, expanded context, copied selections, and pager fallback output.
 
@@ -377,7 +381,8 @@ All notable user-visible changes to Hunk are documented in this file.
 
 - Stabilized diff repainting, active-hunk scrolling, syntax highlighting, pager stdin patch handling, and terminal cleanup on exit.
 
-[Unreleased]: https://github.com/modem-dev/hunk/compare/v0.14.0-beta.1...HEAD
+[Unreleased]: https://github.com/modem-dev/hunk/compare/v0.14.0-beta.2...HEAD
+[0.14.0-beta.2]: https://github.com/modem-dev/hunk/compare/v0.14.0-beta.1...v0.14.0-beta.2
 [0.14.0-beta.1]: https://github.com/modem-dev/hunk/compare/v0.14.0-beta.0...v0.14.0-beta.1
 [0.14.0-beta.0]: https://github.com/modem-dev/hunk/compare/v0.13.1...v0.14.0-beta.0
 [0.13.1]: https://github.com/modem-dev/hunk/compare/v0.13.0...v0.13.1
