@@ -10,6 +10,13 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Fixed
 
+## [0.14.0-beta.3] - 2026-05-25
+
+### Fixed
+
+- Fixed inline note draft shortcuts so copy chords such as Ctrl-C and Ctrl-Shift-C no longer trigger note actions.
+- Stabilized hover backgrounds on wrapped diff rows so add-note affordances do not shift row layout.
+
 ## [0.14.0-beta.2] - 2026-05-25
 
 ### Fixed
@@ -381,7 +388,8 @@ All notable user-visible changes to Hunk are documented in this file.
 
 - Stabilized diff repainting, active-hunk scrolling, syntax highlighting, pager stdin patch handling, and terminal cleanup on exit.
 
-[Unreleased]: https://github.com/modem-dev/hunk/compare/v0.14.0-beta.2...HEAD
+[Unreleased]: https://github.com/modem-dev/hunk/compare/v0.14.0-beta.3...HEAD
+[0.14.0-beta.3]: https://github.com/modem-dev/hunk/compare/v0.14.0-beta.2...v0.14.0-beta.3
 [0.14.0-beta.2]: https://github.com/modem-dev/hunk/compare/v0.14.0-beta.1...v0.14.0-beta.2
 [0.14.0-beta.1]: https://github.com/modem-dev/hunk/compare/v0.14.0-beta.0...v0.14.0-beta.1
 [0.14.0-beta.0]: https://github.com/modem-dev/hunk/compare/v0.13.1...v0.14.0-beta.0
