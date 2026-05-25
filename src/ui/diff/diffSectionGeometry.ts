@@ -79,6 +79,7 @@ interface DiffSectionRowHeightOptions {
   lineNumberDigits: number;
   showHunkHeaders: boolean;
   showLineNumbers: boolean;
+  reserveAddNoteColumn: boolean;
   theme: AppTheme;
   width: number;
   wrapLines: boolean;
@@ -91,6 +92,7 @@ function buildDiffSectionRowHeightOptions(
     layout,
     showHunkHeaders,
     showLineNumbers,
+    reserveAddNoteColumn,
     theme,
     width,
     wrapLines,
@@ -100,6 +102,7 @@ function buildDiffSectionRowHeightOptions(
     layout,
     lineNumberDigits: rowPlan.lineNumberDigits,
     showHunkHeaders,
+    reserveAddNoteColumn,
     showLineNumbers,
     theme,
     width,
@@ -114,6 +117,7 @@ function measurePlannedDiffSectionRowHeight(
     layout,
     lineNumberDigits,
     showHunkHeaders,
+    reserveAddNoteColumn,
     showLineNumbers,
     theme,
     width,
@@ -137,6 +141,7 @@ function measurePlannedDiffSectionRowHeight(
     showHunkHeaders,
     wrapLines,
     theme,
+    reserveAddNoteColumn,
   );
 }
 
@@ -152,6 +157,7 @@ export function measureDiffSectionGeometry(
   wrapLines = false,
   expandedKeys: ReadonlySet<string> = EMPTY_EXPANDED_GAP_KEYS,
   sourceStatus: FileSourceStatus | undefined = undefined,
+  reserveAddNoteColumn = false,
 ): DiffSectionGeometry {
   if (file.metadata.hunks.length === 0) {
     return {
@@ -169,7 +175,7 @@ export function measureDiffSectionGeometry(
   // Width, wrapping, and line-number visibility all affect rendered row heights, so they must
   // participate in the cache key alongside the structural file/layout inputs. Expansion state
   // changes the row stream, so it has to participate too.
-  const cacheKey = `${file.id}:${layout}:${showHunkHeaders ? 1 : 0}:${theme.id}:${width}:${showLineNumbers ? 1 : 0}:${wrapLines ? 1 : 0}${expansionCacheKey(expandedKeys, sourceStatus)}`;
+  const cacheKey = `${file.id}:${layout}:${showHunkHeaders ? 1 : 0}:${theme.id}:${width}:${showLineNumbers ? 1 : 0}:${wrapLines ? 1 : 0}:${reserveAddNoteColumn ? 1 : 0}${expansionCacheKey(expandedKeys, sourceStatus)}`;
   if (visibleAgentNotes.length > 0) {
     const cachedByNotes = NOTE_AWARE_SECTION_GEOMETRY_CACHE.get(visibleAgentNotes);
     const cached = cachedByNotes?.get(cacheKey);
@@ -197,6 +203,7 @@ export function measureDiffSectionGeometry(
   const rowHeightOptions = buildDiffSectionRowHeightOptions(sectionRowPlan, {
     layout,
     showHunkHeaders,
+    reserveAddNoteColumn,
     showLineNumbers,
     theme,
     width,

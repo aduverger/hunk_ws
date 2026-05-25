@@ -113,6 +113,11 @@ function sliceSpansWindow(spans: RenderSpan[], offset: number, width: number) {
 const marker = diffRailMarker;
 const addNoteBadgeText = "[+]";
 
+/** Reserve the hover affordance column in wrapped rows so hover cannot reflow code. */
+function wrappedAddNoteReserveWidth(wrapLines: boolean, reserveAddNoteColumn = false) {
+  return wrapLines && reserveAddNoteColumn ? addNoteBadgeText.length : 0;
+}
+
 /** Render a fixed-width inline span sequence for one diff cell. */
 function renderInlineSpans(
   spans: RenderSpan[],
@@ -1166,7 +1171,7 @@ function renderHeaderRow(
         key={row.key}
         id={anchorId}
         style={{
-          width: "100%",
+          width,
           height: 1,
           backgroundColor: theme.panelAlt,
         }}
@@ -1197,7 +1202,7 @@ function renderHeaderRow(
       key={row.key}
       id={anchorId}
       style={{
-        width: "100%",
+        width,
         height: 1,
         flexDirection: "row",
         backgroundColor: theme.panelAlt,
@@ -1258,6 +1263,21 @@ function renderAddNoteButton(
   );
 }
 
+/** Fill the reserved wrapped-row hover column so row backgrounds do not visibly shrink. */
+function renderAddNoteSpacer(key: string, width: number, bg: string) {
+  if (width <= 0) {
+    return null;
+  }
+
+  return (
+    <box key={key} style={{ width, height: 1 }}>
+      <text>
+        <span bg={bg}>{" ".repeat(width)}</span>
+      </text>
+    </box>
+  );
+}
+
 /** Measure how many terminal rows one rendered diff row occupies. */
 export function measureRenderedRowHeight(
   row: DiffRow,
@@ -1267,6 +1287,7 @@ export function measureRenderedRowHeight(
   showHunkHeaders: boolean,
   wrapLines: boolean,
   theme: AppTheme,
+  reserveAddNoteColumn = false,
 ) {
   if (row.type === "hunk-header") {
     return showHunkHeaders ? 1 : 0;
@@ -1282,6 +1303,7 @@ export function measureRenderedRowHeight(
     }
 
     const markerWidth = 1;
+    const hoverReserveWidth = wrappedAddNoteReserveWidth(wrapLines, reserveAddNoteColumn);
     const { leftWidth, rightWidth } = resolveSplitPaneWidths(width);
     const leftLayout = buildWrappedSplitCell(
       row.left,
@@ -1293,7 +1315,7 @@ export function measureRenderedRowHeight(
     );
     const rightLayout = buildWrappedSplitCell(
       row.right,
-      rightWidth,
+      Math.max(0, rightWidth - hoverReserveWidth),
       lineNumberDigits,
       showLineNumbers,
       markerWidth,
@@ -1313,7 +1335,7 @@ export function measureRenderedRowHeight(
 
   const layout = buildWrappedStackCell(
     row.cell,
-    width,
+    Math.max(0, width - wrappedAddNoteReserveWidth(wrapLines, reserveAddNoteColumn)),
     lineNumberDigits,
     showLineNumbers,
     marker().length,
@@ -1343,6 +1365,7 @@ function renderRow(
   onToggleGap?: (gapKey: string) => void,
 ) {
   const hasCopySelection = !!copySelectedRowRange;
+  const reserveAddNoteColumn = Boolean(onStartUserNoteAtHunk);
 
   // For split rows, the user's drag is anchored to one column-half of the diff. Apply the
   // selection-highlight blend only to that side so it is clear which file (A or B) the
@@ -1387,7 +1410,8 @@ function renderRow(
           : undefined;
 
     // Reserve fixed columns for the diff rails, center separator slot, and hover affordance.
-    const addBadgeWidth = showAddNoteBadge ? addNoteBadgeText.length : 0;
+    const addBadgeWidth =
+      showAddNoteBadge || (wrapLines && reserveAddNoteColumn) ? addNoteBadgeText.length : 0;
     const { leftWidth, rightWidth } = resolveSplitPaneWidths(width);
     const rightRenderWidth = Math.max(0, rightWidth - (guideOnNewSide ? 1 : 0) - addBadgeWidth);
     const leftPrefix = {
@@ -1510,7 +1534,7 @@ function renderRow(
               >
                 <box
                   style={{
-                    width: showBadgeOnLine ? Math.max(0, width - addBadgeWidth) : "100%",
+                    width: addBadgeWidth > 0 ? Math.max(0, width - addBadgeWidth) : "100%",
                     height: 1,
                   }}
                 >
@@ -1552,7 +1576,11 @@ function renderRow(
                       addNoteTarget,
                       onStartUserNoteAtHunk,
                     )
-                  : null}
+                  : renderAddNoteSpacer(
+                      `${row.key}:add-note-spacer:${index}`,
+                      addBadgeWidth,
+                      rightLayout.palette.contentBg,
+                    )}
               </box>
             );
           })}
@@ -1568,7 +1596,8 @@ function renderRow(
         : row.cell.oldLineNumber !== undefined
           ? { side: "old", line: row.cell.oldLineNumber }
           : undefined;
-    const addBadgeWidth = showAddNoteBadge ? addNoteBadgeText.length : 0;
+    const addBadgeWidth =
+      showAddNoteBadge || (wrapLines && reserveAddNoteColumn) ? addNoteBadgeText.length : 0;
     const contentWidth = Math.max(0, width - (guideOnNewSide ? 1 : 0) - addBadgeWidth);
     const prefix = {
       text: guideOnOldSide ? "│" : marker(),
@@ -1649,7 +1678,7 @@ function renderRow(
               >
                 <box
                   style={{
-                    width: showBadgeOnLine ? Math.max(0, width - addBadgeWidth) : "100%",
+                    width: addBadgeWidth > 0 ? Math.max(0, width - addBadgeWidth) : "100%",
                     height: 1,
                   }}
                 >
@@ -1679,7 +1708,11 @@ function renderRow(
                       addNoteTarget,
                       onStartUserNoteAtHunk,
                     )
-                  : null}
+                  : renderAddNoteSpacer(
+                      `${row.key}:add-note-spacer:${index}`,
+                      addBadgeWidth,
+                      layout.palette.contentBg,
+                    )}
               </box>
             );
           })}

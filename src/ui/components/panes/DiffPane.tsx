@@ -542,6 +542,7 @@ export function DiffPane({
           wrapLines,
           expandedGapsByFileId[file.id] ?? EMPTY_EXPANDED_GAP_KEYS,
           sourceStatusByFileId[file.id],
+          Boolean(onStartUserNoteAtHunk),
         ),
       ),
     [
@@ -549,6 +550,7 @@ export function DiffPane({
       expandedGapsByFileId,
       files,
       layout,
+      onStartUserNoteAtHunk,
       showHunkHeaders,
       showLineNumbers,
       sourceStatusByFileId,
@@ -618,6 +620,7 @@ export function DiffPane({
           wrapLines,
           expandedGapsByFileId[file.id] ?? EMPTY_EXPANDED_GAP_KEYS,
           sourceStatusByFileId[file.id],
+          Boolean(onStartUserNoteAtHunk),
         );
       }),
     [
@@ -627,6 +630,7 @@ export function DiffPane({
       expandedGapsByFileId,
       files,
       layout,
+      onStartUserNoteAtHunk,
       showHunkHeaders,
       showLineNumbers,
       sourceStatusByFileId,
@@ -1694,8 +1698,10 @@ export function DiffPane({
                           affordance ? { ...affordance, fileId: file.id } : null,
                         )
                       }
-                      onStartUserNoteAtHunk={(hunkIndex, target) =>
-                        onStartUserNoteAtHunk?.(file.id, hunkIndex, target)
+                      onStartUserNoteAtHunk={
+                        onStartUserNoteAtHunk
+                          ? (hunkIndex, target) => onStartUserNoteAtHunk(file.id, hunkIndex, target)
+                          : undefined
                       }
                       onSelect={() => onSelectFile(file.id)}
                       onToggleGap={(gapKey) => onToggleGap(file.id, gapKey)}

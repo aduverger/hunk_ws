@@ -24,6 +24,7 @@ const { DiffPane } = await import("./panes/DiffPane");
 const { MenuDropdown } = await import("./chrome/MenuDropdown");
 const { StatusBar } = await import("./chrome/StatusBar");
 const { DiffSectionPlaceholder } = await import("./panes/DiffSectionPlaceholder");
+const { DiffFileHeaderRow } = await import("./panes/DiffFileHeaderRow");
 const { PierreDiffView } = await import("../diff/PierreDiffView");
 const { DiffRowView } = await import("../diff/renderRows");
 
@@ -517,6 +518,31 @@ describe("UI components", () => {
     expect(frame.indexOf("alpha.ts")).toBeLessThan(frame.indexOf("beta.ts"));
   });
 
+  test("DiffFileHeaderRow leaves one column after line counts", async () => {
+    const theme = resolveTheme("midnight", null);
+    const frame = await captureFrame(
+      <DiffFileHeaderRow
+        file={createTestDiffFile(
+          "stats-align",
+          "stats-align.ts",
+          lines("export const value = 1;"),
+          lines("export const value = 2;", "export const next = 3;"),
+        )}
+        headerLabelWidth={20}
+        headerStatsWidth={8}
+        theme={theme}
+      />,
+      40,
+      2,
+    );
+    const firstLine = frame.split("\n")[0] ?? "";
+    const statsIndex = firstLine.indexOf("+2 -1");
+
+    expect(statsIndex).toBeGreaterThanOrEqual(0);
+    expect(firstLine[statsIndex + "+2 -1".length]).toBe(" ");
+    expect(firstLine[statsIndex + "+2 -1".length + 1]).toBe(" ");
+  });
+
   test("DiffRowView renders a clickable add-note affordance for a hovered diff row", async () => {
     const theme = resolveTheme("midnight", null);
     const startUserNote = mock(() => undefined);
@@ -568,6 +594,142 @@ describe("UI components", () => {
         await setup.mockMouse.click(addNoteX + 1, addNoteY);
       });
       expect(startUserNote).toHaveBeenCalledWith(0, { side: "new", line: 2 });
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("DiffRowView keeps wrapped text stable when showing the add-note affordance", async () => {
+    const theme = resolveTheme("midnight", null);
+    const row = {
+      type: "stack-line" as const,
+      key: "alpha:line:hover-wrap",
+      fileId: "alpha",
+      hunkIndex: 0,
+      cell: {
+        kind: "addition" as const,
+        sign: "+" as const,
+        newLineNumber: 2,
+        spans: [{ text: "abcdefghij klmnopqrst uvwxyz" }],
+      },
+    };
+    const renderRow = (showAddNoteBadge: boolean) =>
+      captureFrame(
+        <DiffRowView
+          row={row}
+          width={24}
+          lineNumberDigits={1}
+          showLineNumbers={true}
+          showHunkHeaders={true}
+          wrapLines={true}
+          codeHorizontalOffset={0}
+          theme={theme}
+          selected={false}
+          showAddNoteBadge={showAddNoteBadge}
+          onStartUserNoteAtHunk={() => {}}
+        />,
+        32,
+        5,
+      );
+    const normalize = (frame: string) =>
+      frame
+        .replace("[+]", "")
+        .split("\n")
+        .map((line) => line.trimEnd())
+        .filter(Boolean);
+
+    const hiddenFrame = await renderRow(false);
+    const shownFrame = await renderRow(true);
+
+    expect(normalize(shownFrame)).toEqual(normalize(hiddenFrame));
+  });
+
+  test("DiffRowView fills the reserved wrapped add-note column with row background", async () => {
+    const theme = resolveTheme("midnight", null);
+    const setup = await testRender(
+      <DiffRowView
+        row={{
+          type: "stack-line",
+          key: "alpha:line:hover-wrap-bg",
+          fileId: "alpha",
+          hunkIndex: 0,
+          cell: {
+            kind: "addition",
+            sign: "+",
+            newLineNumber: 2,
+            spans: [{ text: "abcdefghij klmnopqrst uvwxyz" }],
+          },
+        }}
+        width={24}
+        lineNumberDigits={1}
+        showLineNumbers={true}
+        showHunkHeaders={true}
+        wrapLines={true}
+        codeHorizontalOffset={0}
+        theme={theme}
+        selected={false}
+        onStartUserNoteAtHunk={() => {}}
+      />,
+      { width: 32, height: 5 },
+    );
+
+    try {
+      await act(async () => {
+        await setup.renderOnce();
+      });
+      const line = setup
+        .captureSpans()
+        .lines.find((nextLine) => nextLine.spans.some((span) => span.text.includes("abcdefghij")));
+      const hasAddedBgSpacer = line?.spans.some(
+        (span) =>
+          span.text === " ".repeat(3) &&
+          capturedColorToHex(span.bg)?.toLowerCase() === theme.addedBg.toLowerCase(),
+      );
+
+      expect(hasAddedBgSpacer).toBe(true);
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("DiffRowView keeps metadata row background within the measured row width", async () => {
+    const theme = resolveTheme("midnight", null);
+    const setup = await testRender(
+      <DiffRowView
+        row={{
+          type: "hunk-header",
+          key: "alpha:hunk:0",
+          fileId: "alpha",
+          hunkIndex: 0,
+          text: "@@ -1 +1 @@",
+        }}
+        width={24}
+        lineNumberDigits={1}
+        showLineNumbers={true}
+        showHunkHeaders={true}
+        wrapLines={true}
+        codeHorizontalOffset={0}
+        theme={theme}
+        selected={false}
+      />,
+      { width: 32, height: 2 },
+    );
+
+    try {
+      await act(async () => {
+        await setup.renderOnce();
+      });
+      const panelAltWidth = setup.captureSpans().lines[0]?.spans.reduce((total, span) => {
+        return capturedColorToHex(span.bg)?.toLowerCase() === theme.panelAlt.toLowerCase()
+          ? total + span.text.length
+          : total;
+      }, 0);
+
+      expect(panelAltWidth).toBe(24);
     } finally {
       await act(async () => {
         setup.renderer.destroy();

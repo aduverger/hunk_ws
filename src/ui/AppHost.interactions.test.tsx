@@ -758,11 +758,11 @@ describe("App interactions", () => {
       });
       await settleWrapToggle(setup);
 
-      frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("coverage';"));
-      // Assert on a suffix fragment that only appears once the long line has actually wrapped;
-      // this is more stable than expecting the full sentence to remain on one terminal row.
+      frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("age';"));
+      // Assert on suffix fragments that only appear once the long line has actually wrapped;
+      // wrapped rows reserve the add-note column, so exact word boundaries can vary by width.
       expect(frame).toContain("wrapped line");
-      expect(frame).toContain("coverage';");
+      expect(frame).toContain("age';");
 
       await act(async () => {
         await setup.mockInput.typeText("w");
@@ -777,9 +777,9 @@ describe("App interactions", () => {
       });
       await settleWrapToggle(setup);
 
-      frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("coverage';"));
+      frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("age';"));
       expect(frame).toContain("wrapped line");
-      expect(frame).toContain("coverage';");
+      expect(frame).toContain("age';");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -1027,8 +1027,8 @@ describe("App interactions", () => {
       await settleWrapToggle(setup);
 
       frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("overage';"));
-      expect(frame).toContain("this is a very");
-      expect(frame).toContain("long wrapped line");
+      expect(frame).toContain("this is a ve");
+      expect(frame).toContain("ry long wrapped line");
       expect(frame).toContain("overage';");
 
       await act(async () => {

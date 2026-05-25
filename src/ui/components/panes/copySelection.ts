@@ -158,7 +158,7 @@ function renderFileHeaderCopyText({
 }) {
   const additionsText = `+${file.stats.additions}${file.statsTruncated ? "+" : ""}`;
   const deletionsText = `-${file.stats.deletions}`;
-  const statsText = `${additionsText} ${deletionsText}`.padStart(headerStatsWidth);
+  const statsText = `${additionsText} ${deletionsText} `.padStart(headerStatsWidth);
   const { filename, stateLabel } = fileLabelParts(file);
   const label = `${fitText(
     filename,
