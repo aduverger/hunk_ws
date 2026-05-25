@@ -2,11 +2,6 @@ name: CI
 
 on:
   pull_request:
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-      - "assets/**"
-      - "LICENSE"
 
 env:
   SKIP_INSTALL_SIMPLE_GIT_HOOKS: "1"
@@ -16,8 +11,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect code changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.detect.outputs.code_changed }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Detect code changes
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: .github/scripts/detect-code-changes.sh "$BASE_SHA" "$HEAD_SHA"
+
   windows-compat:
     name: Windows compatibility
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     steps:
       - name: Disable automatic CRLF conversion
@@ -58,6 +71,8 @@ jobs:
 
   pr-validate:
     name: Typecheck + Test + Smoke
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
