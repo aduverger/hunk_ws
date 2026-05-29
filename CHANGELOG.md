@@ -23,6 +23,7 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Fixed
 
+- Preserved Git log ANSI colors when `hunk pager` falls back to a plain-text terminal pager for non-diff output.
 - Capped inline context expansion source reads so huge files cannot freeze or exhaust memory when expanding unchanged lines.
 - Hardened plain-text pager startup so `PAGER` and `HUNK_TEXT_PAGER` shell metacharacters are passed as arguments instead of being evaluated implicitly.
 - Hardened terminal rendering against control-sequence injection from diffs, file paths, notes, expanded context, copied selections, and pager fallback output.
