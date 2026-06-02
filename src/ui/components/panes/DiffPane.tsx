@@ -27,6 +27,10 @@ import {
   reviewNoteSource,
   type VisibleAgentNote,
 } from "../../lib/agentAnnotations";
+import {
+  computeRapidScrollOverscanRows,
+  RAPID_SCROLL_OVERSCAN_IDLE_MS,
+} from "../../lib/adaptiveScrollOverscan";
 import { computeHunkRevealScrollTop } from "../../lib/hunkScroll";
 import {
   measureDiffSectionGeometry,
@@ -123,12 +127,14 @@ function buildAdjacentPrefetchFileIds(files: DiffFile[], selectedFileId?: string
 function buildHighlightPrefetchFileIds({
   adjacentPrefetchFileIds,
   fileSectionLayouts,
+  rapidScrollOverscanRows,
   scrollTop,
   viewportHeight,
   selectedFileId,
 }: {
   adjacentPrefetchFileIds: Set<string>;
   fileSectionLayouts: FileSectionLayout[];
+  rapidScrollOverscanRows: number;
   scrollTop: number;
   viewportHeight: number;
   selectedFileId?: string;
@@ -140,7 +146,7 @@ function buildHighlightPrefetchFileIds({
   }
 
   const clampedViewportHeight = Math.max(1, viewportHeight);
-  const prefetchRows = Math.max(24, clampedViewportHeight * 3);
+  const prefetchRows = Math.max(24, clampedViewportHeight * 3, rapidScrollOverscanRows);
   const minPrefetchY = Math.max(0, scrollTop - prefetchRows);
   const maxPrefetchY = scrollTop + viewportHeight + prefetchRows;
 
@@ -406,6 +412,7 @@ export function DiffPane({
   // other files can still use placeholders and viewport windowing.
   const windowingEnabled = !wrapLines;
   const [scrollViewport, setScrollViewport] = useState({ top: 0, height: 0 });
+  const [rapidScrollOverscanRows, setRapidScrollOverscanRows] = useState(0);
   const [hoveredFileId, setHoveredFileId] = useState<string | null>(null);
   const [copySelectionDrag, setCopySelectionDrag] = useState<CopySelectionDrag | null>(null);
   // Mirror the drag state in a ref so updateCopySelection can suppress native selection
@@ -416,6 +423,7 @@ export function DiffPane({
   const lastClickPointRef = useRef<CopySelectionPoint | null>(null);
   const scrollbarRef = useRef<VerticalScrollbarHandle>(null);
   const prevScrollTopRef = useRef(0);
+  const hasReadScrollViewportRef = useRef(false);
   const previousSectionGeometryRef = useRef<DiffSectionGeometry[] | null>(null);
   const previousFilesRef = useRef<DiffFile[]>(files);
   const previousLayoutRef = useRef(layout);
@@ -429,10 +437,27 @@ export function DiffPane({
   const suppressViewportSelectionSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const rapidScrollOverscanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Initialized to null so the first render never fires a selection change; a real scroll
   // is required before passive viewport-follow selection can trigger.
   const lastViewportSelectionTopRef = useRef<number | null>(null);
   const lastViewportRowAnchorRef = useRef<ViewportRowAnchor | null>(null);
+
+  /** Temporarily widen the mounted diff window while scroll input is arriving in bursts. */
+  const activateRapidScrollOverscan = useCallback((overscanRows: number) => {
+    if (overscanRows <= 0) {
+      return;
+    }
+
+    setRapidScrollOverscanRows((current) => Math.max(current, overscanRows));
+    if (rapidScrollOverscanTimeoutRef.current) {
+      clearTimeout(rapidScrollOverscanTimeoutRef.current);
+    }
+    rapidScrollOverscanTimeoutRef.current = setTimeout(() => {
+      rapidScrollOverscanTimeoutRef.current = null;
+      setRapidScrollOverscanRows(0);
+    }, RAPID_SCROLL_OVERSCAN_IDLE_MS);
+  }, []);
 
   /**
    * Ignore viewport-follow selection updates while the pane is scrolling to an explicit selection.
@@ -454,6 +479,9 @@ export function DiffPane({
       if (suppressViewportSelectionSyncTimeoutRef.current) {
         clearTimeout(suppressViewportSelectionSyncTimeoutRef.current);
       }
+      if (rapidScrollOverscanTimeoutRef.current) {
+        clearTimeout(rapidScrollOverscanTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -472,11 +500,23 @@ export function DiffPane({
       const nextTop = scrollBox.scrollTop ?? 0;
       const nextHeight = scrollBox.viewport.height ?? 0;
 
-      // Detect scroll activity, show scrollbar, and clear hover-only controls. The pointer may
-      // now sit over a different row, but only an actual mouse move should reveal row actions.
-      if (nextTop !== prevScrollTopRef.current) {
+      // The first viewport read is a baseline snapshot, not scroll input. The scroll box may retain
+      // a non-zero top across remounts, so do not treat that retained position as a rapid burst.
+      if (!hasReadScrollViewportRef.current) {
+        hasReadScrollViewportRef.current = true;
+        prevScrollTopRef.current = nextTop;
+      } else if (nextTop !== prevScrollTopRef.current) {
+        // Detect scroll activity, show scrollbar, and clear hover-only controls. The pointer may
+        // now sit over a different row, but only an actual mouse move should reveal row actions.
+        const previousTop = prevScrollTopRef.current;
         scrollbarRef.current?.show();
         clearAddNoteHoverForScroll();
+        activateRapidScrollOverscan(
+          computeRapidScrollOverscanRows({
+            deltaRows: nextTop - previousTop,
+            viewportHeight: nextHeight,
+          }),
+        );
         prevScrollTopRef.current = nextTop;
       }
 
@@ -524,7 +564,7 @@ export function DiffPane({
       scrollBox.viewport.off("layout-changed", handleViewportChange);
       scrollBox.viewport.off("resized", handleViewportChange);
     };
-  }, [clearAddNoteHoverForScroll, files.length, scrollRef]);
+  }, [activateRapidScrollOverscan, clearAddNoteHoverForScroll, files.length, scrollRef]);
 
   const sectionHeaderHeights = useMemo(() => buildInStreamFileHeaderHeights(files), [files]);
 
@@ -568,11 +608,11 @@ export function DiffPane({
   );
 
   const visibleViewportFileIds = useMemo(() => {
-    const overscanTerminalRows = 8;
+    const overscanTerminalRows = Math.max(8, rapidScrollOverscanRows);
     const minVisibleY = Math.max(0, scrollViewport.top - overscanTerminalRows);
     const maxVisibleY = scrollViewport.top + scrollViewport.height + overscanTerminalRows;
     return collectIntersectingFileSectionIds(baseFileSectionLayouts, minVisibleY, maxVisibleY);
-  }, [baseFileSectionLayouts, scrollViewport.height, scrollViewport.top]);
+  }, [baseFileSectionLayouts, rapidScrollOverscanRows, scrollViewport.height, scrollViewport.top]);
 
   const visibleAgentNotesByFile = useMemo(() => {
     const next = new Map<string, VisibleAgentNote[]>();
@@ -970,6 +1010,7 @@ export function DiffPane({
       buildHighlightPrefetchFileIds({
         adjacentPrefetchFileIds,
         fileSectionLayouts,
+        rapidScrollOverscanRows,
         scrollTop: scrollViewport.top,
         viewportHeight: scrollViewport.height,
         selectedFileId,
@@ -977,6 +1018,7 @@ export function DiffPane({
     [
       adjacentPrefetchFileIds,
       fileSectionLayouts,
+      rapidScrollOverscanRows,
       scrollViewport.height,
       scrollViewport.top,
       selectedFileId,
@@ -1076,7 +1118,7 @@ export function DiffPane({
       return next;
     }
 
-    const overscanTerminalRows = Math.max(24, scrollViewport.height * 2);
+    const overscanTerminalRows = Math.max(24, scrollViewport.height * 2, rapidScrollOverscanRows);
 
     files.forEach((file, index) => {
       const sectionLayout = fileSectionLayouts[index];
@@ -1115,6 +1157,7 @@ export function DiffPane({
   }, [
     fileSectionLayouts,
     files,
+    rapidScrollOverscanRows,
     scrollViewport.height,
     scrollViewport.top,
     sectionGeometry,
