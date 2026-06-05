@@ -6,6 +6,8 @@ All notable user-visible changes to Hunk are documented in this file.
 
 ### Added
 
+- Show the newly selected theme in the footer status bar when switching themes.
+
 ### Changed
 
 ### Fixed

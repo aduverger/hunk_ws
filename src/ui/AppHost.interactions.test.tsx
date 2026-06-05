@@ -685,6 +685,33 @@ describe("App interactions", () => {
     }
   });
 
+  test("theme shortcut shows the selected theme in the status bar", async () => {
+    const setup = await testRender(<AppHost bootstrap={createSingleFileBootstrap()} />, {
+      width: 240,
+      height: 24,
+    });
+
+    try {
+      await flush(setup);
+
+      await act(async () => {
+        await setup.mockInput.typeText("t");
+      });
+      let frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme: Paper"));
+      expect(frame).toContain("Theme: Paper");
+
+      await act(async () => {
+        await setup.mockInput.typeText("t");
+      });
+      frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme: Ember"));
+      expect(frame).toContain("Theme: Ember");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
   test("keyboard shortcut can wrap long lines in the app", async () => {
     const setup = await testRender(<AppHost bootstrap={createWrapBootstrap()} />, {
       width: 140,

@@ -373,6 +373,16 @@ export function App({
     setWrapLines((current) => !current);
   };
 
+  /** Switch the active theme and surface the result in the shared footer notice area. */
+  const selectTheme = useCallback(
+    (nextThemeId: string) => {
+      const nextTheme = themeOptions.find((theme) => theme.id === nextThemeId);
+      setThemeId(nextThemeId);
+      showTransientNotice(`Theme: ${nextTheme?.label ?? nextThemeId}`);
+    },
+    [showTransientNotice, themeOptions],
+  );
+
   /** Toggle the sidebar, forcing it open on narrower layouts when the app can still fit both panes. */
   const toggleSidebar = () => {
     if (sidebarVisible && (responsiveLayout.showSidebar || forceSidebarOpen)) {
@@ -596,12 +606,12 @@ export function App({
     setFocusArea("files");
   }, [review.cancelDraftNote]);
 
-  /** Cycle through the available built-in themes. */
+  /** Cycle through the themes exposed by the current app configuration. */
   const cycleTheme = useCallback(() => {
     const currentIndex = themeOptions.findIndex((theme) => theme.id === activeTheme.id);
     const nextIndex = (currentIndex + 1) % themeOptions.length;
-    setThemeId(themeOptions[nextIndex]!.id);
-  }, [activeTheme.id, themeOptions]);
+    selectTheme(themeOptions[nextIndex]!.id);
+  }, [activeTheme.id, selectTheme, themeOptions]);
 
   const menus = useMemo(
     () =>
@@ -617,7 +627,7 @@ export function App({
         refreshCurrentInput: triggerRefreshCurrentInput,
         requestQuit,
         selectLayoutMode,
-        selectThemeId: setThemeId,
+        selectThemeId: selectTheme,
         copyDecorations,
         showAgentNotes,
         showHelp,
@@ -647,6 +657,7 @@ export function App({
       requestQuit,
       review.moveToHunk,
       selectLayoutMode,
+      selectTheme,
       triggerRefreshCurrentInput,
       toggleCopyDecorations,
       showAgentNotes,
