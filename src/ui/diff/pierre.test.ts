@@ -13,7 +13,7 @@ import { resolveSplitPaneWidths } from "./codeColumns";
 import { renderCodeOnlyPlannedRowText, renderDecoratedPlannedRowText } from "./renderRows";
 import { buildReviewRenderPlan } from "./reviewRenderPlan";
 import { measureTextWidth } from "../lib/text";
-import { resolveTheme } from "../themes";
+import { TRANSPARENT_BACKGROUND, resolveTheme, withTransparentBackground } from "../themes";
 
 function createDiffFile(): DiffFile {
   const metadata = parseDiffFromFile(
@@ -144,6 +144,28 @@ describe("Pierre diff rows", () => {
         (span) => span.text.includes("export") && typeof span.fg === "string",
       ),
     ).toBe(true);
+  });
+
+  test("keeps word-diff highlight backgrounds transparent in transparent mode", async () => {
+    const file = createDiffFile();
+    const theme = withTransparentBackground(resolveTheme("midnight", null));
+    const highlighted = await loadHighlightedDiff(file);
+    const rows = buildSplitRows(file, highlighted, theme);
+    const changedRow = rows.find(
+      (row) =>
+        row.type === "split-line" && row.left.kind === "deletion" && row.right.kind === "addition",
+    );
+
+    expect(changedRow).toBeDefined();
+    if (!changedRow || changedRow.type !== "split-line") {
+      throw new Error("Expected a split-line change row");
+    }
+
+    const removedWordSpan = changedRow.left.spans.find((span) => span.text.includes("41"));
+    const addedWordSpan = changedRow.right.spans.find((span) => span.text.includes("42"));
+
+    expect(removedWordSpan?.bg).toBe(TRANSPARENT_BACKGROUND);
+    expect(addedWordSpan?.bg).toBe(TRANSPARENT_BACKGROUND);
   });
 
   test("builds stacked rows with separate deletion and addition lines", () => {

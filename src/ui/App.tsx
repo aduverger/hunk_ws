@@ -138,7 +138,10 @@ export function App({
     () => availableThemes(bootstrap.customTheme),
     [bootstrap.customTheme],
   );
-  const baseTheme = resolveTheme(themeId, detectedThemeMode ?? null, bootstrap.customTheme);
+  const baseTheme = useMemo(
+    () => resolveTheme(themeId, detectedThemeMode ?? null, bootstrap.customTheme),
+    [themeId, detectedThemeMode, bootstrap.customTheme],
+  );
   const activeTheme = useMemo(
     () =>
       bootstrap.input.options.transparentBackground

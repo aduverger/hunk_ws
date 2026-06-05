@@ -11,7 +11,7 @@ import { formatHunkHeader } from "../../core/hunkHeader";
 import type { DiffFile } from "../../core/types";
 import { blendHex, hexColorDistance } from "../lib/color";
 import { sanitizeTerminalLine } from "../../lib/terminalText";
-import type { AppTheme } from "../themes";
+import { TRANSPARENT_BACKGROUND, type AppTheme } from "../themes";
 import { expandDiffTabs } from "./codeColumns";
 
 const PIERRE_THEME = {
@@ -238,6 +238,26 @@ function strengthenWordDiffBg(lineBg: string, signColor: string) {
   return strongestCandidate;
 }
 
+/** Return whether a theme color can safely participate in RGB distance and blend math. */
+function isHexThemeColor(color: string) {
+  return /^#[0-9a-f]{6}$/i.test(color);
+}
+
+/** Resolve one word-diff background without turning transparent surfaces into black blends. */
+function resolveWordDiffHighlightBg(contentBg: string, lineBg: string, signColor: string) {
+  if (contentBg === TRANSPARENT_BACKGROUND || lineBg === TRANSPARENT_BACKGROUND) {
+    return contentBg;
+  }
+
+  if (!isHexThemeColor(contentBg) || !isHexThemeColor(lineBg)) {
+    return contentBg;
+  }
+
+  return hexColorDistance(contentBg, lineBg) >= MIN_WORD_DIFF_BG_DISTANCE
+    ? contentBg
+    : strengthenWordDiffBg(lineBg, signColor);
+}
+
 /** Resolve the inline word-diff background, strengthening theme colors that are too subtle to see. */
 function wordDiffHighlightBg(kind: SplitLineCell["kind"], theme: AppTheme) {
   const cacheKey = [
@@ -251,14 +271,16 @@ function wordDiffHighlightBg(kind: SplitLineCell["kind"], theme: AppTheme) {
   ].join(":");
   let cached = wordDiffBackgroundCache.get(cacheKey);
   if (!cached) {
-    const addition =
-      hexColorDistance(theme.addedContentBg, theme.addedBg) >= MIN_WORD_DIFF_BG_DISTANCE
-        ? theme.addedContentBg
-        : strengthenWordDiffBg(theme.addedBg, theme.addedSignColor);
-    const deletion =
-      hexColorDistance(theme.removedContentBg, theme.removedBg) >= MIN_WORD_DIFF_BG_DISTANCE
-        ? theme.removedContentBg
-        : strengthenWordDiffBg(theme.removedBg, theme.removedSignColor);
+    const addition = resolveWordDiffHighlightBg(
+      theme.addedContentBg,
+      theme.addedBg,
+      theme.addedSignColor,
+    );
+    const deletion = resolveWordDiffHighlightBg(
+      theme.removedContentBg,
+      theme.removedBg,
+      theme.removedSignColor,
+    );
 
     cached = {
       addition,
