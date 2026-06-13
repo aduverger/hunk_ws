@@ -1,5 +1,6 @@
 import { HunkUserError } from "./errors";
 import type { VcsCommandInput, ShowCommandInput } from "./types";
+import { normalizePathForOS } from "../lib/osPath";
 
 export type JjBackedInput = VcsCommandInput | ShowCommandInput;
 
@@ -182,9 +183,10 @@ export function resolveJjRepoRoot(
   input: JjBackedInput,
   options: Omit<RunJjTextOptions, "input" | "args"> = {},
 ) {
-  return runJjText({
+  const repoRoot = runJjText({
     input,
     args: ["root"],
     ...options,
   }).trim();
+  return normalizePathForOS(repoRoot);
 }

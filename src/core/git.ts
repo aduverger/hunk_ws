@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { HunkUserError } from "./errors";
 import { escapeUntrackedPatchPath } from "./patch/normalize";
 import type { VcsCommandInput, ShowCommandInput, StashShowCommandInput } from "./types";
+import { normalizePathForOS } from "../lib/osPath";
 
 export type GitBackedInput = VcsCommandInput | ShowCommandInput | StashShowCommandInput;
 
@@ -642,11 +643,12 @@ export function resolveGitRepoRoot(
   input: GitBackedInput,
   options: Omit<RunGitTextOptions, "input" | "args"> = {},
 ) {
-  return runGitText({
+  const repoRoot = runGitText({
     input,
     args: ["rev-parse", "--show-toplevel"],
     ...options,
   }).trim();
+  return normalizePathForOS(repoRoot);
 }
 
 /** Resolve one commit-ish ref to the exact commit object used for later blob reads. */

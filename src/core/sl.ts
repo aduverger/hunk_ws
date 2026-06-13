@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { join } from "node:path";
 import { HunkUserError } from "./errors";
 import type { VcsCommandInput, ShowCommandInput } from "./types";
+import { normalizePathForOS } from "../lib/osPath";
 
 export type SlBackedInput = VcsCommandInput | ShowCommandInput;
 
@@ -265,9 +266,10 @@ export function resolveSlRepoRoot(
   input: SlBackedInput,
   options: Omit<RunSlTextOptions, "input" | "args"> = {},
 ) {
-  return runSlText({
+  const repoRoot = runSlText({
     input,
     args: ["root"],
     ...options,
   }).trim();
+  return normalizePathForOS(repoRoot);
 }
