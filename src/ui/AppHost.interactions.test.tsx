@@ -13,7 +13,9 @@ import type {
 } from "../hunk-session/types";
 import type { AppBootstrap, LayoutMode } from "../core/types";
 import { createTestVcsAppBootstrap } from "../../test/helpers/app-bootstrap";
+import { capturedTestColorToHex } from "../../test/helpers/test-color-helpers";
 import { createTestDiffFile as buildTestDiffFile, lines } from "../../test/helpers/diff-helpers";
+import { resolveTheme } from "./themes";
 
 const { loadAppBootstrap } = await import("../core/loaders");
 const { AppHost } = await import("./AppHost");
@@ -449,6 +451,38 @@ async function waitForFrame(
   }
 
   return frame;
+}
+
+/** Return whether rendered text has the expected inherited background color. */
+function hasLineWithBackground(
+  frame: ReturnType<Awaited<ReturnType<typeof testRender>>["captureSpans"]>,
+  text: string,
+  backgroundColor: string,
+) {
+  return frame.lines.some((line) => {
+    const lineText = line.spans.map((span) => span.text).join("");
+    const matchStart = lineText.indexOf(text);
+
+    if (matchStart < 0) {
+      return false;
+    }
+
+    const matchEnd = matchStart + text.length;
+    let spanStart = 0;
+    const matchingSpans = line.spans.filter((span) => {
+      const spanEnd = spanStart + span.text.length;
+      const overlapsMatch = spanStart < matchEnd && spanEnd > matchStart;
+      spanStart = spanEnd;
+      return overlapsMatch;
+    });
+
+    return (
+      matchingSpans.length > 0 &&
+      matchingSpans.every(
+        (span) => capturedTestColorToHex(span.bg)?.toLowerCase() === backgroundColor.toLowerCase(),
+      )
+    );
+  });
 }
 
 /** Open the top-level Theme menu and wait for the expected active light theme marker. */
@@ -2360,6 +2394,47 @@ describe("App interactions", () => {
       frame = setup.captureCharFrame();
       expect(frame).toContain("Toggle files/filter focus");
       expect(frame).not.toContain("Controls help");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("transparent background keeps menus and help dialog opaque", async () => {
+    const bootstrap = createBootstrap();
+    bootstrap.input.options.transparentBackground = true;
+    const theme = resolveTheme(bootstrap.initialTheme, null);
+    const setup = await testRender(<AppHost bootstrap={bootstrap} />, {
+      width: 220,
+      height: 24,
+    });
+
+    try {
+      await flush(setup);
+
+      await act(async () => {
+        await setup.mockInput.pressKey("F10");
+      });
+      const menuFrame = await waitForFrame(
+        setup,
+        (frame) => frame.includes("Toggle files/filter focus"),
+        12,
+      );
+      expect(menuFrame).toContain("Toggle files/filter focus");
+      expect(menuFrame).toContain("Focus filter");
+      expect(hasLineWithBackground(setup.captureSpans(), "Focus filter", theme.panel)).toBe(true);
+
+      await act(async () => {
+        await setup.mockInput.pressArrow("left");
+      });
+      await flush(setup);
+      await act(async () => {
+        await setup.mockInput.pressEnter();
+      });
+      const helpFrame = await waitForFrame(setup, (frame) => frame.includes("Navigation"), 12);
+      expect(helpFrame).toContain("Controls help");
+      expect(hasLineWithBackground(setup.captureSpans(), "Navigation", theme.panel)).toBe(true);
     } finally {
       await act(async () => {
         setup.renderer.destroy();
