@@ -47,6 +47,7 @@ import {
 } from "../../lib/fileSectionLayout";
 import { diffHunkId, diffSectionId } from "../../lib/ids";
 import { findViewportCenteredHunkTarget } from "../../lib/viewportSelection";
+import { VIEWPORT_READ_COALESCE_MS } from "../../lib/viewportTiming";
 import {
   findViewportRowAnchor,
   resolveViewportRowAnchorTop,
@@ -268,10 +269,20 @@ export function DiffPane({
     [],
   );
   const [addNoteHoverClearSignal, setAddNoteHoverClearSignal] = useState(0);
+  const [addNoteHoverClearFileId, setAddNoteHoverClearFileId] = useState<string | null>(null);
+  const hoveredFileIdRef = useRef<string | null>(null);
 
   /** Hide hover-only row controls when content scrolls under a stationary mouse pointer. */
   const clearAddNoteHoverForScroll = useCallback(() => {
+    const hoveredFileId = hoveredFileIdRef.current;
+    if (!hoveredFileId) {
+      return;
+    }
+
+    setAddNoteHoverClearFileId(hoveredFileId);
     setAddNoteHoverClearSignal((current) => current + 1);
+    setHoveredFileId(null);
+    hoveredFileIdRef.current = null;
     onActiveAddNoteAffordanceChange?.(null);
   }, [onActiveAddNoteAffordanceChange]);
 
@@ -443,6 +454,12 @@ export function DiffPane({
   const lastViewportSelectionTopRef = useRef<number | null>(null);
   const lastViewportRowAnchorRef = useRef<ViewportRowAnchor | null>(null);
 
+  /** Track the currently hover-owned file without making scroll handlers depend on render state. */
+  const setHoveredFileForRowActions = useCallback((fileId: string) => {
+    hoveredFileIdRef.current = fileId;
+    setHoveredFileId(fileId);
+  }, []);
+
   /** Temporarily widen the mounted diff window while scroll input is arriving in bursts. */
   const activateRapidScrollOverscan = useCallback((overscanRows: number) => {
     if (overscanRows <= 0) {
@@ -495,6 +512,7 @@ export function DiffPane({
 
     let cancelled = false;
     let scheduled = false;
+    let scheduledViewportRead: ReturnType<typeof setTimeout> | null = null;
 
     const readViewport = () => {
       const nextTop = scrollBox.scrollTop ?? 0;
@@ -531,15 +549,16 @@ export function DiffPane({
     // useLayoutEffects in this pane scroll the box from inside React's commit phase.
     // Calling setScrollViewport directly from the listener can run setState while React
     // is already committing — which downstream layout effects can amplify into a render
-    // loop and trip React's max-update-depth guard. Coalesce listener events into a
-    // single microtask-deferred read so the setState is dispatched outside the emit
-    // call stack and repeated events between paints collapse into one update.
+    // loop and trip React's max-update-depth guard. Coalesce listener events into one
+    // timer-deferred read so rapid wheel/key bursts collapse into at most one React update
+    // per frame instead of turning every native scroll delta into a full review-stream render.
     const handleViewportChange = () => {
       if (scheduled) {
         return;
       }
       scheduled = true;
-      queueMicrotask(() => {
+      scheduledViewportRead = setTimeout(() => {
+        scheduledViewportRead = null;
         if (cancelled) {
           scheduled = false;
           return;
@@ -550,7 +569,7 @@ export function DiffPane({
         } finally {
           scheduled = false;
         }
-      });
+      }, VIEWPORT_READ_COALESCE_MS);
     };
 
     readViewport();
@@ -560,6 +579,9 @@ export function DiffPane({
 
     return () => {
       cancelled = true;
+      if (scheduledViewportRead) {
+        clearTimeout(scheduledViewportRead);
+      }
       scrollBox.verticalScrollBar.off("change", handleViewportChange);
       scrollBox.viewport.off("layout-changed", handleViewportChange);
       scrollBox.viewport.off("resized", handleViewportChange);
@@ -1728,13 +1750,15 @@ export function DiffPane({
                       wrapLines={wrapLines}
                       theme={theme}
                       hoverActive={hoveredFileId === null || hoveredFileId === file.id}
-                      hoverClearSignal={addNoteHoverClearSignal}
+                      hoverClearSignal={
+                        addNoteHoverClearFileId === file.id ? addNoteHoverClearSignal : 0
+                      }
                       viewWidth={diffContentWidth}
                       visibleAgentNotes={
                         visibleAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES
                       }
                       visibleBodyBounds={visibleBodyBoundsByFile.get(file.id)}
-                      onHover={() => setHoveredFileId(file.id)}
+                      onHover={() => setHoveredFileForRowActions(file.id)}
                       onMouseScroll={clearAddNoteHoverForScroll}
                       onActiveAddNoteAffordanceChange={(affordance) =>
                         onActiveAddNoteAffordanceChange?.(

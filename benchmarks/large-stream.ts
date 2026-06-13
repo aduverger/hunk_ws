@@ -2,8 +2,8 @@
 import { performance } from "perf_hooks";
 import React from "react";
 import { testRender } from "@opentui/react/test-utils";
-import { act } from "react";
 import { AppHost } from "../src/ui/AppHost";
+import { VIEWPORT_READ_COALESCE_MS } from "../src/ui/lib/viewportTiming";
 import {
   createLargeSplitStreamBootstrap,
   DEFAULT_FILE_COUNT,
@@ -22,6 +22,22 @@ const SCROLL_TARGET = {
 const SELECTED_HIGHLIGHT_MARKER = "stream1_40";
 
 type BenchmarkRenderer = Awaited<ReturnType<typeof testRender>>;
+
+async function createBenchmarkRenderer() {
+  const setup = await testRender(
+    React.createElement(AppHost, {
+      bootstrap: createLargeSplitStreamBootstrap(),
+    }),
+    VIEWPORT,
+  );
+
+  // This script measures OpenTUI render-loop cost, not React test assertions. Keeping React's
+  // act environment enabled makes queued timer/microtask work drain through the test scheduler and
+  // can dominate the benchmark with harness time instead of frame time.
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
+
+  return setup;
+}
 
 function frameHasHighlightedMarker(
   frame: { lines: Array<{ spans: Array<{ text: string }> }> },
@@ -42,11 +58,13 @@ function frameHasHighlightedMarker(
 
 async function renderPass(setup: BenchmarkRenderer, passes = 1) {
   for (let index = 0; index < passes; index += 1) {
-    await act(async () => {
-      await setup.renderOnce();
-      await Bun.sleep(0);
-    });
+    await setup.renderOnce();
   }
+}
+
+/** Lets DiffPane's timer-coalesced viewport read update React state. */
+async function flushCoalescedViewportRead() {
+  await Bun.sleep(VIEWPORT_READ_COALESCE_MS + 1);
 }
 
 async function flushSelectedHighlight(setup: BenchmarkRenderer) {
@@ -60,18 +78,11 @@ async function flushSelectedHighlight(setup: BenchmarkRenderer) {
 }
 
 async function destroyRenderer(setup: BenchmarkRenderer) {
-  await act(async () => {
-    setup.renderer.destroy();
-  });
+  setup.renderer.destroy();
 }
 
 async function measureFirstFrameMs() {
-  const setup = await testRender(
-    React.createElement(AppHost, {
-      bootstrap: createLargeSplitStreamBootstrap(),
-    }),
-    VIEWPORT,
-  );
+  const setup = await createBenchmarkRenderer();
   const start = performance.now();
 
   try {
@@ -84,23 +95,16 @@ async function measureFirstFrameMs() {
 }
 
 async function measureScrollTicksMs() {
-  const setup = await testRender(
-    React.createElement(AppHost, {
-      bootstrap: createLargeSplitStreamBootstrap(),
-    }),
-    VIEWPORT,
-  );
+  const setup = await createBenchmarkRenderer();
 
   try {
     await renderPass(setup, 2);
     const start = performance.now();
 
     for (let index = 0; index < SCROLL_TICKS; index += 1) {
-      await act(async () => {
-        await setup.mockMouse.scroll(SCROLL_TARGET.x, SCROLL_TARGET.y, "down");
-        await setup.renderOnce();
-        await Bun.sleep(0);
-      });
+      setup.mockMouse.scroll(SCROLL_TARGET.x, SCROLL_TARGET.y, "down");
+      await flushCoalescedViewportRead();
+      await setup.renderOnce();
     }
 
     return performance.now() - start;

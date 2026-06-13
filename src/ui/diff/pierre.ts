@@ -558,18 +558,20 @@ async function prepareHighlighter(
   });
 }
 
-/** Queue highlight rendering so startup work stays serialized in request order. */
+/** Queue highlight rendering so startup work stays serialized without starving input/render timers. */
 function queueHighlightedWork<T>(run: () => T) {
   const queued = queuedHighlightWork.then(
     () =>
       new Promise<T>((resolve, reject) => {
-        queueMicrotask(() => {
+        // Highlighting is CPU-heavy background work. Scheduling each serialized job as a timer,
+        // rather than a microtask, yields back to OpenTUI input and frame timers between files.
+        setTimeout(() => {
           try {
             resolve(run());
           } catch (error) {
             reject(error);
           }
-        });
+        }, 0);
       }),
   );
 
