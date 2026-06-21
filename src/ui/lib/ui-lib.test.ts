@@ -149,6 +149,7 @@ describe("ui helpers", () => {
       toggleCopyDecorations: () => {},
       toggleAgentNotes: () => {},
       toggleFocusArea: () => {},
+      openAgentSkill: () => {},
       toggleHelp: () => {},
       toggleHunkHeaders: () => {},
       toggleLineNumbers: () => {},
@@ -187,6 +188,11 @@ describe("ui helpers", () => {
         .filter((entry): entry is Extract<MenuEntry, { kind: "item" }> => entry.kind === "item")
         .map((entry) => entry.label),
     ).toContain("Themes…");
+    expect(
+      menus.agent
+        .filter((entry): entry is Extract<MenuEntry, { kind: "item" }> => entry.kind === "item")
+        .map((entry) => entry.label),
+    ).toEqual(["Agent notes", "Agent skill", "Next annotated file", "Previous annotated file"]);
   });
 
   test("keyboard alias helpers normalize the shared scroll shortcut keys", () => {

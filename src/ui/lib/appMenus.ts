@@ -21,6 +21,7 @@ export interface BuildAppMenusOptions {
   toggleCopyDecorations: () => void;
   toggleAgentNotes: () => void;
   toggleFocusArea: () => void;
+  openAgentSkill: () => void;
   toggleHelp: () => void;
   toggleHunkHeaders: () => void;
   toggleLineNumbers: () => void;
@@ -51,6 +52,7 @@ export function buildAppMenus({
   toggleCopyDecorations,
   toggleAgentNotes,
   toggleFocusArea,
+  openAgentSkill,
   toggleHelp,
   toggleHunkHeaders,
   toggleLineNumbers,
@@ -216,6 +218,12 @@ export function buildAppMenus({
         checked: showAgentNotes,
         action: toggleAgentNotes,
       },
+      {
+        kind: "item",
+        label: "Agent skill",
+        action: openAgentSkill,
+      },
+      { kind: "separator" },
       {
         kind: "item",
         label: "Next annotated file",
