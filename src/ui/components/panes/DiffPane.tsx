@@ -191,6 +191,7 @@ export function DiffPane({
   copyDecorations = false,
   screenLeft = 0,
   screenTop = 0,
+  showTopChrome,
   showAgentNotes,
   showLineNumbers,
   showHunkHeaders,
@@ -237,6 +238,7 @@ export function DiffPane({
   copyDecorations?: boolean;
   screenLeft?: number;
   screenTop?: number;
+  showTopChrome?: boolean;
   showAgentNotes: boolean;
   showLineNumbers: boolean;
   showHunkHeaders: boolean;
@@ -267,6 +269,7 @@ export function DiffPane({
   onToggleGap?: (fileId: string, gapKey: string) => void;
   onViewportCenteredHunkChange?: (fileId: string, hunkIndex: number) => void;
 }) {
+  const renderTopChrome = showTopChrome ?? !pagerMode;
   const renderer = useRenderer();
   const mouseWheelScrollAcceleration = useMemo(
     () => createReviewMouseWheelScrollAcceleration(),
@@ -1728,12 +1731,14 @@ export function DiffPane({
     <box
       style={{
         width,
-        border: pagerMode ? [] : ["top"],
+        border: renderTopChrome ? ["top"] : [],
         borderColor: theme.border,
         backgroundColor: theme.panel,
-        paddingY: pagerMode ? 0 : 1,
         paddingX: 0,
         flexDirection: "column",
+        ...(renderTopChrome
+          ? { paddingY: 1 }
+          : { paddingTop: 0, paddingBottom: pagerMode ? 0 : 1 }),
       }}
       onMouseDragEnd={endCopySelection}
       onMouseUp={endCopySelection}
