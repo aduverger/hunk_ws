@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.17.0
+
+### Minor Changes
+
+- 6cd39c9: Add a configurable menu bar toggle so keyboard-driven reviews can reclaim one row of terminal space.
+- 8945272: Add an `enableClaudeIntegration` home-manager option that links the packaged `hunk-review` skill into `~/.claude/skills`, so Nix users get the Claude Code review skill without manual setup.
+- d2be4e7: Add an `enableJujutsuIntegration` home-manager option that sets hunk as the jujutsu pager and switches `ui.diff-formatter` to `:git` so jj emits diffs hunk can render.
+
+### Patch Changes
+
+- 0a3cc06: Add an Agent menu dialog that shows and copies the Hunk review skill setup prompt.
+- d7f1558: Upgrade OpenTUI to 0.4.2 and Bun to 1.3.14 for renderer, input, and platform fixes.
+- 675104f: Fix a transient bottom-edge scroll clamp: mounted diff sections now always render their agent-note rows, so the review stream's painted height matches its measured layout height and over-scrolling at the bottom can no longer snap short by the height of an offscreen note.
+- 65a2740: Highlight `.mts` and `.cts` files as TypeScript instead of plain text.
+- ed8268a: Stop treating Escape as a global quit shortcut; use `q` to quit while preserving Escape for dialogs and focused controls.
+- 290ebcd: Keep live review sessions from being pruned after the machine wakes from sleep.
+- ae57101: Avoid transient mixed-color frames when previewing or accepting themes from the theme selector.
+- 916cd8a: Preserve added and removed diff row tints when transparent background mode is enabled in the interactive TUI.
+- d4b829f: Fix session daemon auto-launch on Windows: the compiled binary's virtual `B:\~BUN\...` entrypoint was mistaken for a script path and passed to the relaunched daemon as a bogus argument, so `hunk session` commands never found a live session.
+
 ## 0.16.0
 
 ### Minor Changes
