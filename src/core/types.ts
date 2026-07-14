@@ -19,6 +19,8 @@ export interface AgentAnnotation {
   newRange?: [number, number];
   summary: string;
   rationale?: string;
+  /** Optional STML markup rendered as the note body in place of summary/rationale text. */
+  markup?: string;
   tags?: string[];
   confidence?: "low" | "medium" | "high";
   source?: string;
@@ -236,6 +238,7 @@ export interface SessionCommentAddCommandInput {
   line: number;
   summary: string;
   rationale?: string;
+  markup?: string;
   author?: string;
   reveal: boolean;
 }
@@ -247,6 +250,7 @@ export interface SessionCommentApplyItemInput {
   line?: number;
   summary: string;
   rationale?: string;
+  markup?: string;
   author?: string;
 }
 
@@ -349,12 +353,28 @@ export type CliInput =
   | PatchCommandInput
   | DiffToolCommandInput;
 
+export interface MarkupRenderCommandInput {
+  kind: "markup-render";
+  /** Markup source path, or "-" for stdin. */
+  file: string;
+  width: number;
+  color: "auto" | "always" | "never";
+  theme?: string;
+  json: boolean;
+}
+
+export interface MarkupGuideCommandInput {
+  kind: "markup-guide";
+}
+
 export type ParsedCliInput =
   | CliInput
   | HelpCommandInput
   | PagerCommandInput
   | DaemonServeCommandInput
-  | SessionCommandInput;
+  | SessionCommandInput
+  | MarkupRenderCommandInput
+  | MarkupGuideCommandInput;
 
 export interface AppBootstrap {
   input: CliInput;

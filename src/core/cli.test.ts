@@ -542,6 +542,84 @@ describe("parseCli", () => {
     });
   });
 
+  test("parses markup render with defaults and options", async () => {
+    expect(await parseCli(["bun", "hunk", "markup", "render"])).toEqual({
+      kind: "markup-render",
+      file: "-",
+      width: 56,
+      color: "auto",
+      theme: undefined,
+      json: false,
+    });
+
+    expect(
+      await parseCli([
+        "bun",
+        "hunk",
+        "markup",
+        "render",
+        "note.stml",
+        "--width",
+        "72",
+        "--color",
+        "never",
+        "--theme",
+        "midnight",
+        "--json",
+      ]),
+    ).toEqual({
+      kind: "markup-render",
+      file: "note.stml",
+      width: 72,
+      color: "never",
+      theme: "midnight",
+      json: true,
+    });
+  });
+
+  test("rejects invalid markup render color modes and unknown markup subcommands", async () => {
+    await expect(
+      parseCli(["bun", "hunk", "markup", "render", "-", "--color", "sometimes"]),
+    ).rejects.toThrow("--color must be auto, always, or never.");
+    await expect(parseCli(["bun", "hunk", "markup", "bogus"])).rejects.toThrow(
+      "Supported markup subcommands are render and guide.",
+    );
+  });
+
+  test("parses markup guide", async () => {
+    expect(await parseCli(["bun", "hunk", "markup", "guide"])).toEqual({ kind: "markup-guide" });
+  });
+
+  test("parses session comment add with --markup", async () => {
+    const parsed = await parseCli([
+      "bun",
+      "hunk",
+      "session",
+      "comment",
+      "add",
+      "session-1",
+      "--file",
+      "README.md",
+      "--new-line",
+      "7",
+      "--summary",
+      "Rendered note",
+      "--markup",
+      "<box border><b>hot path</b></box>",
+    ]);
+
+    expect(parsed).toMatchObject({
+      kind: "session",
+      action: "comment-add",
+      selector: { sessionId: "session-1" },
+      filePath: "README.md",
+      side: "new",
+      line: 7,
+      summary: "Rendered note",
+      markup: "<box border><b>hot path</b></box>",
+    });
+  });
+
   test("parses session comment add with --focus", async () => {
     const parsed = await parseCli([
       "bun",
