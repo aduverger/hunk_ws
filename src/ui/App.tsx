@@ -5,10 +5,22 @@ import {
 } from "@opentui/core";
 import { useRenderer, useTerminalDimensions } from "@opentui/react";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, useRef } from "react";
-import type { AppBootstrap, CliInput, LayoutMode, UserNoteLineTarget } from "../core/types";
+import {
+  diffPersistedViewPreferences,
+  saveGlobalViewPreferences,
+  saveViewPreferencesPromptPreference,
+} from "../core/config";
+import type {
+  AppBootstrap,
+  CliInput,
+  LayoutMode,
+  PersistedViewPreferences,
+  UserNoteLineTarget,
+} from "../core/types";
 import { canReloadInput, computeWatchSignature } from "../core/watch";
 import type { HunkSessionBrokerClient, ReloadedSessionResult } from "../hunk-session/types";
 import { MenuBar } from "./components/chrome/MenuBar";
+import { ConfirmDialog, confirmDialogHeight } from "./components/chrome/ConfirmDialog";
 import { StatusBar } from "./components/chrome/StatusBar";
 import { DiffPane } from "./components/panes/DiffPane";
 import { SidebarPane } from "./components/panes/SidebarPane";
@@ -147,6 +159,7 @@ export function App({
   const [forceSidebarOpen, setForceSidebarOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showAgentSkill, setShowAgentSkill] = useState(false);
+  const [saveConfigPromptOpen, setSaveConfigPromptOpen] = useState(false);
   const [focusArea, setFocusArea] = useState<FocusArea>("files");
   const [activeAddNoteTarget, setActiveAddNoteTarget] = useState<ActiveAddNoteTarget | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(34);
@@ -182,6 +195,52 @@ export function App({
       })),
     [activeTheme.id, themeOptions],
   );
+  const currentViewPreferences = useMemo<PersistedViewPreferences>(
+    () => ({
+      mode: layoutMode,
+      theme: themeId,
+      showLineNumbers,
+      wrapLines,
+      showHunkHeaders,
+      showMenuBar,
+      showAgentNotes,
+      copyDecorations,
+    }),
+    [
+      copyDecorations,
+      layoutMode,
+      showAgentNotes,
+      showHunkHeaders,
+      showLineNumbers,
+      showMenuBar,
+      themeId,
+      wrapLines,
+    ],
+  );
+  const initialViewPreferencesRef = useRef(currentViewPreferences);
+  const changedViewPreferences = useMemo(
+    () => diffPersistedViewPreferences(initialViewPreferencesRef.current, currentViewPreferences),
+    [currentViewPreferences],
+  );
+  // Render each change as the -/+ pair of TOML assignments the save would rewrite,
+  // with the key column aligned across all changed preferences.
+  const viewPreferenceDiffLines = useMemo(() => {
+    const keyWidth = changedViewPreferences.reduce(
+      (width, change) => Math.max(width, change.configKey.length),
+      0,
+    );
+    return changedViewPreferences.flatMap((change) => [
+      { removed: true, text: `- ${change.configKey.padEnd(keyWidth)} = ${change.previousValue}` },
+      { removed: false, text: `+ ${change.configKey.padEnd(keyWidth)} = ${change.nextValue}` },
+    ]);
+  }, [changedViewPreferences]);
+  const hasUnsavedViewPreferences = changedViewPreferences.length > 0;
+  const viewPreferencesConfigLabel = useMemo(() => {
+    const path = bootstrap.viewPreferencesConfigPath ?? "~/.config/hunk/config.toml";
+    return process.env.HOME && path.startsWith(process.env.HOME)
+      ? `~${path.slice(process.env.HOME.length)}`
+      : path;
+  }, [bootstrap.viewPreferencesConfigPath]);
   // App computes layout geometry below this hook call, so the controller reads
   // the current values through a ref instead of a render-time parameter.
   const noteGeometryRef = useRef<AgentNoteGeometrySnapshot | null>(null);
@@ -660,10 +719,66 @@ export function App({
     };
   }, [bootstrap.input, refreshCurrentInput, watchEnabled]);
 
-  /** Leave the app through the shared shutdown path. */
-  const requestQuit = useCallback(() => {
+  /** Save current view preferences to user config and then leave the app. */
+  const saveViewPreferencesAndQuit = useCallback(() => {
+    try {
+      const configPath = saveGlobalViewPreferences(currentViewPreferences, {
+        configPath: bootstrap.viewPreferencesConfigPath,
+      });
+      initialViewPreferencesRef.current = currentViewPreferences;
+      showSessionNotice(`Saved view preferences to ${configPath}`);
+      setTimeout(onQuit, 120);
+    } catch (error) {
+      showSessionNotice(
+        error instanceof Error ? error.message : "Failed to save view preferences.",
+      );
+    }
+  }, [bootstrap.viewPreferencesConfigPath, currentViewPreferences, onQuit, showSessionNotice]);
+
+  /** Leave the app without writing view preference changes. */
+  const discardViewPreferencesAndQuit = useCallback(() => {
+    setSaveConfigPromptOpen(false);
     onQuit();
   }, [onQuit]);
+
+  /** Persist the user's choice to stop prompting about view preference changes. */
+  const neverAskToSaveViewPreferencesAndQuit = useCallback(() => {
+    try {
+      const configPath = saveViewPreferencesPromptPreference(false, {
+        configPath: bootstrap.viewPreferencesConfigPath,
+      });
+      showSessionNotice(`Won't ask to save view preferences again (${configPath})`);
+      setTimeout(onQuit, 120);
+    } catch (error) {
+      showSessionNotice(
+        error instanceof Error ? error.message : "Failed to save prompt preference.",
+      );
+    }
+  }, [bootstrap.viewPreferencesConfigPath, onQuit, showSessionNotice]);
+
+  /** Leave the app through the shared shutdown path, prompting before discarding view changes. */
+  const requestQuit = useCallback(() => {
+    if (
+      !pagerMode &&
+      bootstrap.input.options.promptSaveViewPreferences !== false &&
+      hasUnsavedViewPreferences
+    ) {
+      setShowHelp(false);
+      setSaveConfigPromptOpen(true);
+      return;
+    }
+
+    onQuit();
+  }, [
+    bootstrap.input.options.promptSaveViewPreferences,
+    hasUnsavedViewPreferences,
+    onQuit,
+    pagerMode,
+  ]);
+
+  const closeSaveConfigPrompt = useCallback(() => {
+    setSaveConfigPromptOpen(false);
+  }, []);
 
   /** Close the modal keyboard help overlay. */
   const closeHelp = useCallback(() => {
@@ -854,6 +969,11 @@ export function App({
     openThemeSelector,
     pagerMode,
     requestQuit,
+    saveConfigPromptOpen,
+    saveViewPreferencesAndQuit,
+    discardViewPreferencesAndQuit,
+    neverAskToSaveViewPreferencesAndQuit,
+    closeSaveConfigPrompt,
     scrollCodeHorizontally,
     saveDraftNote,
     scrollDiff,
@@ -1128,6 +1248,48 @@ export function App({
             onClose={closeHelp}
           />
         </Suspense>
+      ) : null}
+
+      {!pagerMode && saveConfigPromptOpen ? (
+        <ConfirmDialog
+          actions={[
+            { keyLabel: "enter/s", label: "save", run: saveViewPreferencesAndQuit },
+            { keyLabel: "q", label: "discard", run: discardViewPreferencesAndQuit },
+            { keyLabel: "n", label: "never ask", run: neverAskToSaveViewPreferencesAndQuit },
+            { keyLabel: "esc", label: "cancel", run: closeSaveConfigPrompt },
+          ]}
+          height={confirmDialogHeight(4 + viewPreferenceDiffLines.length)}
+          terminalHeight={terminal.height}
+          terminalWidth={terminal.width}
+          theme={baseTheme}
+          title="Save view preferences?"
+          width={68}
+          onClose={closeSaveConfigPrompt}
+        >
+          <box style={{ width: "100%", height: 1 }}>
+            <text fg={baseTheme.muted}>
+              You changed {changedViewPreferences.length} view{" "}
+              {changedViewPreferences.length === 1 ? "setting" : "settings"} during this review.
+            </text>
+          </box>
+          <box style={{ width: "100%", height: 1 }}>
+            <text fg={baseTheme.muted}>
+              Save {changedViewPreferences.length === 1 ? "it" : "them"} to your config before
+              quitting?
+            </text>
+          </box>
+          <box style={{ width: "100%", height: 1 }} />
+          <box style={{ width: "100%", height: 1 }}>
+            <text fg={baseTheme.badgeNeutral}>{viewPreferencesConfigLabel}</text>
+          </box>
+          {viewPreferenceDiffLines.map((line) => (
+            <box key={line.text} style={{ width: "100%", height: 1 }}>
+              <text fg={line.removed ? baseTheme.badgeRemoved : baseTheme.badgeAdded}>
+                {line.text}
+              </text>
+            </box>
+          ))}
+        </ConfirmDialog>
       ) : null}
 
       {!pagerMode && themeSelectorState.open ? (

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
@@ -3383,6 +3383,301 @@ describe("App interactions", () => {
       );
       expect(frame).toContain("second.ts");
       expect((frame.match(/first\.ts/g) ?? []).length).toBe(1);
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("quit prompts to save changed view preferences", async () => {
+    const configHome = mkdtempSync(join(tmpdir(), "hunk-save-view-config-"));
+    const previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = configHome;
+    const quit = mock(() => undefined);
+    const setup = await testRender(
+      <AppHost bootstrap={createSingleFileBootstrap()} onQuit={quit} />,
+      {
+        width: 240,
+        height: 24,
+      },
+    );
+
+    try {
+      await flush(setup);
+      await act(async () => {
+        await setup.mockInput.typeText("t");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme selector"));
+
+      await act(async () => {
+        await setup.mockInput.pressArrow("down");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("›  github-dark-dimmed"));
+      await act(async () => {
+        await setup.mockInput.pressEnter();
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme: github-dark-dimmed"));
+
+      await act(async () => {
+        await setup.mockInput.typeText("q");
+      });
+      let frame = await waitForFrame(setup, (nextFrame) =>
+        nextFrame.includes("Save view preferences?"),
+      );
+      expect(frame).toContain("You changed 1 view setting during this review.");
+      expect(frame).toContain("q discard");
+      expect(frame).toContain("n never ask");
+      expect(frame).toContain('- theme = "github-dark-default"');
+      expect(frame).toContain('+ theme = "github-dark-dimmed"');
+      expect(frame).not.toContain("line_numbers =");
+      expect(frame).not.toContain("wrap_lines =");
+      expect(quit).toHaveBeenCalledTimes(0);
+
+      // A second "q" quits and discards.
+      await act(async () => {
+        await setup.mockInput.typeText("q");
+        await setup.renderOnce();
+      });
+      expect(quit).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previousXdgConfigHome === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+      }
+      rmSync(configHome, { recursive: true, force: true });
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("quit prompt saves changed view preferences", async () => {
+    const configHome = mkdtempSync(join(tmpdir(), "hunk-save-view-config-"));
+    const previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = configHome;
+    const quit = mock(() => undefined);
+    const setup = await testRender(
+      <AppHost bootstrap={createSingleFileBootstrap()} onQuit={quit} />,
+      {
+        width: 240,
+        height: 24,
+      },
+    );
+
+    try {
+      await flush(setup);
+      await act(async () => {
+        await setup.mockInput.typeText("t");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme selector"));
+
+      await act(async () => {
+        await setup.mockInput.pressArrow("down");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("›  github-dark-dimmed"));
+      await act(async () => {
+        await setup.mockInput.pressEnter();
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme: github-dark-dimmed"));
+
+      await act(async () => {
+        await setup.mockInput.typeText("q");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Save view preferences?"));
+      await act(async () => {
+        await setup.mockInput.pressEnter();
+        await Bun.sleep(140);
+      });
+      await flush(setup);
+
+      expect(quit).toHaveBeenCalledTimes(1);
+      expect(readFileSync(join(configHome, "hunk", "config.toml"), "utf8")).toContain(
+        'theme = "github-dark-dimmed"',
+      );
+    } finally {
+      if (previousXdgConfigHome === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+      }
+      rmSync(configHome, { recursive: true, force: true });
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("quit prompt can disable future view preference prompts", async () => {
+    const configHome = mkdtempSync(join(tmpdir(), "hunk-save-view-config-"));
+    const previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = configHome;
+    const quit = mock(() => undefined);
+    const setup = await testRender(
+      <AppHost bootstrap={createSingleFileBootstrap()} onQuit={quit} />,
+      {
+        width: 240,
+        height: 24,
+      },
+    );
+
+    try {
+      await flush(setup);
+      await act(async () => {
+        await setup.mockInput.typeText("t");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme selector"));
+
+      await act(async () => {
+        await setup.mockInput.pressArrow("down");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("›  github-dark-dimmed"));
+      await act(async () => {
+        await setup.mockInput.pressEnter();
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme: github-dark-dimmed"));
+
+      await act(async () => {
+        await setup.mockInput.typeText("q");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Save view preferences?"));
+      await act(async () => {
+        await setup.mockInput.typeText("n");
+        await Bun.sleep(140);
+      });
+      await flush(setup);
+
+      expect(quit).toHaveBeenCalledTimes(1);
+      expect(readFileSync(join(configHome, "hunk", "config.toml"), "utf8")).toContain(
+        "prompt_save_view_preferences = false",
+      );
+    } finally {
+      if (previousXdgConfigHome === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+      }
+      rmSync(configHome, { recursive: true, force: true });
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("quit prompt actions respond to mouse clicks", async () => {
+    const configHome = mkdtempSync(join(tmpdir(), "hunk-save-view-config-"));
+    const previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = configHome;
+    const quit = mock(() => undefined);
+    const setup = await testRender(
+      <AppHost bootstrap={createSingleFileBootstrap()} onQuit={quit} />,
+      {
+        width: 240,
+        height: 24,
+      },
+    );
+
+    /** Click the first frame cell where the given footer label starts. */
+    const clickLabel = async (label: string) => {
+      const lines = setup.captureCharFrame().split("\n");
+      const targetY = lines.findIndex((line) => line.includes(label));
+      expect(targetY).toBeGreaterThanOrEqual(0);
+      const targetX = lines[targetY]!.indexOf(label);
+      await act(async () => {
+        await setup.mockMouse.click(targetX, targetY);
+      });
+    };
+
+    try {
+      await flush(setup);
+      await act(async () => {
+        await setup.mockInput.typeText("t");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme selector"));
+
+      await act(async () => {
+        await setup.mockInput.pressArrow("down");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("›  github-dark-dimmed"));
+      await act(async () => {
+        await setup.mockInput.pressEnter();
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme: github-dark-dimmed"));
+
+      await act(async () => {
+        await setup.mockInput.typeText("q");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Save view preferences?"));
+
+      await clickLabel("esc cancel");
+      const cancelled = await waitForFrame(
+        setup,
+        (nextFrame) => !nextFrame.includes("Save view preferences?"),
+      );
+      expect(cancelled).not.toContain("Save view preferences?");
+      expect(quit).toHaveBeenCalledTimes(0);
+
+      await act(async () => {
+        await setup.mockInput.typeText("q");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Save view preferences?"));
+
+      await clickLabel("enter/s save");
+      await act(async () => {
+        await Bun.sleep(140);
+      });
+      await flush(setup);
+
+      expect(quit).toHaveBeenCalledTimes(1);
+      expect(readFileSync(join(configHome, "hunk", "config.toml"), "utf8")).toContain(
+        'theme = "github-dark-dimmed"',
+      );
+    } finally {
+      if (previousXdgConfigHome === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+      }
+      rmSync(configHome, { recursive: true, force: true });
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("quit skips the save prompt when configured not to ask", async () => {
+    const quit = mock(() => undefined);
+    const bootstrap = createSingleFileBootstrap();
+    bootstrap.input.options.promptSaveViewPreferences = false;
+    const setup = await testRender(<AppHost bootstrap={bootstrap} onQuit={quit} />, {
+      width: 240,
+      height: 24,
+    });
+
+    try {
+      await flush(setup);
+      await act(async () => {
+        await setup.mockInput.typeText("t");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme selector"));
+
+      await act(async () => {
+        await setup.mockInput.pressArrow("down");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("›  github-dark-dimmed"));
+      await act(async () => {
+        await setup.mockInput.pressEnter();
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme: github-dark-dimmed"));
+
+      await act(async () => {
+        await setup.mockInput.typeText("q");
+      });
+      await flush(setup);
+
+      expect(quit).toHaveBeenCalledTimes(1);
+      expect(setup.captureCharFrame()).not.toContain("Save view preferences?");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
