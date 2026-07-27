@@ -34,3 +34,24 @@ A custom theme inherits from a built-in base, then overlays semantic Hunk colors
 Quote scope selectors containing dots. Later equal-specificity declarations win, but a more-specific base selector can beat a broad override, so add grammar-specific selectors when needed.
 
 The old `[custom_theme.syntax]` role table is deprecated and temporarily translated. Prefer `syntax_scopes` for new themes.
+
+## Name several themes
+
+`[custom_theme]` is the single theme named `custom`. To keep more than one of your own themes around, declare `[themes.<id>]` tables instead and select one by id:
+
+```toml
+theme = "midnight-ink"
+
+[themes.midnight-ink]
+base = "catppuccin-mocha"
+label = "Midnight Ink"
+accent = "#7fd1ff"
+
+[themes.paper-trail]
+base = "github-light-default"
+label = "Paper Trail"
+```
+
+Every `[themes.<id>]` table accepts exactly the keys `[custom_theme]` accepts, and each theme appears in the theme picker. Ids are lowercase words separated by `-` or `_`; ids already taken by a built-in theme, by `auto`, or by `[custom_theme]` are skipped with a startup notice. A repository config can refine a user theme with the same id field by field.
+
+See the [config reference](/docs/reference/config/#named-themes) for the full rules.

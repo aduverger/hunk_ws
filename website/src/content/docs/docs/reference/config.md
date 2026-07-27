@@ -32,10 +32,10 @@ Choose responsive, side-by-side, or stacked diff layout.
 
 **`vcs`**
 
-Select the version-control adapter explicitly.
+Select the version-control adapter explicitly. An explicit id outranks detection; an id no loaded backend owns falls back to detection with a startup notice.
 
 - **Type:** string
-- **Accepted:** `git`, `jj`, or `sl`
+- **Accepted:** `git`, `jj`, `sl`, or an id a loaded extension backend registers
 - **Built-in default:** detected from the checkout (Git fallback)
 
 ---
@@ -305,3 +305,20 @@ These deprecated IDs remain accepted by `theme` and `custom_theme.base`, then no
 `[custom_theme.syntax_scopes]` accepts arbitrary non-empty Shiki/TextMate scope names as TOML keys and six-digit hex colors as values. These exact scope overrides are the preferred syntax customization API.
 
 The deprecated `[custom_theme.syntax]` table remains accepted for one compatibility window with these semantic keys: `custom_theme.syntax.default`, `custom_theme.syntax.keyword`, `custom_theme.syntax.string`, `custom_theme.syntax.comment`, `custom_theme.syntax.number`, `custom_theme.syntax.function`, `custom_theme.syntax.property`, `custom_theme.syntax.type`, `custom_theme.syntax.variable`, `custom_theme.syntax.operator`, `custom_theme.syntax.punctuation`. Hunk normalizes them into exact scope overrides and emits a startup notice.
+
+### Named themes
+
+Declare any number of additional themes as `[themes.<id>]` tables. Each one accepts exactly the keys `[custom_theme]` accepts, plus the id in the table name, and is selectable with `theme = "<id>"` or `--theme <id>`. Ids are lowercase words separated by `-` or `_`; ids belonging to built-in themes, to `auto`, or to the `custom_theme` table are skipped with a startup notice. `[custom_theme]` itself keeps the id `custom`. Same-id tables merge field by field across the user and repository layers, with the repository layer winning.
+
+## Extensions
+
+`[extensions]` controls which user extensions load. It is root-only and does not accept command or `[pager]` overrides.
+
+| Key                  | Type             | Accepted                      | Built-in default | Description                                                                                                           |
+| -------------------- | ---------------- | ----------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `extensions.enabled` | boolean          | `true` or `false`             | `true`           | Load user extensions. `--no-extensions` forces this off for one run, and bundled VCS backends stay loaded either way. |
+| `extensions.paths`   | array of strings | entry file or directory paths | `[]`             | Extension entry points loaded at startup. Paths a repository config contributes are trust-gated before they run.      |
+
+Repository `.hunk/config.toml` paths are kept separate from user paths: Hunk prompts for trust before executing repository-declared extension code, and `--no-extensions` disables user extensions entirely for one run.
+
+Each extension reads its own settings from a `[extension.<id>]` table. Hunk does not interpret those keys; it passes the table through to the extension. Repository tables merge over user tables key by key, and Hunk emits a startup notice naming every extension whose settings the repository overrides.

@@ -14,13 +14,15 @@ import { splitPatchIntoFileChunks, findPatchChunk } from "./patch/chunks";
 import { normalizePatchText, stripTerminalControl } from "./patch/normalize";
 import { DEFAULT_TAB_WIDTH } from "./tabWidth";
 import { getConfiguredVcsAdapter, loadVcsReview, operationFromInput } from "./vcs";
+import type { VcsAdapter } from "./vcs/types";
+import { buildFilesystemUntrackedDiffFile } from "./vcs/untracked";
 import { computeWatchSignature } from "./watch";
 import type {
   AppBootstrap,
   AgentContext,
   Changeset,
   CliInput,
-  CustomThemeConfig,
+  NamedCustomThemeConfig,
   DiffFile,
   DiffLineMoveKind,
   DiffLineMoveKinds,
@@ -34,7 +36,10 @@ import type {
 
 interface LoadAppBootstrapOptions {
   cwd?: string;
-  customTheme?: CustomThemeConfig;
+  /** Selectable custom themes for this session, already merged into menu order. */
+  customThemes?: readonly NamedCustomThemeConfig[];
+  /** Extension-contributed VCS backends this session may load reviews through. */
+  vcsAdapters?: readonly VcsAdapter[];
   gitExecutable?: string;
 }
 
@@ -375,8 +380,9 @@ async function loadVcsChangeset(
   agentContext: AgentContext | null,
   cwd = process.cwd(),
   gitExecutable = "git",
+  extensionVcsAdapters: readonly VcsAdapter[] = [],
 ) {
-  const adapter = getConfiguredVcsAdapter(input.options.vcs);
+  const adapter = getConfiguredVcsAdapter(input.options.vcs, extensionVcsAdapters);
   const operation = operationFromInput(input);
   const result = await loadVcsReview(adapter, operation, { cwd, gitExecutable });
   const parsedChangeset = normalizePatchChangeset(
@@ -386,7 +392,21 @@ async function loadVcsChangeset(
     agentContext,
     result.sourceFetcherBuilder ? { sourceFetcherBuilder: result.sourceFetcherBuilder } : undefined,
   );
-  const adapterFiles = (result.extraFiles ?? []).map((file, index) => ({
+  // Two published ways to review a file the patch does not contain, and both
+  // land here: `untrackedPaths`, where an adapter names what its VCS considers
+  // unknown and Hunk synthesizes the added-file diffs, and `extraFiles`, where
+  // the adapter described the file itself and the conversion boundary already
+  // turned each entry into a diff file. Adapter-described files come first, so
+  // an adapter that uses both keeps its own ordering.
+  const untrackedFiles = (result.untrackedPaths ?? []).map((filePath, index) =>
+    buildFilesystemUntrackedDiffFile(
+      result.repoRoot,
+      filePath,
+      (result.extraFiles?.length ?? 0) + index,
+      result.repoRoot,
+    ),
+  );
+  const adapterFiles = [...(result.extraFiles ?? []), ...untrackedFiles].map((file, index) => ({
     ...file,
     id: `${file.id}:extra:${index}`,
     agent: findAgentFileContext(agentContext, file.path, file.previousPath),
@@ -424,13 +444,18 @@ async function loadPatchChangeset(
 /** Resolve CLI input into the fully loaded app bootstrap state. */
 export async function loadAppBootstrap(
   input: CliInput,
-  { cwd = process.cwd(), customTheme, gitExecutable = "git" }: LoadAppBootstrapOptions = {},
+  {
+    cwd = process.cwd(),
+    customThemes,
+    vcsAdapters,
+    gitExecutable = "git",
+  }: LoadAppBootstrapOptions = {},
 ): Promise<AppBootstrap> {
   // Capture before loading content so watch mode can detect mutations that race initial loading.
   let initialWatchSignature: string | undefined;
   if (input.options.watch) {
     try {
-      initialWatchSignature = computeWatchSignature(input, { cwd, gitExecutable });
+      initialWatchSignature = computeWatchSignature(input, { cwd, gitExecutable, vcsAdapters });
     } catch {
       // A transient signature failure must not prevent an otherwise valid initial review.
     }
@@ -446,7 +471,7 @@ export async function loadAppBootstrap(
     case "show":
     case "stash-show":
       {
-        const result = await loadVcsChangeset(input, agentContext, cwd, gitExecutable);
+        const result = await loadVcsChangeset(input, agentContext, cwd, gitExecutable, vcsAdapters);
         changeset = result.changeset;
         repoRoot = result.repoRoot;
       }
@@ -469,11 +494,11 @@ export async function loadAppBootstrap(
 
   return {
     input,
-    reloadContext: { cwd, repoRoot, initialWatchSignature },
+    reloadContext: { cwd, repoRoot, initialWatchSignature, vcsAdapters },
     changeset,
     initialMode: input.options.mode ?? "auto",
     initialTheme: input.options.theme,
-    customTheme,
+    customThemes,
     initialShowLineNumbers: input.options.lineNumbers ?? true,
     initialTabWidth: input.options.tabWidth ?? DEFAULT_TAB_WIDTH,
     initialWrapLines: input.options.wrapLines ?? false,

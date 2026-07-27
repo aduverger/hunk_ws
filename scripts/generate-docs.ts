@@ -11,6 +11,7 @@ import {
   BUILT_IN_THEME_IDS,
   CONFIG_COMMAND_SECTIONS,
   CONFIG_REFERENCE_CUSTOM_THEME,
+  CONFIG_REFERENCE_EXTENSIONS,
   CONFIG_REFERENCE_OPTIONS,
 } from "../src/core/config";
 import { renderHunkReviewSkill } from "../src/hunk-review/skillDocument";
@@ -266,6 +267,10 @@ export function renderConfigReference() {
   const legacyThemeRows = Object.entries(CONFIG_REFERENCE_CUSTOM_THEME.legacyBaseAliases).map(
     ([alias, replacement]) => `| \`${alias}\` | \`${replacement}\` |`,
   );
+  const extensionRows = CONFIG_REFERENCE_EXTENSIONS.keys.map(
+    (key) =>
+      `| \`${key.key}\` | ${key.type} | ${key.accepted} | ${key.defaultValue ?? "—"} | ${key.description} |`,
+  );
 
   return formatMarkdownTables(`---
 title: Config reference
@@ -320,6 +325,22 @@ ${colorRows.join("\n")}
 \`[${CONFIG_REFERENCE_CUSTOM_THEME.syntaxScopesTable}]\` accepts arbitrary non-empty Shiki/TextMate scope names as TOML keys and six-digit hex colors as values. These exact scope overrides are the preferred syntax customization API.
 
 The deprecated \`[${CONFIG_REFERENCE_CUSTOM_THEME.legacySyntaxTable}]\` table remains accepted for one compatibility window with these semantic keys: ${legacyRows.join(", ")}. Hunk normalizes them into exact scope overrides and emits a startup notice.
+
+### Named themes
+
+Declare any number of additional themes as \`[${CONFIG_REFERENCE_CUSTOM_THEME.namedThemeTable}.<id>]\` tables. Each one accepts exactly the keys \`[${CONFIG_REFERENCE_CUSTOM_THEME.table}]\` accepts, plus the id in the table name, and is selectable with \`theme = "<id>"\` or \`--theme <id>\`. Ids are lowercase words separated by \`-\` or \`_\`; ids belonging to built-in themes, to \`auto\`, or to the \`${CONFIG_REFERENCE_CUSTOM_THEME.table}\` table are skipped with a startup notice. \`[${CONFIG_REFERENCE_CUSTOM_THEME.table}]\` itself keeps the id \`custom\`. Same-id tables merge field by field across the user and repository layers, with the repository layer winning.
+
+## Extensions
+
+\`[${CONFIG_REFERENCE_EXTENSIONS.table}]\` controls which user extensions load. It is root-only and does not accept command or \`[pager]\` overrides.
+
+| Key | Type | Accepted | Built-in default | Description |
+| --- | --- | --- | --- | --- |
+${extensionRows.join("\n")}
+
+Repository \`.hunk/config.toml\` paths are kept separate from user paths: Hunk prompts for trust before executing repository-declared extension code, and \`--no-extensions\` disables user extensions entirely for one run.
+
+Each extension reads its own settings from a \`[${CONFIG_REFERENCE_EXTENSIONS.perExtensionTable}.<id>]\` table. Hunk does not interpret those keys; it passes the table through to the extension. Repository tables merge over user tables key by key, and Hunk emits a startup notice naming every extension whose settings the repository overrides.
 `);
 }
 

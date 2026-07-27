@@ -1,64 +1,36 @@
 import fs from "node:fs";
 import { dirname, join } from "node:path";
+import { sanitizeTerminalLine } from "../lib/terminalText";
+import { BUNDLED_SHIKI_THEME_IDS, LEGACY_THEME_ID_ALIASES } from "../ui/lib/shikiThemes";
 import {
-  BUNDLED_SHIKI_THEME_IDS,
-  LEGACY_THEME_ID_ALIASES,
-  resolveBundledShikiThemeId,
-} from "../ui/lib/shikiThemes";
+  createInvalidThemeIdNotice,
+  createThemeCollisionNotice,
+  CUSTOM_THEME_COLOR_KEYS,
+  describeCustomThemeIdIssue,
+  describeThemeColorIssue,
+  LEGACY_CUSTOM_THEME_ID,
+  normalizeThemeColorValue,
+  resolveThemeBase,
+} from "./customThemes";
 import { LEGACY_CUSTOM_SYNTAX_COLOR_KEYS, resolveSyntaxScopeOverrides } from "./legacySyntaxScopes";
 import { resolveGlobalConfigPath } from "./paths";
 import { LEGACY_CUSTOM_SYNTAX_NOTICES, type StartupNotice } from "./startupNotice";
 import { DEFAULT_TAB_WIDTH, validateTabWidth } from "./tabWidth";
-import { detectVcs, findVcsRepoRootCandidate, getDefaultVcsAdapter, isVcsId } from "./vcs";
+import { detectVcs, findVcsRepoRootCandidate, getDefaultVcsAdapter } from "./vcs";
 import type {
   CliInput,
   CommonOptions,
   CustomSyntaxColorsConfig,
   CustomSyntaxScopesConfig,
-  CustomThemeConfig,
+  ExtensionsConfig,
   LayoutMode,
+  NamedCustomThemeConfig,
   PersistedViewPreferences,
   VcsMode,
 } from "./types";
 
 export const BUILT_IN_THEME_IDS = BUNDLED_SHIKI_THEME_IDS;
 const DEFAULT_THEME_ID = "github-dark-default";
-const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
-export const CUSTOM_THEME_COLOR_KEYS = [
-  "background",
-  "panel",
-  "panelAlt",
-  "border",
-  "accent",
-  "accentMuted",
-  "text",
-  "muted",
-  "addedBg",
-  "removedBg",
-  "movedAddedBg",
-  "movedRemovedBg",
-  "contextBg",
-  "addedContentBg",
-  "removedContentBg",
-  "contextContentBg",
-  "addedSignColor",
-  "removedSignColor",
-  "lineNumberBg",
-  "lineNumberFg",
-  "selectedHunk",
-  "badgeAdded",
-  "badgeRemoved",
-  "badgeNeutral",
-  "fileNew",
-  "fileDeleted",
-  "fileRenamed",
-  "fileModified",
-  "fileUntracked",
-  "noteBorder",
-  "noteBackground",
-  "noteTitleBackground",
-  "noteTitleText",
-] as const;
 const DEFAULT_VIEW_PREFERENCES: PersistedViewPreferences = {
   mode: "auto",
   showLineNumbers: true,
@@ -89,9 +61,20 @@ interface ConfigResolutionOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-interface HunkConfigResolution {
+export interface HunkConfigResolution {
   input: CliInput;
-  customTheme?: CustomThemeConfig;
+  /** Config-defined custom themes in declaration order, user layer before repo layer. */
+  customThemes: NamedCustomThemeConfig[];
+  extensions: ExtensionsConfig;
+  /**
+   * The `vcs` id a config layer or CLI flag named, when one did.
+   *
+   * `input.options.vcs` cannot answer this on its own: an explicit
+   * `vcs = "git"` and a detected Git checkout resolve to the same string. Later
+   * stages need the difference, because an explicit choice outranks detection
+   * while a detected one may be revised once extension backends load.
+   */
+  explicitVcsId?: string;
   startupNotices?: readonly StartupNotice[];
   globalConfigPath?: string;
   repoConfigPath?: string;
@@ -148,9 +131,21 @@ function normalizeLayoutMode(value: unknown): LayoutMode | undefined {
   return value === "auto" || value === "split" || value === "stack" ? value : undefined;
 }
 
-/** Accept only the VCS backends Hunk can load directly. */
+/**
+ * Accept any backend id a config layer names, provisionally.
+ *
+ * Config resolution runs before user extensions have been imported, so it
+ * cannot yet know whether `vcs = "hg"` names a backend this session will have.
+ * Rejecting it here discarded the user's explicit choice silently — the session
+ * fell back to detection with nothing said, and an installed Mercurial
+ * extension never got used no matter how plainly it was asked for.
+ *
+ * So unknown ids ride through, and `resolveSessionVcsId` reconciles them
+ * against the adapters that actually loaded: it keeps the id when a backend
+ * owns it, and otherwise falls back to detection *and says so*.
+ */
 function normalizeVcsMode(value: unknown): VcsMode | undefined {
-  return isVcsId(value) ? value : undefined;
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
 /** Accept only plain booleans from config files. */
@@ -209,9 +204,10 @@ export const CONFIG_REFERENCE_OPTIONS: readonly ConfigReferenceOption[] = [
     key: "vcs",
     property: "vcs",
     type: "string",
-    accepted: "`git`, `jj`, or `sl`",
+    accepted: "`git`, `jj`, `sl`, or an id a loaded extension backend registers",
     defaultValue: "detected from the checkout (Git fallback)",
-    description: "Select the version-control adapter explicitly.",
+    description:
+      "Select the version-control adapter explicitly. An explicit id outranks detection; an id no loaded backend owns falls back to detection with a startup notice.",
   },
   {
     key: "theme",
@@ -340,51 +336,94 @@ export const CONFIG_REFERENCE_CUSTOM_THEME = {
   legacySyntaxColorKeys: LEGACY_CUSTOM_SYNTAX_COLOR_KEYS,
   syntaxScopesTable: "custom_theme.syntax_scopes",
   legacySyntaxTable: "custom_theme.syntax",
+  /** Multi-theme tables; each `[themes.<id>]` accepts the same keys as `[custom_theme]`. */
+  namedThemeTable: "themes",
 } as const;
 
-/** Accept only #rrggbb theme colors and report the failing TOML key path. */
+/** One TOML key inside a named section table, shared by runtime parsing and generated docs. */
+export interface ConfigReferenceSectionKey {
+  readonly key: string;
+  readonly type: string;
+  readonly accepted: string;
+  readonly defaultValue?: string;
+  readonly description: string;
+}
+
+/**
+ * Reference metadata for the extension tables `readExtensionsLayer` parses.
+ *
+ * These live outside `CONFIG_REFERENCE_OPTIONS` because they are section tables
+ * rather than layered `CommonOptions` preference keys, but they are cataloged
+ * here for the same reason: the generated reference and the parser should never
+ * be able to disagree about which extension settings exist.
+ */
+export const CONFIG_REFERENCE_EXTENSIONS = {
+  table: "extensions",
+  perExtensionTable: "extension",
+  keys: [
+    {
+      key: "extensions.enabled",
+      type: "boolean",
+      accepted: "`true` or `false`",
+      defaultValue: "`true`",
+      description:
+        "Load user extensions. `--no-extensions` forces this off for one run, and bundled VCS backends stay loaded either way.",
+    },
+    {
+      key: "extensions.paths",
+      type: "array of strings",
+      accepted: "entry file or directory paths",
+      defaultValue: "`[]`",
+      description:
+        "Extension entry points loaded at startup. Paths a repository config contributes are trust-gated before they run.",
+    },
+  ] as const satisfies readonly ConfigReferenceSectionKey[],
+} as const;
+
+/**
+ * Accept only #rrggbb theme colors and report the failing TOML key path.
+ *
+ * The rule itself lives in `./customThemes` so config tables and extension
+ * `registerTheme` calls cannot drift apart; only the error wording — which
+ * names the TOML key the user actually wrote — belongs to this layer.
+ */
 function normalizeThemeColor(value: unknown, keyPath: string) {
   if (value === undefined) {
     return undefined;
   }
 
-  if (typeof value !== "string" || !HEX_COLOR_PATTERN.test(value)) {
+  if (describeThemeColorIssue(value)) {
     throw new Error(`Expected ${keyPath} to be a hex color like #112233.`);
   }
 
-  return value.toLowerCase();
+  return normalizeThemeColorValue(value as string);
 }
 
-/** Accept only built-in theme ids for config-defined custom themes. */
-function normalizeCustomThemeBase(value: unknown) {
+/** Accept only built-in theme ids as the base one config-defined theme inherits from. */
+function normalizeCustomThemeBase(value: unknown, keyPath: string) {
   if (value === undefined) {
     return undefined;
   }
 
-  if (typeof value !== "string") {
+  const resolved = resolveThemeBase(value);
+  if ("issue" in resolved) {
     throw new Error(
-      `Expected custom_theme.base to be a built-in theme id. Known themes: ${BUILT_IN_THEME_IDS.join(", ")}.`,
+      `Expected ${keyPath}.base to be a built-in theme id. Known themes: ${BUILT_IN_THEME_IDS.join(", ")}.`,
     );
   }
 
-  const resolvedThemeId = resolveBundledShikiThemeId(value);
-  if (!resolvedThemeId) {
-    throw new Error(
-      `Expected custom_theme.base to be a built-in theme id. Known themes: ${BUILT_IN_THEME_IDS.join(", ")}.`,
-    );
-  }
-
-  return resolvedThemeId;
+  return resolved.base;
 }
 
 /** Read the deprecated semantic colors retained for one compatibility release window. */
 function readLegacyCustomSyntaxColors(
   source: Record<string, unknown>,
+  keyPath: string,
 ): CustomSyntaxColorsConfig | undefined {
   const syntax: CustomSyntaxColorsConfig = {};
 
   for (const key of LEGACY_CUSTOM_SYNTAX_COLOR_KEYS) {
-    const value = normalizeThemeColor(source[key], `custom_theme.syntax.${key}`);
+    const value = normalizeThemeColor(source[key], `${keyPath}.syntax.${key}`);
     if (value !== undefined) {
       syntax[key] = value;
     }
@@ -393,18 +432,19 @@ function readLegacyCustomSyntaxColors(
   return Object.keys(syntax).length > 0 ? syntax : undefined;
 }
 
-/** Read exact Shiki/TextMate scope colors from a [custom_theme.syntax_scopes] TOML table. */
+/** Read exact Shiki/TextMate scope colors from a theme's `syntax_scopes` TOML table. */
 function readCustomSyntaxScopes(
   source: Record<string, unknown>,
+  keyPath: string,
 ): CustomSyntaxScopesConfig | undefined {
   const syntaxScopes: CustomSyntaxScopesConfig = {};
 
   for (const [scope, rawColor] of Object.entries(source)) {
     if (scope.trim().length === 0) {
-      throw new Error("Expected custom_theme.syntax_scopes keys to be non-empty Shiki scopes.");
+      throw new Error(`Expected ${keyPath}.syntax_scopes keys to be non-empty Shiki scopes.`);
     }
 
-    const color = normalizeThemeColor(rawColor, `custom_theme.syntax_scopes.${scope}`);
+    const color = normalizeThemeColor(rawColor, `${keyPath}.syntax_scopes.${scope}`);
     if (color !== undefined) {
       syntaxScopes[scope] = color;
     }
@@ -413,76 +453,131 @@ function readCustomSyntaxScopes(
   return Object.keys(syntaxScopes).length > 0 ? syntaxScopes : undefined;
 }
 
-interface CustomThemeLayer {
-  customTheme?: CustomThemeConfig;
+interface CustomThemeTable {
+  theme: NamedCustomThemeConfig;
   usesLegacySyntax: boolean;
 }
 
-/** Read one config layer's optional custom theme and compatibility metadata. */
-function readCustomTheme(source: Record<string, unknown>): CustomThemeLayer {
-  const customThemeSource = source.custom_theme;
-  if (!isRecord(customThemeSource)) {
-    return { usesLegacySyntax: false };
-  }
-
-  const legacySyntaxSource = customThemeSource.syntax;
+/**
+ * Read one custom theme TOML table into a named theme.
+ *
+ * `keyPath` is the table's own path (`custom_theme` or `themes.<id>`) so every
+ * validation error names the key the user actually wrote.
+ */
+function readCustomThemeTable(
+  source: Record<string, unknown>,
+  id: string,
+  keyPath: string,
+): CustomThemeTable {
+  const legacySyntaxSource = source.syntax;
   if (legacySyntaxSource !== undefined && !isRecord(legacySyntaxSource)) {
-    throw new Error("Expected custom_theme.syntax to contain a TOML table.");
+    throw new Error(`Expected ${keyPath}.syntax to contain a TOML table.`);
   }
 
-  const syntaxScopesSource = customThemeSource.syntax_scopes;
+  const syntaxScopesSource = source.syntax_scopes;
   if (syntaxScopesSource !== undefined && !isRecord(syntaxScopesSource)) {
-    throw new Error("Expected custom_theme.syntax_scopes to contain a TOML table.");
+    throw new Error(`Expected ${keyPath}.syntax_scopes to contain a TOML table.`);
   }
 
-  const customTheme: CustomThemeConfig = {
-    base: normalizeCustomThemeBase(customThemeSource.base),
+  const theme: NamedCustomThemeConfig = {
+    id,
+    base: normalizeCustomThemeBase(source.base, keyPath),
   };
-  const label = normalizeString(customThemeSource.label);
+  const label = normalizeString(source.label);
   if (label !== undefined) {
-    customTheme.label = label;
+    theme.label = label;
   }
 
   for (const key of CUSTOM_THEME_COLOR_KEYS) {
-    const value = normalizeThemeColor(customThemeSource[key], `custom_theme.${key}`);
+    const value = normalizeThemeColor(source[key], `${keyPath}.${key}`);
     if (value !== undefined) {
-      customTheme[key] = value;
+      theme[key] = value;
     }
   }
 
   const legacySyntax = isRecord(legacySyntaxSource)
-    ? readLegacyCustomSyntaxColors(legacySyntaxSource)
+    ? readLegacyCustomSyntaxColors(legacySyntaxSource, keyPath)
     : undefined;
   const exactSyntaxScopes = isRecord(syntaxScopesSource)
-    ? readCustomSyntaxScopes(syntaxScopesSource)
+    ? readCustomSyntaxScopes(syntaxScopesSource, keyPath)
     : undefined;
   const syntaxScopes = resolveSyntaxScopeOverrides(legacySyntax, exactSyntaxScopes);
   if (syntaxScopes) {
     // Normalize legacy config at the boundary so every runtime highlighter uses raw scopes only.
-    customTheme.syntaxScopes = syntaxScopes;
+    theme.syntaxScopes = syntaxScopes;
   }
 
   return {
-    customTheme,
+    theme,
     usesLegacySyntax: Boolean(legacySyntax),
   };
 }
 
-/** Merge partial custom theme layers while keeping exact syntax scope overrides field-based. */
-function mergeCustomTheme(
-  base: CustomThemeConfig | undefined,
-  overrides: CustomThemeConfig | undefined,
-): CustomThemeConfig | undefined {
-  if (!base) {
-    return overrides;
-  }
-  if (!overrides) {
-    return base;
+interface CustomThemeLayer {
+  /** `[custom_theme]` first, then `[themes.<id>]` tables in file order. */
+  themes: NamedCustomThemeConfig[];
+  usesLegacySyntax: boolean;
+  notices: StartupNotice[];
+}
+
+/** Read every custom theme one config layer declares, skipping unusable ids with a notice. */
+function readCustomThemes(source: Record<string, unknown>): CustomThemeLayer {
+  const themes: NamedCustomThemeConfig[] = [];
+  const notices: StartupNotice[] = [];
+  let usesLegacySyntax = false;
+
+  const legacyThemeSource = source.custom_theme;
+  if (legacyThemeSource !== undefined && !isRecord(legacyThemeSource)) {
+    throw new Error("Expected custom_theme to contain a TOML table.");
   }
 
+  if (isRecord(legacyThemeSource)) {
+    const read = readCustomThemeTable(legacyThemeSource, LEGACY_CUSTOM_THEME_ID, "custom_theme");
+    themes.push(read.theme);
+    usesLegacySyntax ||= read.usesLegacySyntax;
+  }
+
+  const namedThemeSource = source.themes;
+  if (namedThemeSource !== undefined && !isRecord(namedThemeSource)) {
+    throw new Error("Expected themes to contain named TOML tables.");
+  }
+
+  if (isRecord(namedThemeSource)) {
+    for (const [id, table] of Object.entries(namedThemeSource)) {
+      if (!isRecord(table)) {
+        throw new Error(`Expected [themes.${id}] to contain a TOML table.`);
+      }
+
+      const issue = describeCustomThemeIdIssue(id);
+      if (issue) {
+        notices.push(createInvalidThemeIdNotice("config", id, issue));
+        continue;
+      }
+
+      // The original single-slot table keeps the `custom` id it has always owned.
+      if (themes.some((theme) => theme.id === id)) {
+        notices.push(createThemeCollisionNotice("config", id, "[custom_theme]"));
+        continue;
+      }
+
+      const read = readCustomThemeTable(table, id, `themes.${id}`);
+      themes.push(read.theme);
+      usesLegacySyntax ||= read.usesLegacySyntax;
+    }
+  }
+
+  return { themes, usesLegacySyntax, notices };
+}
+
+/** Merge two layers of one theme while keeping exact syntax scope overrides field-based. */
+function mergeCustomTheme(
+  base: NamedCustomThemeConfig,
+  overrides: NamedCustomThemeConfig,
+): NamedCustomThemeConfig {
   return {
     ...base,
     ...overrides,
+    id: base.id,
     base: overrides.base ?? base.base ?? DEFAULT_THEME_ID,
     label: overrides.label ?? base.label,
     syntaxScopes:
@@ -493,6 +588,143 @@ function mergeCustomTheme(
           }
         : undefined,
   };
+}
+
+/**
+ * Layer one config layer's themes over the themes resolved so far.
+ *
+ * Same-id themes merge field by field with the later layer winning, exactly
+ * like every other layered option; new ids keep their declaration order.
+ */
+function mergeCustomThemeLayer(
+  base: NamedCustomThemeConfig[],
+  overrides: readonly NamedCustomThemeConfig[],
+): NamedCustomThemeConfig[] {
+  const merged = [...base];
+
+  for (const override of overrides) {
+    const index = merged.findIndex((theme) => theme.id === override.id);
+    if (index < 0) {
+      merged.push(override);
+      continue;
+    }
+
+    merged[index] = mergeCustomTheme(merged[index]!, override);
+  }
+
+  return merged;
+}
+
+/**
+ * Combine config-sourced startup notices.
+ *
+ * Returns the shared legacy-notice array identity when nothing else needs
+ * reporting, so unchanged config reloads do not restart the notice queue.
+ */
+function buildConfigStartupNotices(
+  usesLegacyCustomSyntax: boolean,
+  configNotices: readonly StartupNotice[],
+): readonly StartupNotice[] | undefined {
+  if (configNotices.length === 0) {
+    return usesLegacyCustomSyntax ? LEGACY_CUSTOM_SYNTAX_NOTICES : undefined;
+  }
+
+  return usesLegacyCustomSyntax
+    ? [...LEGACY_CUSTOM_SYNTAX_NOTICES, ...configNotices]
+    : [...configNotices];
+}
+
+/** One config layer's extension settings, before user/repo layers are merged. */
+interface ExtensionsLayer {
+  enabled?: boolean;
+  paths: string[];
+  extensionConfigs: Record<string, Record<string, unknown>>;
+}
+
+/** Accept only non-empty strings from a TOML string array, ignoring other entries. */
+function normalizeStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+}
+
+/**
+ * Read one config layer's `[extensions]` section and its `[extension.<id>]` tables.
+ *
+ * Per-extension tables stay opaque `Record<string, unknown>` payloads: they
+ * belong to the extension, not to Hunk, so unknown keys pass straight through.
+ */
+function readExtensionsLayer(source: Record<string, unknown>): ExtensionsLayer {
+  const extensionsSource = source.extensions;
+  if (extensionsSource !== undefined && !isRecord(extensionsSource)) {
+    throw new Error("Expected extensions to contain a TOML table.");
+  }
+
+  const perExtensionSource = source.extension;
+  if (perExtensionSource !== undefined && !isRecord(perExtensionSource)) {
+    throw new Error("Expected extension to contain per-extension TOML tables.");
+  }
+
+  const extensionConfigs: Record<string, Record<string, unknown>> = {};
+  if (isRecord(perExtensionSource)) {
+    for (const [extensionId, table] of Object.entries(perExtensionSource)) {
+      if (!isRecord(table)) {
+        throw new Error(`Expected [extension.${extensionId}] to contain a TOML table.`);
+      }
+
+      extensionConfigs[extensionId] = table;
+    }
+  }
+
+  return {
+    enabled: isRecord(extensionsSource) ? normalizeBoolean(extensionsSource.enabled) : undefined,
+    paths: isRecord(extensionsSource) ? normalizeStringArray(extensionsSource.paths) : [],
+    extensionConfigs,
+  };
+}
+
+/**
+ * Report the extensions whose settings the repository under review contributes.
+ *
+ * `[extension.<id>]` tables merge repo-over-user by id, with no notion of where
+ * the extension itself was installed from, so a repository can steer the
+ * configuration of a globally installed extension. Repo-level tuning of a
+ * shared extension is a legitimate team workflow, so this is surfaced rather
+ * than blocked — but it is surfaced, because that config can carry
+ * exec-adjacent values such as binary paths.
+ */
+function createRepoExtensionConfigNotice(
+  repoExtensionConfigs: Record<string, Record<string, unknown>>,
+): StartupNotice | undefined {
+  const ids = Object.entries(repoExtensionConfigs)
+    .filter(([, table]) => Object.keys(table).length > 0)
+    .map(([extensionId]) => extensionId)
+    .sort();
+  if (ids.length === 0) {
+    return undefined;
+  }
+
+  // Table names come from the repo, so they are untrusted terminal-bound text.
+  const listed = sanitizeTerminalLine(ids.join(", "));
+  return {
+    key: `extension:repo-config:${listed}`,
+    message: `Repo config overrides settings for extension(s): ${listed}`,
+  };
+}
+
+/** Merge two per-extension config maps so repo tables override user tables key by key. */
+function mergeExtensionConfigs(
+  base: Record<string, Record<string, unknown>>,
+  overrides: Record<string, Record<string, unknown>>,
+) {
+  const merged: Record<string, Record<string, unknown>> = { ...base };
+  for (const [extensionId, table] of Object.entries(overrides)) {
+    merged[extensionId] = { ...merged[extensionId], ...table };
+  }
+
+  return merged;
 }
 
 /** Normalize one cataloged config value according to its runtime property. */
@@ -569,6 +801,8 @@ function mergeOptions(base: CommonOptions, overrides: CommonOptions): CommonOpti
       overrides.promptSaveViewPreferences ?? base.promptSaveViewPreferences,
     transparentBackground: overrides.transparentBackground ?? base.transparentBackground,
     colorMoved: overrides.colorMoved ?? base.colorMoved,
+    extensions: overrides.extensions ?? base.extensions,
+    extensionPaths: overrides.extensionPaths ?? base.extensionPaths,
   };
 }
 
@@ -712,8 +946,11 @@ export function resolveConfiguredCliInput(
   const repoRoot = findVcsRepoRootCandidate(cwd);
   const repoConfigPath = repoRoot ? join(repoRoot, ".hunk", "config.toml") : undefined;
   const userConfigPath = resolveGlobalConfigPath(env);
-  let resolvedCustomTheme: CustomThemeConfig | undefined;
+  let resolvedCustomThemes: NamedCustomThemeConfig[] = [];
   let usesLegacyCustomSyntax = false;
+  const themeNotices = new Map<string, StartupNotice>();
+  let userExtensionsLayer: ExtensionsLayer = { paths: [], extensionConfigs: {} };
+  let repoExtensionsLayer: ExtensionsLayer = { paths: [], extensionConfigs: {} };
 
   let resolvedOptions: CommonOptions = {
     ...buildDefaultConfigPreferences(cwd),
@@ -722,22 +959,38 @@ export function resolveConfiguredCliInput(
     experimental: false,
   };
 
+  /** Fold one parsed config layer's themes into the resolved list and notice set. */
+  const applyCustomThemeLayer = (layer: CustomThemeLayer) => {
+    resolvedCustomThemes = mergeCustomThemeLayer(resolvedCustomThemes, layer.themes);
+    usesLegacyCustomSyntax ||= layer.usesLegacySyntax;
+    for (const notice of layer.notices) {
+      themeNotices.set(notice.key, notice);
+    }
+  };
+
+  // The merged `vcs` value loses track of who chose it, so record every layer
+  // that names one explicitly, in the same last-layer-wins order options merge.
+  let explicitVcsId: string | undefined;
+
   if (userConfigPath) {
     const userConfig = readTomlRecord(userConfigPath);
-    const themeLayer = readCustomTheme(userConfig);
-    resolvedOptions = mergeOptions(resolvedOptions, resolveConfigLayer(userConfig, input));
-    resolvedCustomTheme = mergeCustomTheme(resolvedCustomTheme, themeLayer.customTheme);
-    usesLegacyCustomSyntax ||= themeLayer.usesLegacySyntax;
+    const userLayer = resolveConfigLayer(userConfig, input);
+    explicitVcsId = userLayer.vcs ?? explicitVcsId;
+    resolvedOptions = mergeOptions(resolvedOptions, userLayer);
+    applyCustomThemeLayer(readCustomThemes(userConfig));
+    userExtensionsLayer = readExtensionsLayer(userConfig);
   }
 
   if (repoConfigPath) {
     const repoConfig = readTomlRecord(repoConfigPath);
-    const themeLayer = readCustomTheme(repoConfig);
-    resolvedOptions = mergeOptions(resolvedOptions, resolveConfigLayer(repoConfig, input));
-    resolvedCustomTheme = mergeCustomTheme(resolvedCustomTheme, themeLayer.customTheme);
-    usesLegacyCustomSyntax ||= themeLayer.usesLegacySyntax;
+    const repoLayer = resolveConfigLayer(repoConfig, input);
+    explicitVcsId = repoLayer.vcs ?? explicitVcsId;
+    resolvedOptions = mergeOptions(resolvedOptions, repoLayer);
+    applyCustomThemeLayer(readCustomThemes(repoConfig));
+    repoExtensionsLayer = readExtensionsLayer(repoConfig);
   }
 
+  explicitVcsId = input.options.vcs ?? explicitVcsId;
   resolvedOptions = mergeOptions(resolvedOptions, input.options);
   resolvedOptions = {
     ...resolvedOptions,
@@ -761,17 +1014,46 @@ export function resolveConfiguredCliInput(
     colorMoved: resolvedOptions.colorMoved,
   };
 
-  if (resolvedOptions.theme === "custom" && !resolvedCustomTheme) {
+  // Only the legacy `custom` id is a hard error: every other unknown id may still name a theme an
+  // extension contributes later, so those fall back to the default theme instead of failing startup.
+  if (
+    resolvedOptions.theme === LEGACY_CUSTOM_THEME_ID &&
+    !resolvedCustomThemes.some((theme) => theme.id === LEGACY_CUSTOM_THEME_ID)
+  ) {
     throw new Error('Expected a [custom_theme] table when config selects theme = "custom".');
   }
+
+  const extensions: ExtensionsConfig = {
+    // `--no-extensions` is a hard off switch; otherwise repo config overrides user config
+    // exactly like every other layered option.
+    enabled:
+      input.options.extensions === false
+        ? false
+        : (repoExtensionsLayer.enabled ?? userExtensionsLayer.enabled ?? true),
+    paths: userExtensionsLayer.paths,
+    repoPaths: repoExtensionsLayer.paths,
+    extensionConfigs: mergeExtensionConfigs(
+      userExtensionsLayer.extensionConfigs,
+      repoExtensionsLayer.extensionConfigs,
+    ),
+  };
+  const repoExtensionConfigNotice = createRepoExtensionConfigNotice(
+    repoExtensionsLayer.extensionConfigs,
+  );
+  const repoExtensionConfigNotices = repoExtensionConfigNotice ? [repoExtensionConfigNotice] : [];
 
   return {
     input: {
       ...input,
       options: resolvedOptions,
     },
-    customTheme: resolvedCustomTheme,
-    startupNotices: usesLegacyCustomSyntax ? LEGACY_CUSTOM_SYNTAX_NOTICES : undefined,
+    customThemes: resolvedCustomThemes,
+    extensions,
+    explicitVcsId,
+    startupNotices: buildConfigStartupNotices(usesLegacyCustomSyntax, [
+      ...themeNotices.values(),
+      ...repoExtensionConfigNotices,
+    ]),
     globalConfigPath: userConfigPath,
     repoConfigPath,
     // Persist in the repo config only when the repo already has one; otherwise keep personal view

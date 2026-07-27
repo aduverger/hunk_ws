@@ -38,7 +38,7 @@ import { resolveCliVersion } from "./version";
 export interface CliReferenceOption {
   readonly flag: string;
   readonly description: string;
-  readonly parse?: "layout" | "positiveInt" | "tabWidth";
+  readonly parse?: "layout" | "positiveInt" | "tabWidth" | "collect";
   readonly defaultValue?: string;
   /** Default applied directly by Commander (as opposed to a config-resolved default). */
   readonly commanderDefault?: string;
@@ -79,6 +79,12 @@ export const COMMON_REVIEW_OPTIONS = [
   { flag: "--no-agent-notes", description: "hide agent notes by default" },
   { flag: "--transparent-bg", description: "let terminal background show through Hunk surfaces" },
   { flag: "--no-transparent-bg", description: "paint Hunk surfaces with the active theme" },
+  {
+    flag: "--extension <path>",
+    description: "load an extension entry file or directory (repeatable)",
+    parse: "collect",
+  },
+  { flag: "--no-extensions", description: "disable user extensions for this run" },
 ] as const satisfies readonly CliReferenceOption[];
 
 /** Auto-refresh flag shared by review commands whose inputs can be reopened. */
@@ -221,6 +227,11 @@ function resolveBooleanFlag(argv: string[], enabledFlag: string, disabledFlag: s
   return resolved;
 }
 
+/** Collect one repeatable CLI value into an array. */
+function collectRepeatedValue(value: string, previous: string[] = []) {
+  return [...previous, value];
+}
+
 /** Normalize the flags shared by every input mode. */
 function buildCommonOptions(
   options: {
@@ -232,6 +243,7 @@ function buildCommonOptions(
     experimental?: boolean;
     transparentBackground?: boolean;
     tabWidth?: number;
+    extension?: string[];
   },
   argv: string[],
 ): CommonOptions {
@@ -256,6 +268,11 @@ function buildCommonOptions(
     hunkHeaders: resolveBooleanFlag(argv, "--hunk-headers", "--no-hunk-headers"),
     agentNotes: resolveBooleanFlag(argv, "--agent-notes", "--no-agent-notes"),
     transparentBackground: resolveBooleanFlag(argv, "--transparent-bg", "--no-transparent-bg"),
+    // Read straight from argv so the absence of the flag stays undefined rather than
+    // becoming Commander's implicit `true` default for a negatable option.
+    extensions: resolveBooleanFlag(argv, "--extensions", "--no-extensions"),
+    extensionPaths:
+      options.extension && options.extension.length > 0 ? options.extension : undefined,
   };
 }
 
@@ -268,6 +285,8 @@ function applyReferenceOption(command: Command, option: CliReferenceOption) {
     commanderOption.argParser(parsePositiveInt);
   } else if (option.parse === "tabWidth") {
     commanderOption.argParser(parseTabWidth);
+  } else if (option.parse === "collect") {
+    commanderOption.argParser(collectRepeatedValue);
   }
   if (option.commanderDefault !== undefined) {
     commanderOption.default(option.commanderDefault);
@@ -359,6 +378,8 @@ function renderCliHelp() {
     "  --agent-notes / --no-agent-notes        show or hide agent notes by default",
     "  --transparent-bg / --no-transparent-bg  let terminal background show through Hunk surfaces",
     "  --theme <theme>                         named theme override",
+    "  --extension <path>                      load an extension entry file or directory (repeatable)",
+    "  --no-extensions                         disable user extensions for this run",
     "",
     "Git diff options:",
     "  --staged, --cached                      review staged changes",

@@ -280,17 +280,189 @@ describe("config resolution", () => {
     });
 
     expect(resolved.input.options.theme).toBe("custom");
-    expect(resolved.customTheme).toEqual({
-      base: "github-dark-default",
-      label: "Repo Custom",
-      accent: "#123456",
-      panel: "#654321",
-      syntaxScopes: {
-        "keyword.control": "#abcdef",
-        "string.quoted": "#fedcba",
+    expect(resolved.customThemes).toEqual([
+      {
+        id: "custom",
+        base: "github-dark-default",
+        label: "Repo Custom",
+        accent: "#123456",
+        panel: "#654321",
+        syntaxScopes: {
+          "keyword.control": "#abcdef",
+          "string.quoted": "#fedcba",
+        },
       },
-    });
+    ]);
     expect(resolved.startupNotices).toBeUndefined();
+  });
+
+  test("reads named [themes.<id>] tables in declaration order after [custom_theme]", () => {
+    const home = createTempDir("hunk-config-home-");
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "hunk", "config.toml"),
+      [
+        'theme = "ocean"',
+        "",
+        "[custom_theme]",
+        'base = "github-dark-default"',
+        "",
+        "[themes.ocean]",
+        'base = "nord"',
+        'label = "Ocean"',
+        'accent = "#123456"',
+        "",
+        "[themes.ocean.syntax_scopes]",
+        '"keyword.control" = "#abcdef"',
+        "",
+        "[themes.team_theme]",
+        'base = "dracula"',
+      ].join("\n"),
+    );
+
+    const resolved = resolveConfiguredCliInput(createPatchPagerInput(), {
+      cwd: createTempDir("hunk-config-cwd-"),
+      env: { HOME: home },
+    });
+
+    expect(resolved.input.options.theme).toBe("ocean");
+    expect(resolved.customThemes).toEqual([
+      { id: "custom", base: "github-dark-default" },
+      {
+        id: "ocean",
+        base: "nord",
+        label: "Ocean",
+        accent: "#123456",
+        syntaxScopes: { "keyword.control": "#abcdef" },
+      },
+      { id: "team_theme", base: "dracula" },
+    ]);
+    expect(resolved.startupNotices).toBeUndefined();
+  });
+
+  test("layers named themes so repo config overrides the user layer per theme id", () => {
+    const home = createTempDir("hunk-config-home-");
+    const repo = createTempDir("hunk-config-repo-");
+    createRepo(repo);
+
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "hunk", "config.toml"),
+      [
+        "[themes.ocean]",
+        'base = "nord"',
+        'label = "Ocean"',
+        'accent = "#123456"',
+        "",
+        "[themes.ocean.syntax_scopes]",
+        '"keyword.control" = "#abcdef"',
+      ].join("\n"),
+    );
+
+    mkdirSync(join(repo, ".hunk"), { recursive: true });
+    writeFileSync(
+      join(repo, ".hunk", "config.toml"),
+      [
+        "[themes.ocean]",
+        'label = "Repo Ocean"',
+        'panel = "#654321"',
+        "",
+        "[themes.ocean.syntax_scopes]",
+        '"string.quoted" = "#fedcba"',
+        "",
+        "[themes.repo-only]",
+        'base = "dracula"',
+      ].join("\n"),
+    );
+
+    const resolved = resolveConfiguredCliInput(createPatchPagerInput(), {
+      cwd: repo,
+      env: { HOME: home },
+    });
+
+    expect(resolved.customThemes).toEqual([
+      {
+        id: "ocean",
+        base: "nord",
+        label: "Repo Ocean",
+        accent: "#123456",
+        panel: "#654321",
+        syntaxScopes: {
+          "keyword.control": "#abcdef",
+          "string.quoted": "#fedcba",
+        },
+      },
+      { id: "repo-only", base: "dracula" },
+    ]);
+  });
+
+  test("keeps [custom_theme] as the custom id and reports the shadowed [themes.custom] table", () => {
+    const home = createTempDir("hunk-config-home-");
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "hunk", "config.toml"),
+      ["[custom_theme]", 'accent = "#123456"', "", "[themes.custom]", 'accent = "#654321"'].join(
+        "\n",
+      ),
+    );
+
+    const resolved = resolveConfiguredCliInput(createPatchPagerInput(), {
+      cwd: createTempDir("hunk-config-cwd-"),
+      env: { HOME: home },
+    });
+
+    expect(resolved.customThemes).toEqual([{ id: "custom", accent: "#123456" }]);
+    expect(resolved.startupNotices).toEqual([
+      {
+        key: "theme:collision:config:custom",
+        message: 'Skipped theme "custom" from config • [custom_theme] already defines it',
+      },
+    ]);
+  });
+
+  test("skips named themes with unusable ids instead of failing startup", () => {
+    const home = createTempDir("hunk-config-home-");
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "hunk", "config.toml"),
+      [
+        '[themes."Ocean Dark"]',
+        'base = "nord"',
+        "",
+        "[themes.dracula]",
+        'base = "nord"',
+        "",
+        "[themes.ocean]",
+        'base = "nord"',
+      ].join("\n"),
+    );
+
+    const resolved = resolveConfiguredCliInput(createPatchPagerInput(), {
+      cwd: createTempDir("hunk-config-cwd-"),
+      env: { HOME: home },
+    });
+
+    expect(resolved.customThemes).toEqual([{ id: "ocean", base: "nord" }]);
+    expect(resolved.startupNotices?.map((notice) => notice.message)).toEqual([
+      'Skipped theme "Ocean Dark" from config • theme ids must be lowercase words separated by - or _',
+      'Skipped theme "dracula" from config • that id belongs to a built-in theme',
+    ]);
+  });
+
+  test("reports named theme validation errors against the key the user wrote", () => {
+    const home = createTempDir("hunk-config-home-");
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "hunk", "config.toml"),
+      ["[themes.ocean]", 'accent = "blue"'].join("\n"),
+    );
+
+    expect(() =>
+      resolveConfiguredCliInput(createPatchPagerInput(), {
+        cwd: createTempDir("hunk-config-cwd-"),
+        env: { HOME: home },
+      }),
+    ).toThrow("Expected themes.ocean.accent to be a hex color like #112233.");
   });
 
   test.each(["github-dark-default", "github-light-default", "dracula", "catppuccin-mocha"])(
@@ -308,7 +480,7 @@ describe("config resolution", () => {
         env: { HOME: home },
       });
 
-      expect(resolved.customTheme).toEqual({ base });
+      expect(resolved.customThemes).toEqual([{ id: "custom", base }]);
     },
   );
 
@@ -325,7 +497,7 @@ describe("config resolution", () => {
       env: { HOME: home },
     });
 
-    expect(resolved.customTheme).toEqual({ base: "github-dark-default" });
+    expect(resolved.customThemes).toEqual([{ id: "custom", base: "github-dark-default" }]);
   });
 
   test("rejects invalid custom theme base ids", () => {
@@ -395,7 +567,7 @@ describe("config resolution", () => {
       env: { HOME: home },
     });
 
-    expect(resolved.customTheme?.syntaxScopes).toEqual({
+    expect(resolved.customThemes[0]?.syntaxScopes).toEqual({
       comment: "#eeeeee",
       "punctuation.definition.comment": "#ffffff",
     });
@@ -607,6 +779,59 @@ describe("config resolution", () => {
     expect(resolved.input.options.watch).toBe(expected);
   });
 
+  test("carries an unrecognized vcs id through for extensions to claim", () => {
+    // Config resolves before user extensions are imported, so it cannot know
+    // whether `hg` will exist. Dropping it here discarded the user's explicit
+    // choice silently; `resolveSessionVcsId` settles it once adapters are known.
+    const home = createTempDir("hunk-config-home-");
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(join(home, ".config", "hunk", "config.toml"), 'vcs = "hg"\n');
+
+    const resolved = resolveConfiguredCliInput(
+      { kind: "vcs", staged: false, options: {} },
+      { cwd: createTempDir("hunk-config-cwd-"), env: { HOME: home } },
+    );
+
+    expect(resolved.input.options.vcs).toBe("hg");
+  });
+
+  test("reports whether the resolved vcs id was chosen or detected", () => {
+    // The merged value cannot answer this: an explicit `vcs = "git"` and a
+    // detected Git checkout both resolve to "git", and only the explicit one
+    // outranks the detection that runs again once extension backends load.
+    const home = createTempDir("hunk-config-home-");
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(join(home, ".config", "hunk", "config.toml"), 'vcs = "git"\n');
+    const cwd = createTempDir("hunk-config-cwd-");
+
+    const configured = resolveConfiguredCliInput(
+      { kind: "vcs", staged: false, options: {} },
+      { cwd, env: { HOME: home } },
+    );
+    const detected = resolveConfiguredCliInput(
+      { kind: "vcs", staged: false, options: {} },
+      { cwd, env: { HOME: createTempDir("hunk-config-empty-home-") } },
+    );
+
+    expect(configured.input.options.vcs).toBe("git");
+    expect(configured.explicitVcsId).toBe("git");
+    expect(detected.input.options.vcs).toBe("git");
+    expect(detected.explicitVcsId).toBeUndefined();
+  });
+
+  test("ignores a non-string vcs value", () => {
+    const home = createTempDir("hunk-config-home-");
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(join(home, ".config", "hunk", "config.toml"), "vcs = 7\n");
+
+    const resolved = resolveConfiguredCliInput(
+      { kind: "vcs", staged: false, options: {} },
+      { cwd: createTempDir("hunk-config-cwd-"), env: { HOME: home } },
+    );
+
+    expect(resolved.input.options.vcs).toBe("git");
+  });
+
   test("defaults to git VCS mode and accepts registered VCS modes from config", () => {
     const home = createTempDir("hunk-config-home-");
     mkdirSync(join(home, ".config", "hunk"), { recursive: true });
@@ -776,16 +1001,21 @@ describe("config resolution", () => {
       },
       { cwd: repo, env: { HOME: home } },
     );
-    const bootstrap = await loadAppBootstrap(resolved.input, { customTheme: resolved.customTheme });
+    const bootstrap = await loadAppBootstrap(resolved.input, {
+      customThemes: resolved.customThemes,
+    });
 
     expect(bootstrap.initialTheme).toBe("custom");
-    expect(bootstrap.customTheme).toEqual({
-      base: "catppuccin-mocha",
-      accent: "#7755aa",
-      syntaxScopes: {
-        comment: "#998877",
+    expect(bootstrap.customThemes).toEqual([
+      {
+        id: "custom",
+        base: "catppuccin-mocha",
+        accent: "#7755aa",
+        syntaxScopes: {
+          comment: "#998877",
+        },
       },
-    });
+    ]);
   });
 
   test("loadAppBootstrap exposes github-dark-default when no theme is configured", async () => {
@@ -810,5 +1040,198 @@ describe("config resolution", () => {
     const bootstrap = await loadAppBootstrap(resolved.input);
 
     expect(bootstrap.initialTheme).toBe("github-dark-default");
+  });
+});
+
+describe("extension configuration", () => {
+  test("defaults to enabled with no configured paths or per-extension tables", () => {
+    const home = createTempDir("hunk-config-home-");
+    const repo = createTempDir("hunk-config-repo-");
+    createRepo(repo);
+
+    const resolved = resolveConfiguredCliInput(createPatchPagerInput(), {
+      cwd: repo,
+      env: { HOME: home },
+    });
+
+    expect(resolved.extensions).toEqual({
+      enabled: true,
+      paths: [],
+      repoPaths: [],
+      extensionConfigs: {},
+    });
+  });
+
+  test("reads [extensions] and keeps repo paths separate from user paths", () => {
+    const home = createTempDir("hunk-config-home-");
+    const repo = createTempDir("hunk-config-repo-");
+    createRepo(repo);
+
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "hunk", "config.toml"),
+      ["[extensions]", 'paths = ["~/dev/copy-as.ts", 7, ""]', "unknown_key = true"].join("\n"),
+    );
+
+    mkdirSync(join(repo, ".hunk"), { recursive: true });
+    writeFileSync(
+      join(repo, ".hunk", "config.toml"),
+      ["[extensions]", 'paths = ["./tools/policy.ts"]'].join("\n"),
+    );
+
+    const resolved = resolveConfiguredCliInput(createPatchPagerInput(), {
+      cwd: repo,
+      env: { HOME: home },
+    });
+
+    expect(resolved.extensions.enabled).toBe(true);
+    expect(resolved.extensions.paths).toEqual(["~/dev/copy-as.ts"]);
+    expect(resolved.extensions.repoPaths).toEqual(["./tools/policy.ts"]);
+  });
+
+  test("lets repo config disable extensions and --no-extensions win over both layers", () => {
+    const home = createTempDir("hunk-config-home-");
+    const repo = createTempDir("hunk-config-repo-");
+    createRepo(repo);
+
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "hunk", "config.toml"),
+      ["[extensions]", "enabled = true"].join("\n"),
+    );
+    mkdirSync(join(repo, ".hunk"), { recursive: true });
+    writeFileSync(
+      join(repo, ".hunk", "config.toml"),
+      ["[extensions]", "enabled = false"].join("\n"),
+    );
+
+    expect(
+      resolveConfiguredCliInput(createPatchPagerInput(), { cwd: repo, env: { HOME: home } })
+        .extensions.enabled,
+    ).toBe(false);
+
+    writeFileSync(
+      join(repo, ".hunk", "config.toml"),
+      ["[extensions]", "enabled = true"].join("\n"),
+    );
+
+    expect(
+      resolveConfiguredCliInput(createPatchPagerInput(), { cwd: repo, env: { HOME: home } })
+        .extensions.enabled,
+    ).toBe(true);
+    expect(
+      resolveConfiguredCliInput(createPatchPagerInput({ extensions: false }), {
+        cwd: repo,
+        env: { HOME: home },
+      }).extensions.enabled,
+    ).toBe(false);
+  });
+
+  test("passes [extension.<id>] tables through with repo keys overriding user keys", () => {
+    const home = createTempDir("hunk-config-home-");
+    const repo = createTempDir("hunk-config-repo-");
+    createRepo(repo);
+
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "hunk", "config.toml"),
+      [
+        "[extension.copy-as]",
+        'severity = "nit"',
+        "wrap = true",
+        "",
+        "[extension.blame]",
+        "max_age_days = 30",
+      ].join("\n"),
+    );
+
+    mkdirSync(join(repo, ".hunk"), { recursive: true });
+    writeFileSync(
+      join(repo, ".hunk", "config.toml"),
+      ["[extension.copy-as]", 'severity = "blocking"'].join("\n"),
+    );
+
+    const resolved = resolveConfiguredCliInput(createPatchPagerInput(), {
+      cwd: repo,
+      env: { HOME: home },
+    });
+
+    expect(resolved.extensions.extensionConfigs).toEqual({
+      "copy-as": { severity: "blocking", wrap: true },
+      blame: { max_age_days: 30 },
+    });
+    // The repo steering a globally configured extension stays visible.
+    expect(resolved.startupNotices?.map((notice) => notice.message)).toEqual([
+      "Repo config overrides settings for extension(s): copy-as",
+    ]);
+  });
+
+  test("says nothing when the repo config configures no extensions", () => {
+    const home = createTempDir("hunk-config-home-");
+    const repo = createTempDir("hunk-config-repo-");
+    createRepo(repo);
+
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "hunk", "config.toml"),
+      ["[extension.blame]", "max_age_days = 30"].join("\n"),
+    );
+    mkdirSync(join(repo, ".hunk"), { recursive: true });
+    // An empty table sets nothing, so it is not an override worth reporting.
+    writeFileSync(join(repo, ".hunk", "config.toml"), ["[extension.blame]"].join("\n"));
+
+    const resolved = resolveConfiguredCliInput(createPatchPagerInput(), {
+      cwd: repo,
+      env: { HOME: home },
+    });
+
+    expect(resolved.startupNotices).toBeUndefined();
+  });
+
+  test("lists every extension id the repo config sets options for", () => {
+    const home = createTempDir("hunk-config-home-");
+    const repo = createTempDir("hunk-config-repo-");
+    createRepo(repo);
+
+    mkdirSync(join(repo, ".hunk"), { recursive: true });
+    writeFileSync(
+      join(repo, ".hunk", "config.toml"),
+      ["[extension.zebra]", 'binary = "/tmp/zebra"', "", "[extension.alpha]", "on = true"].join(
+        "\n",
+      ),
+    );
+
+    const resolved = resolveConfiguredCliInput(createPatchPagerInput(), {
+      cwd: repo,
+      env: { HOME: home },
+    });
+
+    // Reported even without a user-config table for those ids: a repo can
+    // configure a globally installed extension it never declared.
+    expect(resolved.startupNotices?.map((notice) => notice.message)).toEqual([
+      "Repo config overrides settings for extension(s): alpha, zebra",
+    ]);
+  });
+
+  test("rejects malformed extension sections", () => {
+    const home = createTempDir("hunk-config-home-");
+    const repo = createTempDir("hunk-config-repo-");
+    createRepo(repo);
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+
+    writeFileSync(join(home, ".config", "hunk", "config.toml"), "extensions = true\n");
+    expect(() =>
+      resolveConfiguredCliInput(createPatchPagerInput(), { cwd: repo, env: { HOME: home } }),
+    ).toThrow(/extensions to contain a TOML table/);
+
+    writeFileSync(join(home, ".config", "hunk", "config.toml"), 'extension = "copy-as"\n');
+    expect(() =>
+      resolveConfiguredCliInput(createPatchPagerInput(), { cwd: repo, env: { HOME: home } }),
+    ).toThrow(/per-extension TOML tables/);
+
+    writeFileSync(join(home, ".config", "hunk", "config.toml"), "[extension]\ncopy-as = 1\n");
+    expect(() =>
+      resolveConfiguredCliInput(createPatchPagerInput(), { cwd: repo, env: { HOME: home } }),
+    ).toThrow(/\[extension.copy-as\] to contain a TOML table/);
   });
 });

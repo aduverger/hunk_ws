@@ -34,6 +34,8 @@ This reference is generated from the command metadata used by Hunk itself. Run `
 | `--no-agent-notes`          | hide agent notes by default                                     |
 | `--transparent-bg`          | let terminal background show through Hunk surfaces              |
 | `--no-transparent-bg`       | paint Hunk surfaces with the active theme                       |
+| `--extension <path>`        | load an extension entry file or directory (repeatable)          |
+| `--no-extensions`           | disable user extensions for this run                            |
 
 `--experimental` may also be placed before the review command, as in `hunk --experimental diff`.
 

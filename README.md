@@ -164,6 +164,26 @@ noteBorder = "#c49bff"
 "entity.name.function" = "#8ed4ff"
 ```
 
+Define as many themes as you like by giving each one its own `[themes.<id>]` table, using the same keys. The table id is the name you select with `theme = "<id>"` or `--theme <id>`:
+
+```toml
+theme = "ocean"
+
+[themes.ocean]
+base = "nord"
+label = "Ocean"
+accent = "#7fd1ff"
+
+[themes.ocean.syntax_scopes]
+"keyword.operator" = "#7fd1ff"
+
+[themes.paper-review]
+base = "github-light-default"
+accent = "#0969da"
+```
+
+Theme ids must be lowercase words separated by `-` or `_`, and cannot reuse a built-in theme id. Ids that break those rules are skipped with a startup notice instead of failing the session. `[custom_theme]` is the theme with id `custom`, so it takes precedence over a `[themes.custom]` table. Themes appear in the selector after the built-in themes, in the order you declare them, and a repo `.hunk/config.toml` overrides your user config table by table for the same id.
+
 `syntax_scopes` uses [Shiki/TextMate scope selectors](https://shiki.style/guide/themes#token-colors) directly, so matching and precedence follow Shiki's theme rules without a Hunk-specific translation layer. Quote selectors containing dots. Declaration order is preserved; later rules win when matching selectors have equal specificity, while a more-specific base-theme selector beats a broader override. Add the grammar-specific selector when that happens. All custom theme colors must use `#rrggbb` hex values.
 
 The former `[custom_theme.syntax]` role table is deprecated but temporarily translated into approximate scopes for compatibility. Both tables can coexist while migrating, and an exact `syntax_scopes` entry overrides a translated entry with the same selector. Because semantic roles have no one-to-one TextMate mapping, migrate when practical: for example, replace `comment = "#ffffff"` with both `"comment" = "#ffffff"` and `"punctuation.definition.comment" = "#ffffff"` under `[custom_theme.syntax_scopes]`, adding language-specific selectors when a grammar uses more specific scopes. The compatibility table will be removed in the next major release.
@@ -213,6 +233,38 @@ To use Hunk as Sapling's pager, run `sl config -u` and update:
 [pager]
 pager = hunk pager
 ```
+
+### Extensions (experimental)
+
+The extension API is experimental and may change in breaking ways between
+minor releases while it stabilizes; breaking changes are called out in
+release notes.
+
+Hunk loads plain TypeScript extensions from `~/.config/hunk/extensions/`, from a
+repository's `.hunk/extensions/` (after you explicitly trust that repository),
+and from `--extension <path>` for development. `--no-extensions` turns those off
+for one run; Hunk's own bundled backends (Git, Jujutsu, and Sapling) stay loaded.
+
+A Phase 1 extension can contribute themes and file-extension → language
+mappings, add a VCS backend, rewrite the changeset before review (collapse
+lockfiles, reorder files by review priority), react to lifecycle events, and
+show transient messages:
+
+```ts
+// ~/.config/hunk/extensions/collapse-lockfiles.ts
+import type { HunkExtensionAPI } from "hunkdiff/extension";
+
+export default function (hunk: HunkExtensionAPI) {
+  hunk.transformChangeset((changeset, ctx) => {
+    const files = changeset.files.filter((file) => !file.path.endsWith(".lock"));
+    ctx.notify(`Collapsed ${changeset.files.length - files.length} lockfiles`);
+    return { ...changeset, files };
+  });
+}
+```
+
+See [docs/extensions.md](docs/extensions.md) for the full API, the trust model,
+and the `[extensions]` / `[extension.<id>]` config reference.
 
 ### OpenTUI component
 

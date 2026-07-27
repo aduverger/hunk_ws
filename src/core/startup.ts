@@ -1,4 +1,19 @@
+import {
+  applyExtensionChangesetTransforms,
+  applyExtensionRegistrations,
+  createExtensionApplyNotices,
+  createUnknownVcsNotice,
+  resolveDetectedVcsIdWithExtensions,
+  resolveSessionVcsId,
+} from "../extensions/apply";
+import { loadBundledExtensions } from "../extensions/bundled";
+import {
+  createExtensionLoadNotices,
+  loadStartupExtensions,
+  mergeStartupNotices,
+} from "../extensions/startup";
 import { resolveConfiguredCliInput } from "./config";
+import { collectSessionCustomThemes } from "./customThemes";
 import { HunkUserError } from "./errors";
 import { loadAppBootstrap } from "./loaders";
 import { looksLikePatchInput } from "./pager";
@@ -43,7 +58,7 @@ export type StartupPlan =
       kind: "static-diff-pager";
       text: string;
       options: CliInput["options"];
-      customTheme?: AppBootstrap["customTheme"];
+      customThemes?: AppBootstrap["customThemes"];
     }
   | {
       kind: "markup-render";
@@ -75,6 +90,7 @@ export interface StartupDeps {
   resolveRuntimeCliInputImpl?: typeof resolveRuntimeCliInput;
   resolveConfiguredCliInputImpl?: typeof resolveConfiguredCliInput;
   loadAppBootstrapImpl?: typeof loadAppBootstrap;
+  loadStartupExtensionsImpl?: typeof loadStartupExtensions;
   usesPipedPatchInputImpl?: typeof usesPipedPatchInput;
   openControllingTerminalImpl?: typeof openControllingTerminal;
   detectTerminalThemeModeFromBackgroundImpl?: typeof detectTerminalThemeModeFromBackground;
@@ -96,6 +112,7 @@ export async function prepareStartupPlan(
   const resolveConfiguredCliInputImpl =
     deps.resolveConfiguredCliInputImpl ?? resolveConfiguredCliInput;
   const loadAppBootstrapImpl = deps.loadAppBootstrapImpl ?? loadAppBootstrap;
+  const loadStartupExtensionsImpl = deps.loadStartupExtensionsImpl ?? loadStartupExtensions;
   const usesPipedPatchInputImpl = deps.usesPipedPatchInputImpl ?? usesPipedPatchInput;
   const openControllingTerminalImpl = deps.openControllingTerminalImpl ?? openControllingTerminal;
   const detectTerminalThemeModeFromBackgroundImpl =
@@ -163,8 +180,9 @@ export async function prepareStartupPlan(
         options: configuredStatic.input.options,
       };
 
-      return configuredStatic.customTheme
-        ? { ...staticPlan, customTheme: configuredStatic.customTheme }
+      // Extensions never load on the static pager path, so config themes are the whole set here.
+      return configuredStatic.customThemes.length > 0
+        ? { ...staticPlan, customThemes: configuredStatic.customThemes }
         : staticPlan;
     };
 
@@ -221,7 +239,8 @@ export async function prepareStartupPlan(
 
   const runtimeCliInput = resolveRuntimeCliInputImpl(parsedCliInput);
   const configured = resolveConfiguredCliInputImpl(runtimeCliInput);
-  const cliInput = configured.input;
+  // Reassigned once below if an extension VCS backend claims this checkout.
+  let cliInput = configured.input;
 
   // Any app session launched with piped stdin still needs a real terminal input stream for
   // keyboard, mouse, and terminal query responses. Auto-theme happened to open this path during
@@ -249,17 +268,95 @@ export async function prepareStartupPlan(
     );
   }
 
+  // Extensions load before the changeset so later stages can hand their VCS adapters and
+  // changeset transforms to the loading pipeline. Failures never reach here: the host
+  // isolates them into issues that become startup notices below.
+  const startupCwd = process.cwd();
+  const extensionResult = await loadStartupExtensionsImpl({
+    extensions: configured.extensions,
+    cwd: startupCwd,
+    env,
+    cliExtensionPaths: cliInput.options.extensionPaths,
+  });
+
+  // Extension themes join the config-defined ones here, so the rest of the app sees one
+  // ordered theme list instead of two sources it would have to reconcile itself.
+  const sessionThemes = collectSessionCustomThemes(
+    configured.customThemes,
+    extensionResult.registry.themes,
+  );
+
+  // File languages register globally; VCS adapters are threaded into loading below.
+  const applied = applyExtensionRegistrations(extensionResult);
+  // Config accepts any `vcs` id because it resolves before extensions load. Settle
+  // that choice now: honor it when a loaded backend owns it, otherwise fall back
+  // to detection and tell the user, instead of dropping it in silence.
+  const sessionVcs = resolveSessionVcsId(cliInput.options.vcs, startupCwd, applied.vcsAdapters);
+  if (sessionVcs.vcsId !== cliInput.options.vcs) {
+    cliInput = { ...cliInput, options: { ...cliInput.options, vcs: sessionVcs.vcsId } };
+  }
+
+  // Config detected the checkout before extension backends existed, so detection
+  // runs again over the full adapter list: the nearest checkout wins whoever
+  // registered it. An explicit `vcs` this session owns is left alone.
+  const detectedVcsId = resolveDetectedVcsIdWithExtensions(
+    startupCwd,
+    applied.vcsAdapters,
+    configured.explicitVcsId,
+  );
+  if (detectedVcsId !== undefined && detectedVcsId !== cliInput.options.vcs) {
+    cliInput = { ...cliInput, options: { ...cliInput.options, vcs: detectedVcsId } };
+  }
+
+  // Built after both steps so the notice names the backend the session really
+  // loads with, not the intermediate fallback detection first proposed.
+  const unknownVcsNotices =
+    sessionVcs.unknownVcsId !== undefined
+      ? [createUnknownVcsNotice(sessionVcs.unknownVcsId, String(cliInput.options.vcs))]
+      : [];
+
   let bootstrap: AppBootstrap;
   try {
-    bootstrap = await loadAppBootstrapImpl(cliInput, { customTheme: configured.customTheme });
+    bootstrap = await loadAppBootstrapImpl(cliInput, {
+      customThemes: sessionThemes.themes,
+      vcsAdapters: applied.vcsAdapters,
+    });
   } catch (error) {
     controllingTerminal?.close();
     throw error;
   }
 
+  // Transforms run on the loaded changeset so the sidebar and review stream both
+  // follow whatever the extensions produced, with no separate pre-transform copy.
+  bootstrap.changeset = await applyExtensionChangesetTransforms(
+    extensionResult,
+    bootstrap.changeset,
+  );
+
+  // Bundled extensions load with the VCS adapters, well before this point, so a
+  // failure there is reported here rather than lost. It should be unreachable —
+  // these factories are Hunk's own — but the isolation contract is the contract.
+  const bundledNotices = createExtensionLoadNotices(loadBundledExtensions().issues);
+
   bootstrap.initialThemeMode = initialThemeMode ?? bootstrap.initialThemeMode;
-  bootstrap.startupNotices = configured.startupNotices;
+  bootstrap.startupNotices = mergeStartupNotices(
+    // Keep the resolved array identity when extensions contributed no theme notices.
+    sessionThemes.notices.length > 0 ||
+      applied.issues.length > 0 ||
+      bundledNotices.length > 0 ||
+      unknownVcsNotices.length > 0
+      ? [
+          ...(configured.startupNotices ?? []),
+          ...sessionThemes.notices,
+          ...createExtensionApplyNotices(applied.issues),
+          ...bundledNotices,
+          ...unknownVcsNotices,
+        ]
+      : configured.startupNotices,
+    extensionResult,
+  );
   bootstrap.viewPreferencesConfigPath = configured.viewPreferencesConfigPath;
+  bootstrap.extensions = extensionResult;
 
   controllingTerminal ??= usesPipedPatchInputImpl(cliInput) ? openControllingTerminalImpl() : null;
 

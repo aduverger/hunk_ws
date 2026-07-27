@@ -1,6 +1,32 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
+// Type-only import; the extension types depend on this module in turn, and
+// `import type` keeps that relationship out of the runtime module graph.
+import type { ExtensionLoadResult } from "../extensions/types";
+import type {
+  AgentFileContext,
+  ExtensionVcsDiffInput,
+  ExtensionVcsShowInput,
+  ExtensionVcsStashShowInput,
+  NamedCustomThemeConfig,
+} from "../extension-api/types";
 import type { FileSourceFetcher } from "./fileSource";
 import type { StartupNotice } from "./startupNotice";
+import type { VcsAdapter } from "./vcs/types";
+
+/**
+ * Shapes that are simultaneously internal model types and part of the published
+ * extension contract are declared once in `src/extension-api/types.ts` — the
+ * module whose declarations ship — and re-exported here so internal code keeps
+ * importing them from `core/types`.
+ */
+export type {
+  AgentAnnotation,
+  AgentFileContext,
+  CustomSyntaxColorsConfig,
+  CustomSyntaxScopesConfig,
+  CustomThemeConfig,
+  NamedCustomThemeConfig,
+} from "../extension-api/types";
 
 export type LayoutMode = "auto" | "split" | "stack";
 export type VcsMode = string;
@@ -12,30 +38,6 @@ export type SessionCommentListType = "live" | "all" | ReviewNoteSource;
 export interface UserNoteLineTarget {
   side: "old" | "new";
   line: number;
-}
-
-export interface AgentAnnotation {
-  id?: string;
-  oldRange?: [number, number];
-  newRange?: [number, number];
-  summary: string;
-  rationale?: string;
-  /** Optional STML markup rendered as the note body in place of summary/rationale text. */
-  markup?: string;
-  tags?: string[];
-  confidence?: "low" | "medium" | "high";
-  source?: string;
-  title?: string;
-  author?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  editable?: boolean;
-}
-
-export interface AgentFileContext {
-  path: string;
-  summary?: string;
-  annotations: AgentAnnotation[];
 }
 
 export interface AgentContext {
@@ -102,65 +104,28 @@ export interface CommonOptions {
   promptSaveViewPreferences?: boolean;
   transparentBackground?: boolean;
   colorMoved?: boolean;
+  /** False only when `--no-extensions` disables user extension loading for this run. */
+  extensions?: boolean;
+  /** Entry paths from repeated `--extension` flags, for development and testing. */
+  extensionPaths?: string[];
 }
 
-/** @deprecated Use exact TextMate selectors through CustomSyntaxScopesConfig instead. */
-export interface CustomSyntaxColorsConfig {
-  default?: string;
-  keyword?: string;
-  string?: string;
-  comment?: string;
-  number?: string;
-  function?: string;
-  property?: string;
-  type?: string;
-  variable?: string;
-  operator?: string;
-  punctuation?: string;
-}
-
-/** Exact Shiki/TextMate selector-to-hex-color overrides, preserved in declaration order. */
-export type CustomSyntaxScopesConfig = Record<string, string>;
-
-export interface CustomThemeConfig {
-  base?: string;
-  label?: string;
-  background?: string;
-  panel?: string;
-  panelAlt?: string;
-  border?: string;
-  accent?: string;
-  accentMuted?: string;
-  text?: string;
-  muted?: string;
-  addedBg?: string;
-  removedBg?: string;
-  movedAddedBg?: string;
-  movedRemovedBg?: string;
-  contextBg?: string;
-  addedContentBg?: string;
-  removedContentBg?: string;
-  contextContentBg?: string;
-  addedSignColor?: string;
-  removedSignColor?: string;
-  lineNumberBg?: string;
-  lineNumberFg?: string;
-  selectedHunk?: string;
-  badgeAdded?: string;
-  badgeRemoved?: string;
-  badgeNeutral?: string;
-  fileNew?: string;
-  fileDeleted?: string;
-  fileRenamed?: string;
-  fileModified?: string;
-  fileUntracked?: string;
-  noteBorder?: string;
-  noteBackground?: string;
-  noteTitleBackground?: string;
-  noteTitleText?: string;
-  /** @deprecated Use syntaxScopes. This compatibility field will be removed next major. */
-  syntax?: CustomSyntaxColorsConfig;
-  syntaxScopes?: CustomSyntaxScopesConfig;
+/** Resolved `[extensions]` and `[extension.<id>]` configuration for one invocation. */
+export interface ExtensionsConfig {
+  /**
+   * False when `--no-extensions` or `[extensions] enabled = false` disables loading.
+   *
+   * Scoped to user extensions. Hunk's bundled tier — the Jujutsu and Sapling
+   * backends — always loads: these switches exist to triage extensions you
+   * installed, not to drop VCS support.
+   */
+  enabled: boolean;
+  /** Explicit entry paths from the user config layer. */
+  paths: string[];
+  /** Explicit entry paths contributed by the repo config layer; trust-gated like `.hunk/extensions`. */
+  repoPaths: string[];
+  /** Per-extension config tables, keyed by extension id. */
+  extensionConfigs: Record<string, Record<string, unknown>>;
 }
 
 export interface PersistedViewPreferences {
@@ -313,24 +278,21 @@ export type SessionCommandInput =
   | SessionCommentRemoveCommandInput
   | SessionCommentClearCommandInput;
 
-export interface VcsDiffCommandInput {
-  kind: "vcs";
-  range?: string;
-  staged: boolean;
-  pathspecs?: string[];
+/**
+ * Review requests extend the published input views rather than restating them,
+ * so an adapter written against the extension contract accepts the exact values
+ * Hunk's commands produce. `options` is the internal half: resolved CLI and
+ * config state that no adapter — bundled or third-party — needs to see.
+ */
+export interface VcsDiffCommandInput extends ExtensionVcsDiffInput {
   options: CommonOptions;
 }
 
-export interface VcsShowCommandInput {
-  kind: "show";
-  ref?: string;
-  pathspecs?: string[];
+export interface VcsShowCommandInput extends ExtensionVcsShowInput {
   options: CommonOptions;
 }
 
-export interface VcsStashShowCommandInput {
-  kind: "stash-show";
-  ref?: string;
+export interface VcsStashShowCommandInput extends ExtensionVcsStashShowInput {
   options: CommonOptions;
 }
 
@@ -391,6 +353,15 @@ export interface ReloadContext {
   cwd: string;
   repoRoot?: string;
   initialWatchSignature?: string;
+  /**
+   * Extension-contributed VCS backends this session loaded its review through.
+   *
+   * Watch planning and signatures re-resolve the adapter from the input's
+   * configured VCS id, so they need the same adapter set the changeset came
+   * from — otherwise a review backed by an extension backend could not be
+   * watched at all.
+   */
+  vcsAdapters?: readonly VcsAdapter[];
 }
 
 export interface AppBootstrap {
@@ -400,7 +371,8 @@ export interface AppBootstrap {
   initialMode: LayoutMode;
   initialTheme?: string;
   initialThemeMode?: TerminalThemeMode;
-  customTheme?: CustomThemeConfig;
+  /** Selectable custom themes for this session, in menu order. */
+  customThemes?: readonly NamedCustomThemeConfig[];
   initialShowLineNumbers?: boolean;
   initialTabWidth?: number;
   initialWrapLines?: boolean;
@@ -410,4 +382,6 @@ export interface AppBootstrap {
   initialCopyDecorations?: boolean;
   startupNotices?: readonly StartupNotice[];
   viewPreferencesConfigPath?: string;
+  /** Extensions loaded for this session, and any load failures worth surfacing. */
+  extensions?: ExtensionLoadResult;
 }
