@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Changeset } from "../core/types";
 import { getVcsOperation } from "../core/vcs";
 import type { VcsAdapter } from "../core/vcs/types";
+import { discoverExtensions } from "./discovery";
 import { loadExtensions } from "./host";
 import { createExtensionNotificationHub } from "./notifications";
 import { deriveExtensionId, type ExtensionCandidate, type ExtensionOrigin } from "./types";
@@ -15,6 +16,14 @@ function createTempDir(prefix: string) {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+/** Write one file on disk, creating parent directories as needed. */
+function writeTestFile(dir: string, fileName: string, source: string) {
+  const path = join(dir, fileName);
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, source);
+  return path;
 }
 
 /**
@@ -29,9 +38,7 @@ function createTestExtension(
   source: string,
   origin: ExtensionOrigin = "flag",
 ): ExtensionCandidate {
-  const path = join(dir, fileName);
-  mkdirSync(join(path, ".."), { recursive: true });
-  writeFileSync(path, source);
+  const path = writeTestFile(dir, fileName, source);
   return { id: deriveExtensionId(path), path, origin };
 }
 
@@ -92,6 +99,88 @@ export default function (hunk: HunkExtensionAPI) {
     expect(
       (await transform?.transform(createTestChangeset(), { cwd: dir, notify: () => {} }))?.title,
     ).toBe("transformed");
+  });
+
+  test("loads a folder extension whose index imports a sibling module", async () => {
+    const dir = createTempDir("hunk-host-folder-");
+    // The helper is written first so the index's relative import resolves.
+    createTestExtension(
+      dir,
+      join("folder-ext", "helper.ts"),
+      `export const language = "graphql";\n`,
+    );
+    const candidate = createTestExtension(
+      dir,
+      join("folder-ext", "index.ts"),
+      `import { language } from "./helper";
+
+export default function (hunk: { registerFileLanguage: (e: string, l: string) => void }) {
+  hunk.registerFileLanguage("proof", language);
+}
+`,
+      "config",
+    );
+
+    const result = await loadExtensions({ candidates: [candidate], cwd: dir });
+
+    // The id comes from the folder, and the sibling import resolved at load time.
+    expect(result.issues).toEqual([]);
+    expect(result.loaded).toEqual([
+      { id: "folder-ext", sourcePath: candidate.path, origin: "config" },
+    ]);
+    expect(result.registry.fileLanguages).toEqual([
+      { extensionId: "folder-ext", extension: "proof", language: "graphql" },
+    ]);
+  });
+
+  test("loads a manifest folder extension against its own node_modules", async () => {
+    const root = createTempDir("hunk-host-manifest-dep-");
+    const folder = join(root, "dep-ext");
+    writeTestFile(
+      folder,
+      "package.json",
+      `{"name":"dep-ext","hunk":{"extensions":["./src/index.ts"]},"dependencies":{"fake-dep":"1.0.0"}}`,
+    );
+    // A hand-written dependency stands in for an installed one: the point is
+    // that the entry file resolves imports from the extension's own folder.
+    writeTestFile(
+      join(folder, "node_modules", "fake-dep"),
+      "package.json",
+      `{"name":"fake-dep","version":"1.0.0","main":"index.js"}`,
+    );
+    writeTestFile(
+      join(folder, "node_modules", "fake-dep"),
+      "index.js",
+      `module.exports = { language: "graphql" };\n`,
+    );
+    const entryPath = writeTestFile(
+      folder,
+      join("src", "index.ts"),
+      `import fakeDep from "fake-dep";
+
+export default function (hunk: { registerFileLanguage: (e: string, l: string) => void }) {
+  hunk.registerFileLanguage("dep", fakeDep.language);
+}
+`,
+    );
+
+    // Going through discovery is the point: the manifest is what turns the
+    // folder into this one entry, and what keeps the folder's name as the id.
+    const candidates = discoverExtensions({
+      cwd: root,
+      repoRoot: undefined,
+      globalExtensionsDir: undefined,
+      flagPaths: [folder],
+      env: {},
+    });
+    const result = await loadExtensions({ candidates, cwd: root });
+
+    expect(candidates).toEqual([{ id: "dep-ext", path: entryPath, origin: "flag" }]);
+    expect(result.issues).toEqual([]);
+    expect(result.loaded).toEqual([{ id: "dep-ext", sourcePath: entryPath, origin: "flag" }]);
+    expect(result.registry.fileLanguages).toEqual([
+      { extensionId: "dep-ext", extension: "dep", language: "graphql" },
+    ]);
   });
 
   test("awaits an async factory before sealing the API", async () => {

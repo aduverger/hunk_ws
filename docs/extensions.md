@@ -1,8 +1,9 @@
 # Writing Hunk extensions
 
-A Hunk extension is one TypeScript (or JavaScript) file that default-exports a
-function. Hunk imports it at startup and hands it an API object. There is no
-manifest and no build step.
+A Hunk extension entry is one TypeScript (or JavaScript) file that
+default-exports a function. Hunk imports it at startup and hands it an API
+object. An entry may stand alone or be declared by a folder's optional
+`package.json` manifest; no build step is required.
 
 ```ts
 // ~/.config/hunk/extensions/hello.ts
@@ -24,9 +25,9 @@ export default function (hunk: HunkExtensionAPI) {
 ## Where Hunk looks for extensions
 
 Discovery runs group by group, alphabetically by resolved path within each
-group. The first occurrence of a resolved path wins, so a path you pass
-explicitly keeps its origin even if the same file is also discovered somewhere
-else.
+group — a folder extension's entries sort together, at the folder's own path.
+The first occurrence of a resolved path wins, so a path you pass explicitly
+keeps its origin even if the same file is also discovered somewhere else.
 
 | Group | Source                                               | Trust                 |
 | ----- | ---------------------------------------------------- | --------------------- |
@@ -41,13 +42,42 @@ both are repo-controlled, so they share a trust decision and their paths are
 sorted together rather than one source being loaded ahead of the other.
 
 A directory source matches `*.ts`, `*.js`, `*.mjs` directly inside it, plus one
-level of `<name>/index.{ts,js,mjs}` so a folder extension can keep helper
-modules beside its entry file.
+level of folder extensions, so a folder extension can keep helper modules beside
+its entry file.
+
+A folder is an extension if it declares its entry files in a `package.json`, or
+failing that if it has an `index.{ts,js,mjs}`. The manifest field is `hunk`:
+
+```text
+~/.config/hunk/extensions/my-ext/
+  package.json          # {"hunk": {"extensions": ["./src/index.ts"]}}
+  node_modules/         # bun install / npm install, right here
+  src/
+    index.ts            # the declared entry
+    helper.ts
+```
+
+The manifest wins over the `index.*` fallback, and its paths resolve against the
+folder. It may list more than one entry, in which case each entry loads as its
+own extension in the order the manifest gives. Each one is identified by its
+file stem; when stems collide, later entries receive a numeric suffix while
+avoiding ids already claimed by other entries in the manifest.
+
+Because the manifest is a real `package.json`, a folder extension may depend on
+npm packages: declare them, install them into the folder's own `node_modules`,
+and imports resolve from the entry file the way they do in any other package.
+
+Pointing `--extension` or `[extensions] paths` straight at a directory works
+either way: a directory that is itself a folder extension loads as that one
+extension, so its helper modules stay helpers. A directory that is not is
+treated as a directory _of_ extensions and scanned with the patterns above.
 
 An extension's **id** is its file stem, or its folder name for
-`<name>/index.ts`. The id is what `[extension.<id>]` config tables key off, so
-moving a single-file extension into a folder of the same name keeps its config
-working.
+`<name>/index.ts`. A manifest that declares a single entry also keeps the
+folder's name, whatever the entry file is called. The id is what
+`[extension.<id>]` config tables key off, so moving a single-file extension into
+a folder of the same name — or later giving that folder a manifest — keeps its
+config working.
 
 `--no-extensions` disables user extensions for one run — nothing on disk is
 read, let alone executed. Use it when triaging a bug.
@@ -557,7 +587,8 @@ hunk diff --extension ./collapse-generated.ts
 ## CLI flags and config reference
 
 ```bash
-hunk diff --extension ./path/to/entry.ts   # load one entry file or directory (repeatable)
+hunk diff --extension ./path/to/entry.ts   # load one entry file (repeatable)
+hunk diff --extension ./my-ext             # a folder extension: loads ./my-ext/index.ts
 hunk diff --no-extensions                  # disable user extensions for this run
 ```
 
