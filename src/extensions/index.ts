@@ -5,11 +5,17 @@ export {
   createExtensionApplyNotices,
   reportExtensionApplyIssues,
   resolveDetectedVcsIdWithExtensions,
+  resolveExtensionSidebarView,
   resolveExtensionVcsAdapters,
   type AppliedExtensionRegistrations,
   type ExtensionApplyIssue,
+  type ResolvedExtensionSidebarView,
 } from "./apply";
-export { getBundledVcsAdapters, loadBundledExtensions, type BundledExtensionLoad } from "./bundled";
+export {
+  getBundledVcsAdapters,
+  loadBundledExtensions,
+  type BundledExtensionLoad,
+} from "./default/vcs";
 export { discoverExtensions, type DiscoverExtensionsOptions } from "./discovery";
 export {
   emitExtensionEvent,
@@ -73,6 +79,7 @@ export type {
   RegisteredChangesetTransform,
   RegisteredEventHandler,
   RegisteredFileLanguage,
+  RegisteredSidebarView,
   RegisteredTheme,
   RegisteredVcsAdapter,
   SessionReloadReason,
