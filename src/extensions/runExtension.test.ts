@@ -159,6 +159,113 @@ describe("registerSidebarView", () => {
   });
 });
 
+describe("registerCommand", () => {
+  test("collects a valid command tagged with the owning extension", () => {
+    const registry = createEmptyExtensionRegistry();
+    const issues: ExtensionLoadIssue[] = [];
+    const handler = () => {};
+
+    runExtensionFactory({
+      metadata: bundledMetadata("cmd"),
+      registry,
+      issues,
+      factory: (hunk) => {
+        hunk.registerCommand({ id: "toggle", title: "Toggle", key: "ctrl+y" }, handler);
+        hunk.registerCommand({ id: "unbound", title: "Unbound" }, handler);
+      },
+    });
+
+    expect(issues).toEqual([]);
+    expect(registry.commands).toEqual([
+      { extensionId: "cmd", command: { id: "toggle", title: "Toggle", key: "ctrl+y" }, handler },
+      { extensionId: "cmd", command: { id: "unbound", title: "Unbound" }, handler },
+    ]);
+  });
+
+  test("rejects an unparsable key chord and rolls the factory back", () => {
+    const registry = createEmptyExtensionRegistry();
+    const issues: ExtensionLoadIssue[] = [];
+
+    runExtensionFactory({
+      metadata: bundledMetadata("bad-key"),
+      registry,
+      issues,
+      factory: (hunk) => {
+        hunk.registerCommand({ id: "toggle", title: "Toggle", key: "ctlr+y" }, () => {});
+      },
+    });
+
+    // A typo'd chord fails the author loudly at registration instead of
+    // registering a binding that silently never fires.
+    expect(registry.commands).toEqual([]);
+    expect(issues[0]?.message).toContain('Unknown modifier "ctlr"');
+  });
+
+  test("accepts a list of chords and rejects the list if any chord is bad", () => {
+    const registry = createEmptyExtensionRegistry();
+    const issues: ExtensionLoadIssue[] = [];
+    const handler = () => {};
+
+    runExtensionFactory({
+      metadata: bundledMetadata("multi"),
+      registry,
+      issues,
+      factory: (hunk) => {
+        hunk.registerCommand({ id: "toggle", title: "Toggle", key: ["ctrl+y", "f9"] }, handler);
+      },
+    });
+
+    expect(issues).toEqual([]);
+    expect(registry.commands[0]?.command.key).toEqual(["ctrl+y", "f9"]);
+
+    const badRegistry = createEmptyExtensionRegistry();
+    const badIssues: ExtensionLoadIssue[] = [];
+    runExtensionFactory({
+      metadata: bundledMetadata("multi-bad"),
+      registry: badRegistry,
+      issues: badIssues,
+      factory: (hunk) => {
+        // One bad chord in the list is a bad registration, not a partial one.
+        hunk.registerCommand({ id: "toggle", title: "Toggle", key: ["ctrl+y", "f13"] }, handler);
+      },
+    });
+
+    expect(badRegistry.commands).toEqual([]);
+    expect(badIssues[0]?.message).toContain('Unknown key "f13"');
+
+    const emptyRegistry = createEmptyExtensionRegistry();
+    const emptyIssues: ExtensionLoadIssue[] = [];
+    runExtensionFactory({
+      metadata: bundledMetadata("multi-empty"),
+      registry: emptyRegistry,
+      issues: emptyIssues,
+      factory: (hunk) => {
+        hunk.registerCommand({ id: "toggle", title: "Toggle", key: [] }, handler);
+      },
+    });
+
+    expect(emptyRegistry.commands).toEqual([]);
+    expect(emptyIssues[0]?.message).toContain("non-empty chord string or array");
+  });
+
+  test("rejects a command without a handler function", () => {
+    const registry = createEmptyExtensionRegistry();
+    const issues: ExtensionLoadIssue[] = [];
+
+    runExtensionFactory({
+      metadata: bundledMetadata("no-handler"),
+      registry,
+      issues,
+      factory: (hunk) => {
+        hunk.registerCommand({ id: "toggle", title: "Toggle" }, undefined as never);
+      },
+    });
+
+    expect(registry.commands).toEqual([]);
+    expect(issues[0]?.message).toContain("handler function");
+  });
+});
+
 describe("toInternalVcsAdapter detection ids", () => {
   test("forces a mismatched detection id back to the registered adapter id", () => {
     const mismatches: string[] = [];

@@ -190,6 +190,14 @@ The former `[custom_theme.syntax]` role table is deprecated but temporarily tran
 
 Press `t` in the app, or choose `View -> Themes…`, to open the theme selector.
 
+### Keybindings
+
+Every keyboard shortcut is a named command, and a `[keybindings]` table in your
+user config remaps command ids to the keys you want them on — several keys per
+command, exclusive claims over defaults, and `false` to unbind. See
+[docs/keybindings.md](docs/keybindings.md) for the rules, the chord grammar,
+and the full table of built-in commands and their default keys.
+
 ### Git integration
 
 Set Hunk as your Git pager so `git diff` and `git show` open in Hunk automatically:
