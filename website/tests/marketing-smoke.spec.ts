@@ -83,6 +83,41 @@ test("theme previews switch without loading every screenshot up front", async ({
   await expect(midnightShot).toHaveAttribute("src", "/shot-midnight.webp");
 });
 
+test("community videos link out without embedding a third-party player", async ({ page }) => {
+  await page.goto("/");
+  const videos = page.getByRole("link", { name: /Hunk changed the way I write/ });
+
+  await expect(videos).toHaveAttribute("href", "https://www.youtube.com/watch?v=FFfz81XM57k");
+  await expect(videos.locator("img")).toHaveAttribute("src", "/video-jilles.webp");
+  await expect(page.locator("iframe")).toHaveCount(0);
+});
+
+test("feature cards deep-link into the matching documentation page", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("link", { name: /Watch mode/ })).toHaveAttribute(
+    "href",
+    "/docs/workflows/watch-mode/",
+  );
+  await expect(page.getByRole("link", { name: /Inline agent annotations/ })).toHaveAttribute(
+    "href",
+    "/docs/agents/comments-and-annotations/",
+  );
+});
+
+test("the agent section shows a note screenshot beside the commands that make it", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: /Your agent reviews with you/ })).toBeVisible();
+  await expect(page.locator(".agent-shot img")).toHaveAttribute("src", "/agent-note-zoom.webp");
+  await expect(page.getByRole("link", { name: /How agent review works/ })).toHaveAttribute(
+    "href",
+    "/docs/agents/review-with-an-agent/",
+  );
+});
+
 test("marketing page has no serious automated accessibility violations", async ({ page }) => {
   await page.goto("/");
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
