@@ -159,6 +159,47 @@ describe("registerSidebarView", () => {
   });
 });
 
+describe("hunk.events", () => {
+  test("registers a bus listener under its owning extension", () => {
+    const registry = createEmptyExtensionRegistry();
+    const issues: ExtensionLoadIssue[] = [];
+    const handler = () => {};
+
+    runExtensionFactory({
+      metadata: bundledMetadata("summary"),
+      registry,
+      issues,
+      factory: (hunk) => {
+        hunk.events.on("summary:ready", handler);
+      },
+    });
+
+    expect(issues).toEqual([]);
+    expect(registry.customEventHandlers).toEqual([
+      { extensionId: "summary", event: "summary:ready", handler },
+    ]);
+  });
+
+  test("rolls bus registrations and queued factory events back with a failing factory", () => {
+    const registry = createEmptyExtensionRegistry();
+    const issues: ExtensionLoadIssue[] = [];
+
+    runExtensionFactory({
+      metadata: bundledMetadata("broken-events"),
+      registry,
+      issues,
+      factory: (hunk) => {
+        hunk.events.on("broken:ready", () => {});
+        hunk.events.emit("broken:ready", {});
+        throw new Error("boom");
+      },
+    });
+
+    expect(registry.customEventHandlers).toEqual([]);
+    expect(registry.pendingCustomEvents).toEqual([]);
+  });
+});
+
 describe("registerCommand", () => {
   test("collects a valid command tagged with the owning extension", () => {
     const registry = createEmptyExtensionRegistry();
