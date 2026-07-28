@@ -12,7 +12,11 @@ src/core/            normalized review model, loading, patch handling, VCS contr
                      configuration, and runtime primitives
 src/core/vcs/        VCS-specific helpers and adapter-facing support code
 src/extensions/      extension host, registry, trust, lifecycle, and bundled extensions
-src/session*/        session protocol, Hunk session projection, and local broker transport
+src/session/         shared session protocol, schemas, types, agent surface, app bridge, and broker transport
+src/session/client/  shared session-daemon HTTP and compatibility client support
+src/session/agent/   agent-facing session CLI, command manifest, errors, and formatting
+src/session/app/     mounted-review registration, bridge, and reload authorization
+src/session/broker/  local daemon transport, launcher, Hunk broker state, wire parsing, projections
 src/ui/              interactive review application, rendering, interaction, and chrome
 src/extension-api/   public `hunkdiff/extension` declaration and runtime boundary
 src/opentui/         public `hunkdiff/opentui` component boundary
@@ -26,7 +30,7 @@ one owns its behaviour.
 
 ## Dependency direction
 
-- `app` may compose `core`, `extensions`, `session*`, and `ui`.
+- `app` may compose `core`, `extensions`, `session`, and `ui`.
 - `ui` may consume core models and the extension/session contracts; it owns terminal rendering.
 - `extensions` may consume core model and VCS contracts, but must stay renderer-free except for
   `extensions/default/ui/`, which is the explicit bundled-sidebar boundary.

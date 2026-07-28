@@ -1,13 +1,13 @@
 import {
   resolveSessionBrokerConfig,
   type ResolvedSessionBrokerConfig,
-} from "../session-broker/brokerConfig";
+} from "../broker/brokerConfig";
 import {
   HUNK_SESSION_API_VERSION,
   HUNK_SESSION_CAPABILITIES_PATH,
   HUNK_SESSION_DAEMON_VERSION,
   type SessionDaemonCapabilities,
-} from "./protocol";
+} from "../protocol";
 import { HUNK_SESSION_DAEMON_HTTP_TIMEOUT_MS, requestSessionDaemonHttp } from "./daemonHttp";
 
 export const HUNK_DAEMON_UPGRADE_RESTART_NOTICE =

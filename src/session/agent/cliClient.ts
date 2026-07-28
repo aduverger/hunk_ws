@@ -1,15 +1,15 @@
-import { resolveSessionBrokerConfig } from "../session-broker/brokerConfig";
+import { resolveSessionBrokerConfig } from "../broker/brokerConfig";
 import type { SessionTerminalLocation, SessionTerminalMetadata } from "@hunk/session-broker-core";
-import { readHunkSessionDaemonCapabilities } from "../session/capabilities";
+import { readHunkSessionDaemonCapabilities } from "../client/capabilities";
 import {
   HUNK_SESSION_DAEMON_HTTP_TIMEOUT_MS,
   requestSessionDaemonHttp,
-} from "../session/daemonHttp";
+} from "../client/daemonHttp";
 import {
   HUNK_SESSION_API_PATH,
   type SessionDaemonCapabilities,
   type SessionDaemonRequest,
-} from "../session/protocol";
+} from "../protocol";
 import type {
   AppliedCommentBatchResult,
   AppliedCommentResult,
@@ -22,7 +22,7 @@ import type {
   SessionLiveCommentSummary,
   SessionReview,
   SessionReviewNoteSummary,
-} from "./types";
+} from "../types";
 import type {
   SessionCommentAddCommandInput,
   SessionCommentApplyCommandInput,
@@ -33,7 +33,7 @@ import type {
   SessionReloadCommandInput,
   SessionReviewCommandInput,
   SessionSelectorInput,
-} from "../core/types";
+} from "../../core/types";
 import { describeSessionSelector } from "@hunk/session-broker-core";
 
 export interface HunkSessionCliClient {

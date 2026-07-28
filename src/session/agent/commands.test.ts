@@ -6,15 +6,15 @@ import {
   createTestSessionFileSummary,
   createTestSessionReview as buildTestSessionReview,
   createTestSessionSnapshot,
-} from "../../test/helpers/session-daemon-fixtures";
-import type { SessionCommandInput, SessionSelectorInput } from "../core/types";
+} from "../../../test/helpers/session-daemon-fixtures";
+import type { SessionCommandInput, SessionSelectorInput } from "../../core/types";
 import {
   runSessionCommand,
   setSessionCommandTestHooks,
   type HunkDaemonCliClient,
 } from "./commands";
-import { HUNK_DAEMON_UPGRADE_RESTART_NOTICE } from "./capabilities";
-import { HUNK_SESSION_API_VERSION, HUNK_SESSION_DAEMON_VERSION } from "./protocol";
+import { HUNK_DAEMON_UPGRADE_RESTART_NOTICE } from "../client/capabilities";
+import { HUNK_SESSION_API_VERSION, HUNK_SESSION_DAEMON_VERSION } from "../protocol";
 
 function createTestListedSession(sessionId: string) {
   return buildTestListedSession({
