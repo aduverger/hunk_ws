@@ -5,13 +5,13 @@ import stringWidth from "string-width";
 import type { DiffFile } from "../../core/types";
 import {
   buildMenuSpecs,
+  menuBarTitleWidth,
   menuBoxHeight,
   menuWidth,
   nextMenuItemIndex,
   type MenuEntry,
 } from "../components/chrome/menu";
 import { buildAgentPopoverContent, resolveAgentPopoverPlacement, wrapText } from "./agentPopover";
-import { buildAppMenus } from "./appMenus";
 import { isEscapeKey, isSaveDraftNoteKey } from "./keyboard";
 import {
   cellRangeToCharRange,
@@ -77,8 +77,15 @@ function createDiffFile(
 }
 
 describe("ui helpers", () => {
-  test("buildMenuSpecs lays out the fixed top-level order", () => {
-    const specs = buildMenuSpecs();
+  test("buildMenuSpecs lays out the menus a session has", () => {
+    const item: MenuEntry = { kind: "item", label: "One", action: () => {} };
+    const specs = buildMenuSpecs({
+      file: [item],
+      view: [item],
+      navigate: [item],
+      agent: [item],
+      help: [item],
+    });
 
     expect(specs.map((spec) => spec.id)).toEqual(["file", "view", "navigate", "agent", "help"]);
     expect(specs).toMatchObject([
@@ -87,6 +94,28 @@ describe("ui helpers", () => {
       { id: "navigate", left: 13, width: 10, label: "Navigate" },
       { id: "agent", left: 23, width: 7, label: "Agent" },
       { id: "help", left: 30, width: 6, label: "Help" },
+    ]);
+  });
+
+  test("buildMenuSpecs seats an Extensions menu before Help and skips it when empty", () => {
+    const item: MenuEntry = { kind: "item", label: "One", action: () => {} };
+    const base = { file: [item], view: [item], navigate: [item], agent: [item], help: [item] };
+
+    expect(buildMenuSpecs({ ...base, extensions: [item] })).toMatchObject([
+      { id: "file", left: 1 },
+      { id: "view", left: 7 },
+      { id: "navigate", left: 13 },
+      { id: "agent", left: 23 },
+      { id: "extensions", left: 30, width: 12, label: "Extensions" },
+      { id: "help", left: 42, width: 6, label: "Help" },
+    ]);
+    // An id with no entries takes neither a slot nor a label on the bar.
+    expect(buildMenuSpecs({ ...base, extensions: [] }).map((spec) => spec.id)).toEqual([
+      "file",
+      "view",
+      "navigate",
+      "agent",
+      "help",
     ]);
   });
 
@@ -127,80 +156,31 @@ describe("ui helpers", () => {
     expect(menuBoxHeight(entries)).toBe(5);
   });
 
-  test("buildAppMenus creates checked entries from the current app state", () => {
-    const menus = buildAppMenus({
-      canRefreshCurrentInput: true,
-      focusFilter: () => {},
-      layoutMode: "stack",
-      moveToAnnotatedFile: () => {},
-      moveToAnnotatedHunk: () => {},
-      moveToHunk: () => {},
-      refreshCurrentInput: () => {},
-      requestQuit: () => {},
-      selectLayoutMode: () => {},
-      openThemeSelector: () => {},
-      copyDecorations: true,
-      showAgentNotes: true,
-      showHelp: false,
-      showHunkHeaders: false,
-      showLineNumbers: true,
-      showMenuBar: true,
-      renderSidebar: false,
-      toggleCopyDecorations: () => {},
-      toggleAgentNotes: () => {},
-      toggleFocusArea: () => {},
-      openAgentSkill: () => {},
-      toggleHelp: () => {},
-      toggleHunkHeaders: () => {},
-      toggleLineNumbers: () => {},
-      toggleMenuBar: () => {},
-      toggleLineWrap: () => {},
-      toggleSidebar: () => {},
-      triggerEditSelectedFile: () => {},
-      wrapLines: true,
-    });
+  test("menuWidth measures terminal cells, so wide characters are not clipped", () => {
+    const ascii: MenuEntry[] = [{ kind: "item", label: "12345678901234567890", action: () => {} }];
+    // Same count of user-visible characters, but CJK renders two cells each.
+    const wide: MenuEntry[] = [
+      { kind: "item", label: "拡張機能のコマンドを実行します", action: () => {} },
+    ];
 
-    expect(
-      menus.file
-        .filter((entry): entry is Extract<MenuEntry, { kind: "item" }> => entry.kind === "item")
-        .map((entry) => entry.label),
-    ).toEqual([
-      "Toggle files/filter focus",
-      "Focus filter",
-      "Open file in editor",
-      "Reload",
-      "Quit",
-    ]);
-    expect(menus.file[0]).toMatchObject({
-      kind: "item",
-      label: "Toggle files/filter focus",
-      hint: "Tab",
-    });
-    expect(
-      menus.view
-        .filter(
-          (entry): entry is Extract<MenuEntry, { kind: "item" }> =>
-            entry.kind === "item" && Boolean(entry.checked),
-        )
-        .map((entry) => entry.label),
-    ).toEqual([
-      "Stacked view",
-      "Menu bar",
-      "Agent notes",
-      "Line numbers",
-      "Line wrapping",
-      "Copy decorations",
-    ]);
-    expect(
-      menus.view
-        .filter((entry): entry is Extract<MenuEntry, { kind: "item" }> => entry.kind === "item")
-        .map((entry) => entry.label),
-    ).toContain("Themes…");
-    expect(
-      menus.agent
-        .filter((entry): entry is Extract<MenuEntry, { kind: "item" }> => entry.kind === "item")
-        .map((entry) => entry.label),
-    ).toEqual(["Agent notes", "Agent skill", "Next annotated file", "Previous annotated file"]);
+    expect(menuWidth(wide)).toBe(menuWidth(ascii) + 10);
+  });
+
+  test("menuBarTitleWidth cedes title space to the menus the bar shows", () => {
+    const item: MenuEntry = { kind: "item", label: "One", action: () => {} };
+    const base = { file: [item], view: [item], navigate: [item], agent: [item], help: [item] };
+    const withoutExtensions = buildMenuSpecs(base);
+    const withExtensions = buildMenuSpecs({ ...base, extensions: [item] });
+
+    // Parity with the bar before the Extensions menu existed: five menus over
+    // 35 columns left 39 title cells at 80 columns wide.
+    expect(menuBarTitleWidth(withoutExtensions, 80)).toBe(39);
+    // The Extensions menu's 12 columns come out of the title, not the row.
+    expect(menuBarTitleWidth(withExtensions, 80)).toBe(27);
+    const menusWidth = withExtensions.reduce((total, spec) => total + spec.width, 0);
+    expect(menusWidth + menuBarTitleWidth(withExtensions, 80)).toBeLessThanOrEqual(80 - 3);
+    // A terminal narrower than the menus still never yields a negative width.
+    expect(menuBarTitleWidth(withExtensions, 40)).toBe(0);
   });
 
   test("escape aliases normalize across terminal input paths", () => {
