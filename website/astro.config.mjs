@@ -92,6 +92,15 @@ export default defineConfig({
           ],
         },
         {
+          label: "Extend",
+          items: [
+            { label: "Extensions", slug: "docs/extend/extensions" },
+            { label: "Extension API", slug: "docs/extend/extension-api" },
+            { label: "VCS adapters", slug: "docs/extend/vcs-adapters" },
+            { label: "Custom sidebars", slug: "docs/extend/custom-sidebars" },
+          ],
+        },
+        {
           label: "Reference",
           items: [
             { label: "CLI reference", slug: "docs/reference/cli" },
