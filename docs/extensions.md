@@ -187,7 +187,7 @@ cannot mutate the registry mid-session.
 
 ### `hunk.apiVersion`
 
-The API generation this Hunk speaks (currently `1`). Branch on it if you want
+The API generation this Hunk speaks (currently `2`). Branch on it if you want
 one file to support several Hunk versions.
 
 ### `hunk.registerTheme(theme)`
@@ -720,6 +720,115 @@ Snapshots must be immutable — replace the set instead of mutating it, so
 `useSyncExternalStore` can compare references. Storing state in a hook inside
 the component instead would lose it every time the pane closes and unmounts.
 
+### `hunk.registerFileView(view)` (experimental)
+
+A file view is an alternate **host-rendered** presentation of one file in the
+same top-to-bottom review stream. It is not a whole-file React component: Hunk
+owns row measurement, scrolling/windowing, hunk navigation, and fallback to
+Pierre's raw diff. A constrained, experimental
+[fixed-height JSX row POC](file-view-jsx-poc.md) lets individual validated rows
+paint OpenTUI content without taking over that geometry. Raw is always the
+default; users select a matching view from **View** for the selected file.
+Rows may bind themselves to exact old/new source ranges so Hunk can insert its
+own inline review-note cards without giving the extension note contents or
+geometry.
+
+The installable
+[`examples/extensions/rendered-markdown/`](../examples/extensions/rendered-markdown/)
+uses this contract for a parsed Markdown preview. It is intentionally not bundled
+or loaded by default; copy the folder into `~/.config/hunk/extensions/`, install
+its dependency there, and its View entry and `F8` command become available.
+
+```ts
+import type { HunkExtensionAPI } from "hunkdiff/extension";
+
+export default function (hunk: HunkExtensionAPI) {
+  hunk.registerFileView({
+    id: "plain-markdown",
+    title: "Plain Markdown",
+    matches: (file) => file.path.endsWith(".md"),
+    async layout(input) {
+      const document = await input.readDocument("new");
+      if (!document || document.length > 100_000) return null;
+
+      const sourceLines = (document.endsWith("\n") ? document.slice(0, -1) : document).split("\n");
+      const rows = sourceLines.map((text, index) => ({
+        id: `line:${index + 1}`,
+        spans: [{ text: text || " " }],
+        sourceRanges: [{ side: "new" as const, range: [index + 1, index + 1] as const }],
+      }));
+      if (rows.length === 0) return null;
+
+      return {
+        rows,
+        hunkRows: (input.file.hunks ?? []).map((hunk) => ({
+          startRow: Math.max(0, (hunk.newRange?.[0] ?? 1) - 1),
+          endRow: Math.min(rows.length - 1, (hunk.newRange?.[1] ?? 1) - 1),
+        })),
+      };
+    },
+  });
+}
+```
+
+`layout` receives one readonly input containing `file`, `width`, `signal`,
+`changes`, and `readDocument`. `input.file` is the same frozen public
+`ExtensionDiffFile` sidebars receive. `input.changes` exposes typed added and
+removed ranges without Pierre metadata;
+complete old/new hunk ranges remain available through `input.file.hunks`.
+`readDocument("old" | "new")` is lazy and cached by Hunk; it resolves exact
+text or `null` when that side is absent, unavailable, too large, or fails to
+load. Never treat `null` as an exception: return `null` from `layout` to keep
+raw diff active.
+
+Layouts use an omitted tone for ordinary text and generic symbolic tones
+(`muted`, `accent`, `accent-muted`, `syntax`, `added`, `removed`) plus optional
+terminal attributes (`bold`, `italic`, `underline`, `strikethrough`). Hunk
+resolves those primitives only while painting, so the host does not learn the
+extension's content format and measurement remains theme-independent. Every
+parsed hunk needs one in-bounds, inclusive `hunkRows` entry at the same array
+position as `input.file.hunks`.
+
+A row's optional `sourceRanges` contains inclusive, one-based exact-source
+bindings such as `{ side: "new", range: [12, 18] }`. Hunk reads only the bound
+source sides, verifies every range is in bounds, rejects overlapping ranges on
+the same side across rows, and requires each bound row to belong to exactly one
+`hunkRows` extent. One source line and one bound row therefore resolve to one
+presentation/hunk target. Inline notes anchor by their existing preferred-side start
+line and are inserted before the bound row. Placement is **all-or-raw** per
+file: if any visible note is range-less or unbound, Hunk temporarily renders
+the complete raw diff rather than guessing or dropping review data. The stored
+presentation selection returns when the note layer is hidden or the mapping
+becomes resolvable. Draft note editing remains raw-only.
+
+Invalid, oversized, cancelled, or throwing layouts are isolated with one
+warning per concrete extension registration and fall back to raw diff. Rapid width changes are coalesced, and Hunk never paints
+geometry measured for a stale width. An experimental custom row keeps symbolic
+fallback spans and declares its fixed painter
+atomically as `component: { height, render }`. Painter props include the same
+curated semantic `theme` palette as custom sidebars. It updates live at paint
+time without entering `layout` or changing deterministic geometry. If painting
+fails, the fallback spans are clipped to that same declared height rather than
+changing stream geometry. Custom rows are non-focusable
+paint surfaces: registered commands are their supported keyboard path. A
+cooperatively delivered, handled left-button mouse-up may act and stop
+propagation, while wheel, drag, and unhandled input remain host-owned. Hunk
+makes no portal, renderer, focus, or input-delivery guarantee; see the linked
+JSX POC for state lifetime, clipping, and error boundaries. The opt-in
+[`jsx-file-view-gallery`](../examples/extensions/jsx-file-view-gallery/) runs
+fixed JSX rows against checked-in TypeScript, CSS, and package dependency diffs.
+
+A command handler can control the selected file's view through
+`ctx.fileViews.select("view-id")`, `toggle("view-id")`, and
+`isActive("view-id")`; pass `null` to `select` to restore raw rendering.
+Bare ids address the calling extension; use `"other-extension:view-id"` to
+address another registered view. The public command API remains current-file
+only. When the current file already uses an alternate presentation, **View →
+Apply “…” to all matching files** applies it to every file in the complete
+changeset that passes that view's `matches` function, including files hidden by
+the current filter. Nonmatches retain their existing choices, and host
+constraints such as an active draft may temporarily keep a selected file raw.
+
 ### `hunk.registerCommand(command, handler)`
 
 Register a named command, optionally bound to a key. Commands are not a
@@ -1040,6 +1149,17 @@ Record a diagnostic line. Logs are collected per extension rather than written
 to the terminal, because the TUI owns the screen.
 
 ## A complete example
+
+The examples directory contains two user-installable folder extensions:
+
+- [`examples/extensions/review-triage/`](../examples/extensions/review-triage/)
+  is a session-local hunk triage board combining a sidebar, commands, dialogs,
+  lifecycle listeners, and the extension event bus. Its API evaluation and
+  follow-up opportunities are recorded in
+  [Extension API field notes](extension-api-evaluation.md).
+- [`examples/extensions/rendered-markdown/`](../examples/extensions/rendered-markdown/)
+  parses Markdown into generic host-owned file-view rows. Its README shows how
+  to run it from the checkout or copy it into the global extensions directory.
 
 Collapse lockfiles and generated output out of every review, and say how many
 files were hidden.

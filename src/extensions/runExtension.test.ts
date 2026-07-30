@@ -159,6 +159,60 @@ describe("registerSidebarView", () => {
   });
 });
 
+describe("registerFileView", () => {
+  test("collects a layout callback that may return bounded custom row components", () => {
+    const registry = createEmptyExtensionRegistry();
+    const issues: ExtensionLoadIssue[] = [];
+    const component = () => null;
+    const layout = () => ({
+      rows: [
+        {
+          id: "custom",
+          spans: [{ text: "fallback" }],
+          component: { height: 2, render: component },
+        },
+      ],
+      hunkRows: [],
+    });
+
+    runExtensionFactory({
+      metadata: bundledMetadata("presentation"),
+      registry,
+      issues,
+      factory: (hunk) => {
+        hunk.registerFileView({
+          id: "plain",
+          title: "Plain",
+          matches: () => true,
+          layout,
+        });
+      },
+    });
+
+    expect(issues).toEqual([]);
+    expect(registry.fileViews).toHaveLength(1);
+    expect(registry.fileViews[0]?.extensionId).toBe("presentation");
+    expect(registry.fileViews[0]?.view.layout).toBe(layout);
+  });
+
+  test("rejects a file view without a layout function", () => {
+    const registry = createEmptyExtensionRegistry();
+    const issues: ExtensionLoadIssue[] = [];
+
+    runExtensionFactory({
+      metadata: bundledMetadata("broken-presentation"),
+      registry,
+      issues,
+      factory: (hunk) => {
+        hunk.registerFileView({ id: "plain", title: "Plain", matches: () => true } as never);
+      },
+    });
+
+    expect(registry.fileViews).toEqual([]);
+    expect(issues[0]?.message).toContain("layout() function");
+  });
+});
+
 describe("hunk.events", () => {
   test("registers a bus listener under its owning extension", () => {
     const registry = createEmptyExtensionRegistry();

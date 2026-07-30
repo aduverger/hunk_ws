@@ -32,6 +32,10 @@ export interface BuildAppMenusOptions {
   commands: readonly AppCommand[];
   /** The extension-contributed subset, in registration order, for the Extensions menu. */
   extensionCommands?: readonly AppCommand[];
+  /** Host-owned per-file presentation choices appended to View. */
+  fileViewEntries?: readonly MenuEntry[];
+  /** Live label for the stable host command that applies the selected presentation changeset-wide. */
+  fileViewApplyAllLabel?: string;
   copyDecorations: boolean;
   layoutMode: LayoutMode;
   renderSidebar: boolean;
@@ -118,6 +122,8 @@ function toExtensionMenuEntries(
 export function buildAppMenus({
   commands,
   extensionCommands = [],
+  fileViewEntries = [],
+  fileViewApplyAllLabel,
   copyDecorations,
   layoutMode,
   renderSidebar,
@@ -184,11 +190,27 @@ export function buildAppMenus({
     help: [{ commandId: "hunk.app.toggleHelp", label: "Controls help", checked: showHelp }],
   };
 
+  if (fileViewEntries.length > 0) {
+    specs.view.push(SEPARATOR);
+  }
+
   const extensions = toExtensionMenuEntries(commands, extensionCommands);
+  const applyAllEntries = fileViewApplyAllLabel
+    ? toMenuEntries(commands, [
+        {
+          commandId: "hunk.view.applyFilePresentationToAllMatching",
+          label: fileViewApplyAllLabel,
+        },
+      ])
+    : [];
 
   return {
     file: toMenuEntries(commands, specs.file),
-    view: toMenuEntries(commands, specs.view),
+    view: [
+      ...toMenuEntries(commands, specs.view),
+      ...fileViewEntries,
+      ...(applyAllEntries.length > 0 ? [{ kind: "separator" as const }, ...applyAllEntries] : []),
+    ],
     navigate: toMenuEntries(commands, specs.navigate),
     agent: toMenuEntries(commands, specs.agent),
     // No extension commands means no menu at all, rather than an empty dropdown.

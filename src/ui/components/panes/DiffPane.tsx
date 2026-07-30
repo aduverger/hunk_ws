@@ -56,9 +56,13 @@ import {
 } from "../../lib/viewportAnchor";
 import type { AppTheme } from "../../themes";
 import { DiffSection } from "./DiffSection";
+import type { FileViewRowFailure } from "./FileView";
 import { DiffFileHeaderRow } from "./DiffFileHeaderRow";
 import { VerticalScrollbar, type VerticalScrollbarHandle } from "../scrollbar/VerticalScrollbar";
 import type { VisibleBodyBounds } from "../../diff/rowWindowing";
+import type { ResolvedFileViewLayout } from "../../fileViews/useFileViews";
+import { measureFileViewGeometry } from "../../fileViews/geometry";
+import { buildFileViewRenderPlan } from "../../fileViews/renderPlan";
 import { prefetchHighlightedDiff } from "../../diff/useHighlightedDiff";
 import {
   buildFileRenderWindow,
@@ -174,6 +178,7 @@ function buildHighlightPrefetchFileIds({
 
 const EMPTY_EXPANDED_GAP_KEYS: ReadonlySet<string> = new Set();
 const EMPTY_EXPANDED_GAPS_BY_FILE_ID: Record<string, ReadonlySet<string>> = {};
+const EMPTY_FILE_VIEWS: ReadonlyMap<string, ResolvedFileViewLayout> = new Map();
 const EMPTY_SOURCE_STATUS_BY_FILE_ID: Record<string, FileSourceStatus> = {};
 const NOOP_TOGGLE_GAP = () => {};
 
@@ -182,6 +187,7 @@ export function DiffPane({
   codeHorizontalOffset = 0,
   diffContentWidth,
   expandedGapsByFileId = EMPTY_EXPANDED_GAPS_BY_FILE_ID,
+  fileViews = EMPTY_FILE_VIEWS,
   files,
   headerLabelWidth,
   headerStatsWidth,
@@ -222,6 +228,7 @@ export function DiffPane({
   onFocusDraftNote,
   onCopyFeedback,
   onCopySelectionText,
+  onFileViewRowFailure,
   onScrollCodeHorizontally = () => {},
   onSelectFile,
   onToggleGap = NOOP_TOGGLE_GAP,
@@ -230,6 +237,8 @@ export function DiffPane({
   codeHorizontalOffset?: number;
   diffContentWidth: number;
   expandedGapsByFileId?: Record<string, ReadonlySet<string>>;
+  /** Validated alternate layouts, keyed by file id; raw Pierre remains the fallback. */
+  fileViews?: ReadonlyMap<string, ResolvedFileViewLayout>;
   files: DiffFile[];
   headerLabelWidth: number;
   headerStatsWidth: number;
@@ -272,6 +281,7 @@ export function DiffPane({
   onFocusDraftNote?: () => void;
   onCopyFeedback?: (text: string) => void;
   onCopySelectionText?: (text: string) => void | boolean;
+  onFileViewRowFailure?: (failure: FileViewRowFailure) => void;
   onScrollCodeHorizontally?: (delta: number) => void;
   onSelectFile: (fileId: string) => void;
   onToggleGap?: (fileId: string, gapKey: string) => void;
@@ -482,6 +492,26 @@ export function DiffPane({
     showAgentNotes,
   ]);
 
+  const fileViewRenderPlans = useMemo(() => {
+    const next = new Map<
+      string,
+      { fileView: ResolvedFileViewLayout; rows: ReturnType<typeof buildFileViewRenderPlan>["rows"] }
+    >();
+    for (const file of files) {
+      const fileView = fileViews.get(file.id);
+      if (!fileView) continue;
+      const plan = buildFileViewRenderPlan(
+        fileView.layout,
+        allAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES,
+      );
+      // Review data is never partially hidden: one unresolved note keeps this file on raw diff.
+      if (plan.unresolvedNoteIds.length === 0) {
+        next.set(file.id, { fileView, rows: plan.rows });
+      }
+    }
+    return next;
+  }, [allAgentNotesByFile, fileViews, files]);
+
   // Keep the full file-section path for wrapped lines, where exact wrapped heights depend on
   // mounting each section; nowrap reviews can window offscreen files behind exact spacers.
   const windowingEnabled = !wrapLines;
@@ -675,8 +705,16 @@ export function DiffPane({
 
   const baseSectionGeometry = useMemo(
     () =>
-      files.map((file) =>
-        measureDiffSectionGeometry(
+      files.map((file) => {
+        const plannedFileView = fileViewRenderPlans.get(file.id);
+        if (plannedFileView) {
+          return measureFileViewGeometry({
+            resolved: plannedFileView.fileView,
+            plannedRows: plannedFileView.rows,
+            width: diffContentWidth,
+          });
+        }
+        return measureDiffSectionGeometry(
           file,
           layout,
           showHunkHeaders,
@@ -689,11 +727,12 @@ export function DiffPane({
           sourceStatusByFileId[file.id],
           reserveAddNoteColumn,
           tabWidth,
-        ),
-      ),
+        );
+      }),
     [
       diffContentWidth,
       expandedGapsByFileId,
+      fileViewRenderPlans,
       files,
       layout,
       reserveAddNoteColumn,
@@ -715,10 +754,11 @@ export function DiffPane({
   const sectionGeometry = useMemo(
     () =>
       files.map((file, index) => {
-        const notes = allAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES;
-        if (notes.length === 0) {
+        if (fileViewRenderPlans.has(file.id)) {
           return baseSectionGeometry[index]!;
         }
+        const notes = allAgentNotesByFile.get(file.id) ?? EMPTY_VISIBLE_AGENT_NOTES;
+        if (notes.length === 0) return baseSectionGeometry[index]!;
 
         return measureDiffSectionGeometry(
           file,
@@ -740,6 +780,7 @@ export function DiffPane({
       baseSectionGeometry,
       diffContentWidth,
       expandedGapsByFileId,
+      fileViewRenderPlans,
       files,
       layout,
       reserveAddNoteColumn,
@@ -1867,6 +1908,7 @@ export function DiffPane({
                       codeHorizontalOffset={codeHorizontalOffset}
                       expandedGapKeys={expandedGapsByFileId[file.id] ?? EMPTY_EXPANDED_GAP_KEYS}
                       file={file}
+                      fileView={fileViewRenderPlans.get(file.id)?.fileView}
                       headerLabelWidth={headerLabelWidth}
                       headerStatsWidth={headerStatsWidth}
                       layout={layout}
@@ -1898,6 +1940,7 @@ export function DiffPane({
                       visibleBodyBounds={visibleBodyBoundsByFile.get(file.id)}
                       onHover={() => setHoveredFileForRowActions(file.id)}
                       onMouseScroll={clearAddNoteHoverForScroll}
+                      onFileViewRowFailure={onFileViewRowFailure}
                       onActiveAddNoteAffordanceChange={
                         onActiveAddNoteAffordanceChange
                           ? activeAddNoteAffordanceCallback(file.id)

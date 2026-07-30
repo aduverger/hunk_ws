@@ -21,7 +21,7 @@
  * Extensions can branch on `hunk.apiVersion` so a newer Hunk can keep loading
  * older extensions without guessing at their expectations.
  */
-export const HUNK_EXTENSION_API_VERSION = 1;
+export const HUNK_EXTENSION_API_VERSION = 2;
 export type HunkExtensionApiVersion = typeof HUNK_EXTENSION_API_VERSION;
 
 export type ExtensionNotifyType = "info" | "warning" | "error";
@@ -211,6 +211,115 @@ export type ChangesetTransform = (
 ) => ExtensionChangeset | Promise<ExtensionChangeset>;
 
 /* -------------------------------------------------------------------------- */
+/* File views                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/** A side of a reviewed source document. */
+export type ExtensionFileSide = "old" | "new";
+
+/** One added or removed source-line range, inclusive on both ends. */
+export interface ExtensionFileChangeRange {
+  readonly hunkIndex: number;
+  /** Added ranges belong to the new side; removed ranges belong to the old side. */
+  readonly kind: "added" | "removed";
+  readonly range: readonly [number, number];
+}
+
+/** One exact-source range associated with a host-owned file-view row. */
+export interface ExtensionFileViewSourceRange {
+  readonly side: ExtensionFileSide;
+  /** Inclusive, one-based source line range. */
+  readonly range: readonly [number, number];
+}
+
+/** One symbolic run in a host-rendered file-view row. */
+export interface ExtensionFileViewSpan {
+  readonly text: string;
+  /** A generic semantic color the host maps to its active terminal theme at paint time. */
+  readonly tone?: "muted" | "accent" | "accent-muted" | "syntax" | "added" | "removed";
+  /** Theme-independent terminal emphasis. */
+  readonly attributes?: readonly ("bold" | "italic" | "underline" | "strikethrough")[];
+}
+
+/** Bounded paint-only props handed to a custom file-view row component. */
+export interface ExtensionFileViewRowComponentProps {
+  /** Available terminal columns inside the host-owned row wrapper. */
+  readonly width: number;
+  /** Fixed terminal rows reserved by the host. */
+  readonly height: number;
+  /** Whether this row falls inside the selected hunk bounds. */
+  readonly selected: boolean;
+  /** Zero-based position in the validated file-view layout. */
+  readonly rowIndex: number;
+  /** Live paint-only semantic colors; theme changes never invalidate layout geometry. */
+  readonly theme: ExtensionPaintTheme;
+}
+
+/** A row in a host-owned, terminal-safe file-view layout. */
+export interface ExtensionFileViewRow {
+  /** A stable identifier within this layout result. */
+  readonly id: string;
+  /**
+   * Symbolic host-rendered content, also used if a custom component fails.
+   * Component fallback is clipped to the same declared fixed height as the painter.
+   */
+  readonly spans: readonly ExtensionFileViewSpan[];
+  /**
+   * Exact-source ranges this row presents. Hunk validates unambiguous, in-bounds mappings and
+   * uses them to place host-rendered inline notes; unresolved notes keep the whole file on raw diff.
+   */
+  readonly sourceRanges?: readonly ExtensionFileViewSourceRange[];
+  /**
+   * Experimental fixed-height React/OpenTUI painter, clipped inside host-owned geometry.
+   * Height and render are one descriptor so a typed layout cannot declare either alone.
+   */
+  readonly component?: {
+    readonly height: number;
+    readonly render: (props: ExtensionFileViewRowComponentProps) => unknown;
+  };
+}
+
+/** The deterministic, symbolic layout returned by a file-view extension. */
+export interface ExtensionFileViewLayout {
+  readonly rows: readonly ExtensionFileViewRow[];
+  /** Inclusive row extents ordered to correspond to `input.file.hunks`. */
+  readonly hunkRows: readonly {
+    readonly startRow: number;
+    readonly endRow: number;
+  }[];
+}
+
+/** Immutable input a file-view renderer receives for one file. */
+export interface ExtensionFileViewInput {
+  readonly file: ExtensionDiffFile;
+  /** Available terminal columns. Layout must be deterministic for this width. */
+  readonly width: number;
+  /** Aborts when a resize, reload, selection change, or extension reload supersedes this work. */
+  readonly signal: AbortSignal;
+  readonly changes: readonly ExtensionFileChangeRange[];
+  /**
+   * Read one exact full source document. Reads are lazy and deduplicated per
+   * file and side for this layout request. A missing side, unavailable source,
+   * read failure, or resource-limit refusal resolves to `null`.
+   *
+   * Patch text is already available as `input.file.patch`; it is deliberately
+   * not presented as a document because a patch is not an exact source file.
+   */
+  readDocument(side: ExtensionFileSide): Promise<string | null>;
+}
+
+/** A host-rendered alternative presentation for an individual file in the review stream. */
+export interface ExtensionFileView {
+  id: string;
+  title: string;
+  matches(file: ExtensionDiffFile): boolean;
+  /** Return `null` whenever the view cannot safely present this file; Hunk renders raw diff. */
+  layout(
+    input: ExtensionFileViewInput,
+  ): ExtensionFileViewLayout | null | Promise<ExtensionFileViewLayout | null>;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Theme config tables                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -386,7 +495,7 @@ export type ExtensionVcsFileChangeType =
   | "deleted";
 
 /** Which side of a change a source read asks for. */
-export type ExtensionVcsFileSide = "old" | "new";
+export type ExtensionVcsFileSide = ExtensionFileSide;
 
 /** The one file and side Hunk wants full source text for. */
 export interface ExtensionVcsFileSourceRequest {
@@ -608,14 +717,14 @@ export interface ExtensionVcsAdapter {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Theme tokens a custom sidebar renders with.
+ * Theme tokens extension-owned React/OpenTUI painters render with.
  *
  * A curated slice of the active theme rather than the whole internal theme
  * model: every value is a hex color string (or the appearance flag), stable to
  * build UI against, and updated live when the user switches themes. Field
  * names match the `[themes.<id>]` config table where a concept exists there.
  */
-export interface ExtensionSidebarTheme {
+export interface ExtensionPaintTheme {
   appearance: "light" | "dark";
   background: string;
   panel: string;
@@ -638,6 +747,9 @@ export interface ExtensionSidebarTheme {
   /** Accent for agent-note affordances, like the note-count badge on a file row. */
   noteBorder: string;
 }
+
+/** Backward-compatible name for the shared extension painter theme. */
+export type ExtensionSidebarTheme = ExtensionPaintTheme;
 
 /**
  * Navigation any extension surface can trigger, exactly as the built-in
@@ -779,13 +891,7 @@ export interface ExtensionCommand {
    * cannot shadow one of Hunk's, whichever id an extension is installed under.
    */
   id: string;
-  /**
-   * Human-readable name, shown as the command's item in the Extensions menu.
-   *
-   * Every registered command is listed there with the key it currently answers
-   * to, so a command is reachable by mouse even when it ships without a chord
-   * or the one it wanted was already taken.
-   */
+  /** Human-readable name for command menus and keyboard help. */
   title: string;
   /**
    * Default key chord, e.g. `"ctrl+m"`, `"F2"`, `"G"`, `"y"`, or an array of
@@ -818,6 +924,16 @@ export interface ExtensionSidebarControls {
   close(viewId: string): void;
   toggle(viewId: string): void;
   isOpen(viewId: string): boolean;
+}
+
+/** Select or inspect the active file presentation from an extension command. */
+export interface ExtensionFileViewControls {
+  /** Select this extension's matching view, or pass `null` to restore raw rendering. */
+  select(viewId: string | null): void;
+  /** Switch this extension's view on/off, returning to raw when it was active. */
+  toggle(viewId: string): void;
+  /** Report whether this extension's view is active for the current file. */
+  isActive(viewId: string): boolean;
 }
 
 /**
@@ -908,6 +1024,8 @@ export interface ExtensionDialogs {
 /** What a command handler receives when its key fires. */
 export interface ExtensionCommandContext extends ExtensionContext {
   sidebars: ExtensionSidebarControls;
+  /** Host-owned selection controls for alternate file presentations. */
+  fileViews: ExtensionFileViewControls;
   /**
    * Where the review was pointing when this command fired.
    *
@@ -1050,7 +1168,15 @@ export interface HunkExtensionAPI {
    */
   registerSidebarView(view: ExtensionSidebarView): void;
   /**
-   * Register one named command, optionally bound to a key.
+   * Register a host-rendered alternative presentation for matching files.
+   *
+   * The host owns row measurement, scrolling, windowing, selection, and note
+   * placement. Rows normally contain symbolic text; the experimental fixed-height
+   * row component contract may paint React/OpenTUI content inside clipped host geometry.
+   */
+  registerFileView(view: ExtensionFileView): void;
+  /**
+   * Register one named command, optionally bound to a key,
    *
    * The handler runs when the key fires outside modal UI (dialogs, menus,
    * focused inputs own their keys first). Handlers receive the standard
