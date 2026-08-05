@@ -15,6 +15,7 @@ import { DEFAULT_TAB_WIDTH } from "../core/tabWidth";
 import type {
   AppBootstrap,
   CliInput,
+  CursorLine,
   LayoutMode,
   PersistedViewPreferences,
   UserNoteLineTarget,
@@ -70,6 +71,7 @@ import {
 import { buildAppMenus } from "./lib/appMenus";
 import { buildExtensionAppCommands, extensionCommandKeyDefaults } from "./lib/extensionCommands";
 import { createGuardedReviewNavigation } from "./lib/extensionNavigation";
+import type { LineCursor } from "./lib/lineCursors";
 import { buildExtensionReviewSelection } from "./lib/extensionSelection";
 import { useFilePresentationController } from "./fileViews/useFilePresentationController";
 import { useFilePresentationRendering } from "./fileViews/useFilePresentationRendering";
@@ -213,6 +215,7 @@ export function App({
   const [wrapLines, setWrapLines] = useState(bootstrap.initialWrapLines ?? false);
   const [copyDecorations, setCopyDecorations] = useState(bootstrap.initialCopyDecorations ?? false);
   const [codeHorizontalOffset, setCodeHorizontalOffset] = useState(0);
+  const [cursorLine, setCursorLine] = useState<CursorLine>(bootstrap.initialCursorLine ?? "row");
   const [showHunkHeaders, setShowHunkHeaders] = useState(bootstrap.initialShowHunkHeaders ?? true);
   const [showMenuBar, setShowMenuBar] = useState(bootstrap.initialShowMenuBar ?? true);
   const [themeSelectorState, setThemeSelectorState] = useState<ThemeSelectorState>({
@@ -284,9 +287,11 @@ export function App({
       showMenuBar,
       showAgentNotes,
       copyDecorations,
+      cursorLine,
     }),
     [
       copyDecorations,
+      cursorLine,
       layoutMode,
       showAgentNotes,
       showHunkHeaders,
@@ -323,8 +328,10 @@ export function App({
   // App computes layout geometry below this hook call, so the controller reads
   // the current values through a ref instead of a render-time parameter.
   const noteGeometryRef = useRef<AgentNoteGeometrySnapshot | null>(null);
+  const [lineCursors, setLineCursors] = useState<LineCursor[]>([]);
   const review = useReviewController({
     files: reviewFiles,
+    lineCursors,
     noteGeometry: noteGeometryRef,
     stmlEnabled,
   });
@@ -909,6 +916,16 @@ export function App({
     diffScrollRef.current?.scrollBy(delta, unit);
   };
 
+  /** Step one line: move the current line, or scroll the viewport when there is no marker. */
+  const stepDiffLine = (delta: number) => {
+    if (cursorLine === "off" || !review.lineCursor) {
+      scrollDiff(delta, "step");
+      return;
+    }
+
+    review.moveLineCursor(delta);
+  };
+
   const maxCodeHorizontalOffset = useMemo(() => {
     // Wrapped rows never consume the horizontal offset. Avoid scanning every code line—especially
     // long Unicode lines—until nowrap mode actually needs a global horizontal extent.
@@ -1412,17 +1429,20 @@ export function App({
   const startUserNote = useCallback(
     (fileId?: string, hunkIndex?: number, target?: UserNoteLineTarget) => {
       const hoverTarget = fileId === undefined ? activeAddNoteTarget : null;
+      const keyboardTarget =
+        hoverTarget ?? (fileId === undefined && cursorLine !== "off" ? review.lineCursor : null);
       const draft = review.startUserNote(
-        fileId ?? hoverTarget?.fileId,
-        hunkIndex ?? hoverTarget?.hunkIndex,
-        target ?? hoverTarget?.target,
+        fileId ?? keyboardTarget?.fileId,
+        hunkIndex ?? keyboardTarget?.hunkIndex,
+        target ?? keyboardTarget?.target,
+        { preserveViewport: fileId !== undefined || hoverTarget !== null },
       );
       if (draft) {
         setActiveAddNoteTarget(null);
         setFocusArea("note");
       }
     },
-    [activeAddNoteTarget, review.startUserNote],
+    [activeAddNoteTarget, cursorLine, review.lineCursor, review.startUserNote],
   );
 
   /** Mark the inline draft note textarea as the active keyboard input. */
@@ -1513,6 +1533,8 @@ export function App({
       resolvedKeys: resolvedCommandKeys,
       scrollCodeHorizontally,
       scrollDiff,
+      stepDiffLine,
+      selectCursorLine: setCursorLine,
       selectLayoutMode,
       startUserNote: () => startUserNote(),
       toggleAgentNotes,
@@ -1538,6 +1560,7 @@ export function App({
   // hints and the checkbox state have to stay live.
   const menus = buildAppMenus({
     commands: appCommands,
+    cursorLine,
     extensionCommands: extensionAppCommands.commands,
     fileViewEntries: selectedFileViewEntries,
     fileViewApplyAllLabel: selectedFileViewBulkTarget
@@ -1819,6 +1842,9 @@ export function App({
           layoutToggleRequestId={layoutToggleRequestId}
           selectedFileTopAlignRequestId={review.selectedFileTopAlignRequestId}
           selectedHunkRevealRequestId={review.selectedHunkRevealRequestId}
+          cursorLine={cursorLine}
+          lineCursor={review.lineCursor}
+          lineCursorRevealRequestId={review.lineCursorRevealRequestId}
           theme={activeTheme}
           width={diffPaneWidth}
           onActiveAddNoteAffordanceChange={setActiveAddNoteTarget}
@@ -1839,6 +1865,8 @@ export function App({
           onViewportCenteredHunkChange={(fileId, hunkIndex) =>
             review.selectHunk(fileId, hunkIndex, { preserveViewport: true })
           }
+          onLineCursorsChange={setLineCursors}
+          onViewportLineCursorChange={review.anchorLineCursor}
         />
 
         {sidebarLayout.right.map((pane, index) => {
