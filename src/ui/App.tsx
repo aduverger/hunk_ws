@@ -435,6 +435,7 @@ export function App({
   const {
     applyBulkTarget: applyFilePresentationToAllMatching,
     availableSelections: availableFileViewSelectionState,
+    epochs: fileViewEpochs,
     bulkTarget: selectedFileViewBulkTarget,
     createControls: createFileViewControls,
     menuEntries: selectedFileViewEntries,
@@ -837,6 +838,7 @@ export function App({
     useFilePresentationRendering({
       files: filteredFiles,
       selections: availableFileViewSelectionState,
+      epochs: fileViewEpochs,
       views: sessionFileViews,
       width: diffContentWidth,
       onIssue: showSessionNotice,
