@@ -171,6 +171,28 @@ Always provide useful `spans`. If the component throws, Hunk paints those spans 
 
 React hook state is temporary paint state. It is lost when windowing unmounts the row, a width change creates a new layout, the user switches presentations, or the extension/session reloads. Keep durable extension state outside the row component.
 
+## Interactive previews
+
+Add a `mode` when a preview needs keyboard input:
+
+```ts
+mode: {
+  onKey: (key, ctx) => {
+    if (key.name === "space") {
+      ctx.fileViews.refresh("preview");
+      return "handled";
+    }
+    return "pass";
+  },
+},
+```
+
+Start it from a command with `ctx.fileViews.enterMode("preview")`. Entering also selects the preview and returns whether the mode started. Only one mode runs at a time; use `exitMode()` to stop it and `isModeActive("preview")` to check it.
+
+`onKey` returns `"handled"` to consume a key, `"pass"` to continue normal Hunk routing, or `"exit"` to consume the key and stop. It must return synchronously. Escape is reserved by Hunk and always exits.
+
+Modes also exit when their file, presentation, extension, or review session changes. Optional `onEnter` and `onExit` callbacks track that lifecycle; `onExit` runs exactly once per activation. A failing `onEnter` or `onKey` exits the mode, and any callback failure warns without breaking the review.
+
 ## Validation and fallback
 
 Hunk validates every returned layout before using it. Current request limits are:

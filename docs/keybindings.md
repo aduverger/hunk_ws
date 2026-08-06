@@ -34,7 +34,8 @@ around a base key: a character (`"y"`, `"["`), an uppercase letter for its
 shifted form (`"G"`), or a named key (`"tab"`, `"pageup"`, `"left"`, `"f2"`).
 `shift` applies to letters and named keys only — for a shifted symbol or digit,
 write the character the shift produces (`"!"`, not `"shift+1"`), since that is
-what terminals report.
+what terminals report. `ctrl+<letter>` also matches an unnamed bare control
+byte; named Tab and Enter events stay distinct.
 
 The built-in commands and the keys they ship with:
 

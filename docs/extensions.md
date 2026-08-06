@@ -902,6 +902,53 @@ would otherwise re-run third-party `layout` for a change only one of them made.
 A `fileId` no reviewed file carries invalidates nothing and warns about nothing,
 since ids can race a reload.
 
+#### Interactive file views
+
+Add a `mode` when a file view needs keyboard input. Hunk sends it keys after
+focused inputs and dialogs, but before app commands.
+
+```ts
+let showPath = true;
+
+hunk.registerFileView({
+  id: "outline",
+  title: "Outline",
+  matches: () => true,
+  layout: ({ file }) => ({
+    rows: [{ id: "summary", spans: [{ text: showPath ? file.path : "Outline" }] }],
+    hunkRows: [],
+  }),
+  mode: {
+    onKey: (key, ctx) => {
+      if (key.name !== "space") return "pass";
+      showPath = !showPath;
+      ctx.fileViews.refresh("outline");
+      return "handled";
+    },
+  },
+});
+
+hunk.registerCommand({ id: "outline-keys", title: "Outline keys", key: "f9" }, (ctx) => {
+  ctx.fileViews.enterMode("outline");
+});
+```
+
+`enterMode(viewId)` selects the view and starts its mode, returning `false` if it
+cannot. Only one mode runs at a time. `exitMode()` stops it;
+`isModeActive(viewId)` checks it.
+
+`onKey` must return synchronously:
+
+- `"handled"` consumes the key.
+- `"pass"` leaves it for Hunk's commands and scrolling.
+- `"exit"` consumes the key and stops the mode.
+
+Escape always exits and never reaches `onKey`. Hunk also exits when the selected
+file, active presentation, extensions, or review session changes. `onEnter` and
+`onExit` are optional lifecycle callbacks, and `onExit` runs exactly once per
+activation. A failing `onEnter` or `onKey` exits the mode; any callback failure
+warns without breaking the review.
+
 ### `hunk.registerCommand(command, handler)`
 
 Register a named command, optionally bound to a key. Commands are not a
@@ -923,11 +970,11 @@ Key chords are `ctrl`, `alt`/`option`, `cmd`/`meta`, and `shift` joined with
 shifted form (`"G"`), or a named key (`"f2"`, `"pageup"`, `"left"`). `shift`
 applies to letters and named keys only: for a shifted symbol or digit, bind the
 character the shift produces (`"!"`, not `"shift+1"`), since terminals report
-the character rather than the combination. An
-unparsable chord fails the registration; a chord already owned by a built-in
-shortcut — or by an earlier-loaded extension — leaves that chord unbound, with a
-warning toast naming both sides. Omit `key` to register a command with no
-binding.
+the character rather than the combination. `ctrl+<letter>` also matches an
+unnamed bare control byte; named Tab and Enter events stay distinct. An
+unparsable chord fails registration. A chord already owned by a built-in or an
+earlier extension stays with its owner and produces a warning. Omit `key` to
+register a command with no binding.
 
 `key` also takes a list, binding the command to every chord in it:
 

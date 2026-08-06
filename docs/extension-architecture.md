@@ -101,6 +101,14 @@ plan, and `src/ui/components/panes/FileView.tsx` windows and paints it. Extensio
 components can paint only their fixed validated rectangles; note cards,
 scrolling, hunk bounds, and navigation remain host-owned.
 
+`src/ui/fileViews/mode.ts` owns file-view mode activation, validity, and callback
+containment. The presentation controller stores the active mode and funnels all
+exit paths through one teardown, including re-entrant handoffs.
+
+Keyboard routing checks modes after focused inputs and before app commands.
+`"handled"` and `"exit"` consume the key; `"pass"` continues normal routing.
+Escape remains host-owned.
+
 ## Command system
 
 Every app-level keyboard shortcut is a named command in one dispatch table
