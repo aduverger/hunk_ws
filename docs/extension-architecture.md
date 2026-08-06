@@ -138,6 +138,17 @@ frame always carries an `ext <id>` attribution row — the toast marker — beca
 the title is extension-authored and a prompt must not be able to impersonate
 Hunk.
 
+`src/ui/lib/extensionWorkspace.ts` owns the policy for `ctx.workspace`. Reads
+resolve reviewed file ids through the existing source fetcher, which retains
+ownership of caching and size limits. Missing or unreadable sources become
+`null`.
+
+Writes are limited to reloadable working-tree reviews and reviewed paths inside
+the review root. App supplies the current input, unfiltered changeset, and root
+through refs so soft reloads update the policy inputs. The host verifies the
+filesystem target before and after consent, writes it, then calls
+`refreshCurrentInput`. Consent uses the existing extension-dialog queue.
+
 Commands declare chords, not matchers: `src/ui/lib/keymap.ts` folds every
 command's `defaultKeys` against the user's `[keybindings]` table (user config
 layer only) into one id-to-chords answer, from which matchers, key labels, and

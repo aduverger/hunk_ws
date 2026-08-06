@@ -101,6 +101,7 @@ The handler fires when the key is pressed outside modal UI (dialogs, menus, and 
 - `ctx.selection` — where the review was pointing when the command fired.
 - `ctx.navigation` — moves the review stream.
 - `ctx.dialogs` — asks the user, below.
+- `ctx.workspace` — reads reviewed files, and writes one back to the working tree with the user's consent, below.
 
 ```ts
 hunk.registerCommand(
@@ -175,6 +176,32 @@ hunk.registerCommand({ id: "pick-hunk", title: "Pick a hunk", key: "ctrl+k" }, a
 Hunk draws the dialog; your text fills the title, body, and choices, and the frame carries an `ext <your-id>` attribution line — the same marker `notify` toasts use — so a prompt cannot present itself as Hunk asking.
 
 One dialog shows at a time; concurrent requests queue in call order, across extensions. Escape cancels (`false` or `null`), Enter accepts; confirm dialogs also answer to `y`/`n`, select dialogs to `↑`/`↓`, and everything is clickable. A session reload cancels open and queued dialogs, and a dialog pending at shutdown resolves its cancel value.
+
+### Workspace documents
+
+`ctx.workspace` reads full documents from the current review and writes eligible working-tree files.
+
+| Method                                 | Result                                            |
+| -------------------------------------- | ------------------------------------------------- |
+| `readDocument(fileId, "old" \| "new")` | Reviewed source text or `null`                    |
+| `canWriteDocument(fileId)`             | Whether review policy allows a write              |
+| `writeDocument({ fileId, text })`      | `{ ok: true }` or `{ ok: false, reason, detail }` |
+
+```ts
+const file = ctx.selection.file;
+if (file && ctx.workspace.canWriteDocument(file.id)) {
+  const text = await ctx.workspace.readDocument(file.id, "new");
+  if (text !== null) {
+    await ctx.workspace.writeDocument({ fileId: file.id, text: transform(text) });
+  }
+}
+```
+
+Reads return the source represented by the review, including historical content in revision and stash reviews. Missing, unreadable, or oversized sources return `null`; reads never prompt.
+
+Writes require a reloadable, unstaged working-tree review and a writable reviewed-file id. Hunk verifies the target, asks for attributed consent, verifies it again, writes it, and reloads the review. Other review kinds and deleted, binary, oversized, missing, symlinked, or root-escaping targets return `unavailable`. Cancellation returns `cancelled`; an attempted write failure returns `failed` with a displayable `detail`.
+
+`canWriteDocument` does not inspect the filesystem, so `writeDocument` can still refuse a changed target. See the [full workspace guide](https://github.com/modem-dev/hunk/blob/main/docs/extensions.md#workspace-documents) for lifecycle and error details.
 
 ## `hunk.on(event, handler)`
 

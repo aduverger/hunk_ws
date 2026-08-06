@@ -177,7 +177,8 @@ This is crash containment, not a sandbox. Per-file `metadata` inside event
 payloads is shared with the renderer for performance and is not frozen, and an
 extension runs with your full user permissions — it can do anything your shell
 can. The containment protects you from bugs, not from code you should not have
-loaded in the first place.
+loaded in the first place. For reviewed files, prefer [`ctx.workspace`](#workspace-documents). It attributes
+writes to the extension and asks for consent.
 
 ## The API
 
@@ -1076,6 +1077,71 @@ the same way, and a request made after that point cancels immediately. A blank
 `title`, or a `select` with no options, is a bug in the extension rather than an
 answer from the user, so the promise **rejects**; like any other handler
 failure, that surfaces as a warning naming your extension.
+
+#### Workspace documents
+
+`ctx.workspace` reads full documents from the current review and can replace an
+eligible working-tree file.
+
+| Method                                 | Result                                            |
+| -------------------------------------- | ------------------------------------------------- |
+| `readDocument(fileId, "old" \| "new")` | The reviewed source text, or `null`               |
+| `canWriteDocument(fileId)`             | Whether the review and file allow writes          |
+| `writeDocument({ fileId, text })`      | `{ ok: true }` or `{ ok: false, reason, detail }` |
+
+A command can read, transform, and write a selected file:
+
+```ts
+hunk.registerCommand({ id: "shout-headings", title: "Shout headings", key: "f7" }, async (ctx) => {
+  const file = ctx.selection.file;
+  if (!file || !ctx.workspace.canWriteDocument(file.id)) return;
+
+  const current = await ctx.workspace.readDocument(file.id, "new");
+  if (current === null) return;
+
+  const result = await ctx.workspace.writeDocument({
+    fileId: file.id,
+    text: current.replace(/^(#+ .+)$/gm, (heading) => heading.toUpperCase()),
+  });
+
+  if (!result.ok && result.reason !== "cancelled") {
+    ctx.notify(result.detail, "warning");
+  }
+});
+```
+
+`readDocument` returns the exact source represented by the review, not the
+file's patch. It works for every review kind. For example, the `"new"` side in
+`hunk show HEAD` is the file at that commit, not the working-tree file. It
+returns `null` when the file or side is absent, no source is available, reading
+fails, or the document exceeds Hunk's size limit. Reads never prompt. An invalid
+side rejects the promise.
+
+Writes require all of the following:
+
+- an unstaged working-tree review (`hunk diff` with no revision range)
+- a reloadable session; `--agent-context -` sessions cannot write
+- a reviewed file with writable new-side text
+- a regular target inside the review root
+
+Revision, stash, range, staged, patch, and file-pair reviews are read-only.
+Deleted, binary, oversized, missing, symlinked, and root-escaping targets are
+also refused. Targets are identified by reviewed file id, never by an arbitrary
+path.
+
+`canWriteDocument` checks the review and file policy without prompting or
+inspecting the filesystem. A later `writeDocument` can still refuse if the file
+has moved or become unsafe.
+
+`writeDocument` verifies the target, asks for consent through the attributed
+`ctx.dialogs` queue, then verifies it again before writing. The second check
+prevents deletion and symlink-swap races while the dialog is open. A successful
+write starts a session reload; the write promise may settle before that reload
+finishes.
+
+A declined prompt returns `cancelled`, an ineligible or unsafe target returns
+`unavailable`, and an attempted write failure returns `failed` with a
+displayable `detail`. Malformed requests reject the promise.
 
 ### `hunk.transformChangeset(fn)`
 

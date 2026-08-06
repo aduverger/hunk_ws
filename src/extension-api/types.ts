@@ -1056,6 +1056,132 @@ export interface ExtensionDialogs {
   input(options: ExtensionInputOptions): Promise<string | null>;
 }
 
+/** One whole-document replacement an extension asks the host to write. */
+export interface ExtensionWorkspaceWriteRequest {
+  /** The reviewed file to write, by its `ExtensionDiffFile.id`. */
+  fileId: string;
+  /** The complete replacement text for the file's new side. */
+  text: string;
+}
+
+/**
+ * How a write attempt settled.
+ *
+ * The three refusals are different kinds of answer, not degrees of failure:
+ * `"unavailable"` means the write was never possible for this review or this
+ * file, `"cancelled"` means the user was asked and said no, and `"failed"`
+ * means the filesystem refused the write Hunk actually attempted. Each carries
+ * a `detail` sentence fit to show a person.
+ */
+export type ExtensionWorkspaceWriteResult =
+  | { ok: true }
+  | { ok: false; reason: "unavailable" | "cancelled" | "failed"; detail: string };
+
+/**
+ * The reviewed files as whole documents, read and written through the host.
+ *
+ * Extension isolation is crash containment rather than a sandbox, so an
+ * extension can already reach `node:fs` and read or write wherever your shell
+ * can. This is the supported alternative, and what it buys is everything that a
+ * direct filesystem call skips: the target can only be a file the user is
+ * reviewing, named by review id rather than by path; a write asks the user
+ * first, in a prompt naming the extension doing the asking; and the review
+ * reloads afterwards so what you are looking at is what is on disk. An
+ * extension that reaches reviewed files any other way is outside the contract,
+ * and outside anything the user agreed to.
+ *
+ * The two halves are deliberately not symmetric, because they are not the same
+ * kind of act. Reading exposes exactly what the review already shows the user,
+ * so it is available in every review kind and never prompts. Writing changes
+ * the user's files, so it is working-tree only and always asks.
+ *
+ * Writes are available exactly when the session is reviewing the working tree —
+ * a `vcs` diff review with no revision range and without `--staged` — and can
+ * reload it. A revision show, a stash show, a range diff, a staged diff, patch
+ * input, and a file-pair diff have no working-tree document to replace, and
+ * every write against them resolves `"unavailable"`; so does a session whose
+ * review cannot be rebuilt after a write, which is one started with
+ * `--agent-context -`, since the reload every write promises could not happen.
+ * A file with no new side (deleted) and a file Hunk never read as text (binary,
+ * skipped for size) are `"unavailable"` for the same reason as the first group
+ * — there is no document to replace.
+ */
+export interface ExtensionWorkspace {
+  /**
+   * Read one exact full source document from a reviewed file.
+   *
+   * The document a file view gets from `ExtensionFileViewInput.readDocument`,
+   * reachable from a command handler: ask for the `"old"` or `"new"` side of a
+   * file in the current changeset and get its complete source text. Patch text
+   * is already at hand as `ExtensionDiffFile.patch` and is deliberately not
+   * this, because a patch is not an exact source file.
+   *
+   * Resolves `null`, rather than rejecting, for every way a read comes back
+   * empty-handed: no reviewed file carries that id, the side does not exist
+   * (the `"old"` side of an added file, the `"new"` side of a deletion), Hunk
+   * has no source to read for this file at all, the read failed, or the
+   * document is past the host's source-size cap. A probe is an ordinary
+   * question here, the same way `canWriteDocument` answers instead of throwing.
+   * The promise **rejects** only for a `side` that is neither `"old"` nor
+   * `"new"`, which is a bug in the extension rather than an answer.
+   *
+   * Unlike writes, reads work in every review kind — a revision show, a stash
+   * entry, a range diff, patch input — and never prompt. Reading the `"new"`
+   * side, transforming the text, and passing the result to `writeDocument` is
+   * the pairing this exists for.
+   */
+  readDocument(fileId: string, side: ExtensionFileSide): Promise<string | null>;
+  /**
+   * Whether `writeDocument` could currently succeed for this reviewed file.
+   *
+   * The affordance probe behind a menu entry or a mode indicator: the same
+   * review, file, and path checks a write makes, minus the dialog and the
+   * filesystem. It never prompts and never touches disk, so a `true` here still
+   * describes what the user could allow rather than what they have allowed, and
+   * a write can still come back `"cancelled"` or `"failed"`.
+   *
+   * Because it asks nothing of the filesystem, it is optimistic about what only
+   * the filesystem knows: a write additionally verifies its target at write
+   * time and refuses `"unavailable"` for a reviewed path that is a symlink,
+   * sits under a linked directory pointing out of the repository, or has left
+   * the working tree since the review was built. The action is never optimistic
+   * about those; only the affordance is.
+   */
+  canWriteDocument(fileId: string): boolean;
+  /**
+   * Replace one reviewed file's contents on disk, with the user's consent.
+   *
+   * Every write asks first. Hunk draws a confirm dialog through the same
+   * attributed, FIFO-queued modal system as `ctx.dialogs` — naming your
+   * extension and the file's path, and framing the write as the overwrite it
+   * is — so a write can no more present itself as Hunk's own than a dialog can.
+   * Declining, or pressing Escape, resolves `{ ok: false, reason: "cancelled" }`:
+   * a normal answer, never an exception.
+   *
+   * Before the prompt, Hunk verifies that the path it would write is the file
+   * the prompt names: a reviewed path that is a symlink, or that sits under a
+   * directory link leading out of the repository, resolves `"unavailable"`
+   * without asking, and so does one that has left the working tree since the
+   * review was built — a write recreates nothing the user deleted. Hunk checks
+   * again after consent, refusing a target deleted or replaced by an unsafe
+   * path while the prompt was open.
+   *
+   * On success Hunk reloads the session the same way the refresh key does, so
+   * the review an extension sees afterwards reflects what it wrote. That holds
+   * for every write that can happen: a session whose review could not be
+   * rebuilt refuses writes rather than accepting one it would then hide. The
+   * returned promise settles on the write itself, not on the reload — a handler
+   * that resumes immediately is looking at the changeset it was called with.
+   *
+   * A filesystem that refuses the write resolves `"failed"` with a
+   * human-readable `detail`. The promise **rejects** only for a malformed
+   * request — a missing or non-string `fileId` or `text` — which is a bug in
+   * the extension rather than an answer, and surfaces through the same warning
+   * path as any other handler failure.
+   */
+  writeDocument(request: ExtensionWorkspaceWriteRequest): Promise<ExtensionWorkspaceWriteResult>;
+}
+
 /** What a command handler receives when its key fires. */
 export interface ExtensionCommandContext extends ExtensionContext {
   sidebars: ExtensionSidebarControls;
@@ -1084,6 +1210,14 @@ export interface ExtensionCommandContext extends ExtensionContext {
    * several dialogs in sequence with work in between.
    */
   readonly dialogs: ExtensionDialogs;
+  /**
+   * Read reviewed files, and write them back to the working tree with the
+   * user's consent.
+   *
+   * Host-mediated on purpose: the file is named by review id, a write asks the
+   * user first, and the review reloads after a successful write.
+   */
+  readonly workspace: ExtensionWorkspace;
 }
 
 export type ExtensionCommandHandler = (ctx: ExtensionCommandContext) => void | Promise<void>;
