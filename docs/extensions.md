@@ -73,6 +73,28 @@ Because the manifest is a real `package.json`, a folder extension may depend on
 npm packages: declare them, install them into the folder's own `node_modules`,
 and imports resolve from the entry file the way they do in any other package.
 
+The `hunk` field may also state the minimum extension API version the folder
+needs:
+
+```json
+{
+  "name": "my-ext",
+  "version": "1.0.0",
+  "description": "What the extension does",
+  "hunk": { "extensions": ["./src/index.ts"], "apiVersion": 3 }
+}
+```
+
+A Hunk whose extension API is older than `apiVersion` refuses the folder with a
+startup notice naming the version it would need, instead of failing somewhere
+inside the factory with whatever error the missing surface happens to produce.
+Omit it while you only use surface that has been around a while; declare it when
+you depend on something recent (the current version is exported as
+`HUNK_EXTENSION_API_VERSION` from `hunkdiff/extension` and handed to factories
+as `hunk.apiVersion`). The standard `name`, `version`, and `description` fields
+are how tooling and humans identify a shared extension, so fill them in on
+anything you publish.
+
 Pointing `--extension` or `[extensions] paths` straight at a directory works
 either way: a directory that is itself a folder extension loads as that one
 extension, so its helper modules stay helpers. A directory that is not is
@@ -102,6 +124,68 @@ read, let alone executed. Use it when triaging a bug.
 trust prompt, even when the path points inside the repository under review.
 Never pass a path you have not read — including one copy-pasted from a
 repository's own README.
+
+## Sharing and installing extensions
+
+Extensions are shared as plain git repositories — there is no registry to
+publish to. `hunk extension install` clones one into a managed directory
+(`~/.config/hunk/extensions/installed/<repo-name>/`), verifies it actually
+contains an extension, installs its npm dependencies when it declares any, and
+records the source and resolved commit:
+
+```bash
+hunk extension install acme/hunk-word-diff          # GitHub shorthand
+hunk extension install acme/hunk-word-diff@v1.2.0   # pin a tag, branch, or commit
+hunk extension install git:codeberg.org/acme/ext    # any host; https:// is assumed
+hunk extension install https://github.com/acme/hunk-word-diff.git
+hunk extension install ~/dev/hunk-word-diff         # a local checkout, for testing
+```
+
+Managed installs load through the global source group — same origin, same
+precedence, no trust prompt — because installing one is the explicit consent:
+the install asks for confirmation (or `--yes`) after stating that extensions
+run with your full user permissions. Only install repositories you trust.
+
+`hunk extension list` shows every managed install with its version, commit, and
+source. `hunk extension update [name]` re-clones one install (or all of them)
+from its recorded source — an install pinned with `@ref` stays at that ref
+until you re-install with a different one. `hunk extension remove <name>`
+deletes the install and its record. Managed installs never collide with
+extensions you copied into `~/.config/hunk/extensions/` by hand, and the
+installer refuses to overwrite an unmanaged directory of the same name.
+
+### Publishing an extension
+
+A publishable extension repository is just the folder-extension layout at the
+repository root:
+
+```text
+hunk-word-diff/
+  package.json          # name, version, description, hunk field
+  index.ts              # or entries declared in "hunk": {"extensions": [...]}
+  README.md
+```
+
+To publish one:
+
+1. Give `package.json` a real `name`, `version`, and `description`, declare
+   entries under the `hunk` field, and state `"hunk": {"apiVersion": N}` if you
+   rely on recent API surface (see [the manifest](#where-hunk-looks-for-extensions)).
+2. Keep it dependency-light. Declared `dependencies` are installed with
+   `bun install` at install time when the user has `bun` on PATH; without it
+   they get a warning and instructions. `react`, `@opentui/*`, and
+   `hunkdiff/extension` come from the host at runtime and belong in
+   `devDependencies` (types only), never `dependencies`.
+3. Tag releases (`v1.2.0`) so users can pin with `@v1.2.0` instead of tracking
+   your default branch.
+4. Push the repository to any git host and add the **`hunk-extension`** GitHub
+   topic so people can find it: every public repository with that topic shows
+   up at <https://github.com/topics/hunk-extension>.
+
+Before publishing, exercise the exact layout users will install:
+`hunk extension install /path/to/your/checkout` installs from a local
+repository, and `hunk diff --extension /path/to/your/checkout` loads it for one
+run without installing anything.
 
 ## Bundled extensions
 
