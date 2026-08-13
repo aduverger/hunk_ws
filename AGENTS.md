@@ -45,6 +45,7 @@ CLI input
 - Keep split and stack views terminal-native and driven from the same normalized diff model.
 - Preserve mouse + keyboard parity for primary actions.
 - Keep the chrome restrained: top menu bar, minimal borders, no redundant metadata headers.
+- Shared review primitives are a hard seam: the semantic review model (`src/core/review/`) and its wire protocol (`src/session/reviewProtocol.ts`) are what every review consumer — terminal UI, session runtime, browser client — builds on. Both stay renderer-free and platform-neutral; `scripts/source-boundaries.test.ts` gates their imports, and its debt lists may only shrink. The staged plan for building on this seam is `docs/browser-review-rebuild.md`.
 
 ## component guidance
 
@@ -76,6 +77,10 @@ CLI input
 ## code comments
 
 - Add short JSDoc-style comments to functions and helpers.
+- Write header comments in active voice: the first sentence says what the module or function
+  does ("Applies one action to the review state and returns the next state."), followed by its
+  invariants. Avoid passive or self-important framing ("The one place where…", "the single
+  source of truth for…") — name the behavior, not the architecture's opinion of itself.
 - Add inline comments for intent, invariants, or tricky behavior that would not be obvious to a fresh reader.
 - Skip comments that only narrate what the code already says.
 
