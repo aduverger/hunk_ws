@@ -50,7 +50,7 @@ draft-body intent yet, recorded under B12.
   Fix: terminal calls `reviewGapAddress`; delete its local math.
   _Repaid (Phase 1 PR 2)_: `reviewLeadingGap`/`reviewGapAddress` in `core/review/expansion.ts`;
   `pierre.ts` copies deleted; fixtures `pure-insertion-hunk` and `pure-deletion-hunk` in
-  `test/review-conformance/fixtures.ts`; core and terminal render planning both registered.
+  `test/review-conformance/geometryFixtures.ts`; core and terminal render planning both registered.
   Residual (found in review): when the anchor side has zero rows and untouched content
   precedes the hunk, the parser's `collapsedBefore` undercounts the leading gap by one line
   — the leading-side sibling of A2's residual, recorded on `reviewLeadingGap` and pinned
@@ -381,17 +381,17 @@ path suffixes, expansion retention, git-status badges).
   against `MAX_REVIEW_NOTE_BYTES`; broker/producer check whole-note JSON — so a note that
   passes action validation can poison the entire snapshot with a capacity error. Neither
   client pre-checks size, and the server's action-body cap is smaller than the largest
-  "valid" note. Fix: one `reviewNoteWithinBounds` used by wire, broker, producer, and both
+  "valid" note. Fix: one `reviewNoteWithinSizeLimit` used by wire, broker, producer, and both
   composers.
-  _Repaid (Phase 2, core and producer sites)_: `core/review/noteBounds.ts` measures the whole
+  _Repaid (Phase 2, core and producer sites)_: `core/review/noteSize.ts` measures the whole
   note in the unit a transport pays — its serialized bytes, through the platform-free
   `utf8ByteLength` — and `MAX_REVIEW_NOTE_BYTES` sits beside it. Fixtures
-  `test/review-conformance/noteBounds.ts` pin the boundary the two prototype rules disagreed
+  `test/review-conformance/noteSize.ts` pin the boundary the two prototype rules disagreed
   at, including a note whose summary, rationale, and markup each fit while the note itself is
   three times the bound. Wire and composer sites adopt it in Phases 3 and 5.
   _Repaid (Phase 3, wire site)_: `isTransportableReviewNote` in `src/session/reviewProtocol.ts`
-  is `reviewNoteWithinBounds` and nothing else — the wire has no per-field check any more, and
-  declares no second bound. The protocol module is registered as a consumer of the note-bounds
+  is `reviewNoteWithinSizeLimit` and nothing else — the wire has no per-field check any more, and
+  declares no second bound. The protocol module is registered as a consumer of the note-size
   corpus, so `every-field-fits-but-the-note-does-not` — the note whose summary, rationale, and
   markup each pass a per-field check while the note is triple the bound — is now refused at the
   wire rather than admitted and then failing at the publisher. Both composer sites are Phase 5.
@@ -447,7 +447,7 @@ path suffixes, expansion retention, git-status badges).
   variant is what let a writer and a reader disagree — with `normalizeReviewDigest` for values
   arriving from outside and `reviewDigestsEqual` normalizing _both_ operands. Hashing itself is
   an injected `ReviewDigestFn` rather than inline `createHash` calls; the producer supplies
-  Node's at the edge (`src/app/review/digest.ts`), which is also what repaid the shared model's
+  Node's at the edge (`src/lib/reviewDigest.ts`), which is also what repaid the shared model's
   last node-debt entry. Resource bounds are constants in `core/review/resources.ts` that the
   producer imports rather than restates. Wire constants, the action-envelope parser, and the
   two note-filter namings are Phase 3.

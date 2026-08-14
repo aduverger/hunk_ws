@@ -63,7 +63,7 @@ export interface ConformanceFileProjection {
   expandedRows?: ConformanceExpandedRow[];
 }
 
-export interface ReviewConformanceProjection {
+export interface ReviewGeometryProjection {
   files: ConformanceFileProjection[];
 }
 
@@ -75,7 +75,7 @@ export interface ConformanceExpansion {
   sourceText: string;
 }
 
-export interface ReviewConformanceFixture {
+export interface ReviewGeometryFixture {
   id: string;
   /** Audit finding ids this fixture guards, e.g. `A1`. */
   findings: string[];
@@ -84,7 +84,7 @@ export interface ReviewConformanceFixture {
   build: () => DiffFile[];
   expansion?: ConformanceExpansion;
   /** Hand-written from the semantics — never captured from a primitive. */
-  expected: ReviewConformanceProjection;
+  expected: ReviewGeometryProjection;
 }
 
 /**
@@ -94,11 +94,11 @@ export interface ReviewConformanceFixture {
  * calling core directly — the terminal adapter drives row building, a producer adapter
  * drives publication, a browser adapter drives its own projection.
  */
-export interface ReviewConformanceConsumer {
+export interface ReviewGeometryConsumer {
   name: string;
   /** The phase that registered this consumer, for the gate ladder's records. */
   phase: string;
-  project: (fixture: ReviewConformanceFixture) => ReviewConformanceProjection;
+  project: (fixture: ReviewGeometryFixture) => ReviewGeometryProjection;
 }
 
 /**
@@ -203,9 +203,9 @@ export interface ReviewWireParseOutcome {
 /**
  * One consumer of the wire schema.
  *
- * Two questions, both of which the prototype answered differently at different tiers: what
- * an action means once parsed (B12/B10), and whether a note may cross a boundary at all
- * (D1). A consumer joins by driving the code path it really uses.
+ * Two questions every tier must answer the same way: what an action means once parsed
+ * (B12/B10), and whether a note may cross a boundary at all (D1). A consumer joins by
+ * driving the code path it really uses.
  */
 export interface ReviewWireConsumer {
   name: string;

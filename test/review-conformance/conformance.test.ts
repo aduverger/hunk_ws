@@ -5,21 +5,21 @@ import {
   type ReviewPublicationAddress,
 } from "../../src/core/review/generationOrder";
 import { isBlankReviewNoteBody, planReviewIntent } from "../../src/core/review/intents";
-import { reviewNoteWithinBounds } from "../../src/core/review/noteBounds";
+import { reviewNoteWithinSizeLimit } from "../../src/core/review/noteSize";
 import { createInitialReviewState } from "../../src/core/review/state";
 import { createReviewStore } from "../../src/core/review/store";
 import { createTestDiffFile } from "../helpers/diff-helpers";
 import { createTestReviewDocument } from "../helpers/review-store-helpers";
 import {
-  REVIEW_CONFORMANCE_CONSUMERS,
+  REVIEW_GEOMETRY_CONSUMERS,
   REVIEW_NAVIGATION_CONSUMERS,
   REVIEW_ORDERING_CONSUMERS,
   REVIEW_WIRE_CONSUMERS,
 } from "./consumers";
-import { REVIEW_CONFORMANCE_FIXTURES } from "./fixtures";
+import { REVIEW_GEOMETRY_FIXTURES } from "./geometryFixtures";
 import { REVIEW_NAVIGATION_FIXTURES } from "./navigationFixtures";
 import { REVIEW_NOTE_BODY_FIXTURES } from "./noteBodies";
-import { REVIEW_NOTE_BOUNDS_FIXTURES } from "./noteBounds";
+import { REVIEW_NOTE_SIZE_FIXTURES } from "./noteSize";
 import {
   REVIEW_PRODUCER_ORDER_FIXTURES,
   REVIEW_PUBLICATION_ORDER_FIXTURES,
@@ -47,7 +47,7 @@ const REQUIRED_FINDINGS = [
 
 describe("review conformance corpus", () => {
   test("registers every consumer that has landed so far", () => {
-    expect(REVIEW_CONFORMANCE_CONSUMERS.map((consumer) => consumer.name)).toEqual([
+    expect(REVIEW_GEOMETRY_CONSUMERS.map((consumer) => consumer.name)).toEqual([
       "core review model",
       "terminal render planning",
       "review producer",
@@ -67,12 +67,12 @@ describe("review conformance corpus", () => {
 
   test("carries an adversarial fixture for every finding it claims to repay", () => {
     const covered = new Set([
-      ...REVIEW_CONFORMANCE_FIXTURES.flatMap((fixture) => fixture.findings),
+      ...REVIEW_GEOMETRY_FIXTURES.flatMap((fixture) => fixture.findings),
       ...REVIEW_NAVIGATION_FIXTURES.flatMap((fixture) => fixture.findings),
       ...REVIEW_PUBLICATION_ORDER_FIXTURES.flatMap((fixture) => fixture.findings),
       ...REVIEW_PRODUCER_ORDER_FIXTURES.flatMap((fixture) => fixture.findings),
       ...REVIEW_WIRE_FIXTURES.flatMap((fixture) => fixture.findings),
-      ...(REVIEW_NOTE_BOUNDS_FIXTURES.length > 0 ? ["D1"] : []),
+      ...(REVIEW_NOTE_SIZE_FIXTURES.length > 0 ? ["D1"] : []),
     ]);
 
     expect(REQUIRED_FINDINGS.filter((finding) => !covered.has(finding))).toEqual([]);
@@ -89,9 +89,9 @@ for (const consumer of REVIEW_NAVIGATION_CONSUMERS) {
   });
 }
 
-for (const consumer of REVIEW_CONFORMANCE_CONSUMERS) {
+for (const consumer of REVIEW_GEOMETRY_CONSUMERS) {
   describe(`review conformance: ${consumer.name}`, () => {
-    for (const fixture of REVIEW_CONFORMANCE_FIXTURES) {
+    for (const fixture of REVIEW_GEOMETRY_FIXTURES) {
       test(`${fixture.id} (${fixture.findings.join(", ")})`, () => {
         expect(consumer.project(fixture)).toEqual(fixture.expected);
       });
@@ -132,10 +132,10 @@ describe("review conformance: empty note bodies", () => {
   }
 });
 
-describe("review conformance: note bounds", () => {
-  for (const fixture of REVIEW_NOTE_BOUNDS_FIXTURES) {
-    test(`${fixture.id} ${fixture.withinBounds ? "fits" : "is too large"}`, () => {
-      expect(reviewNoteWithinBounds(fixture.build())).toBe(fixture.withinBounds);
+describe("review conformance: note size", () => {
+  for (const fixture of REVIEW_NOTE_SIZE_FIXTURES) {
+    test(`${fixture.id} ${fixture.withinSizeLimit ? "fits" : "is too large"}`, () => {
+      expect(reviewNoteWithinSizeLimit(fixture.build())).toBe(fixture.withinSizeLimit);
     });
   }
 });
@@ -161,9 +161,9 @@ for (const consumer of REVIEW_WIRE_CONSUMERS) {
     // D1: the note-size corpus is a wire question too. The case every field passes and the
     // whole note fails must be refused here, before it can be admitted and then poison the
     // snapshot that publishes it.
-    for (const fixture of REVIEW_NOTE_BOUNDS_FIXTURES) {
-      test(`${fixture.id} is ${fixture.withinBounds ? "transportable" : "refused"} (D1)`, () => {
-        expect(consumer.acceptsNote(fixture.build())).toBe(fixture.withinBounds);
+    for (const fixture of REVIEW_NOTE_SIZE_FIXTURES) {
+      test(`${fixture.id} is ${fixture.withinSizeLimit ? "transportable" : "refused"} (D1)`, () => {
+        expect(consumer.acceptsNote(fixture.build())).toBe(fixture.withinSizeLimit);
       });
     }
   });
