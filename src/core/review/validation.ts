@@ -46,6 +46,18 @@ export function utf8ByteLength(value: string): number {
 }
 
 /**
+ * Narrows one untrusted value to a plain object, or undefined when it is not one.
+ *
+ * Arrays and `null` are excluded because both pass a bare `typeof value === "object"`, and
+ * a parser that accepted either would then read named keys off a value that has none.
+ */
+export function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/**
  * Whether one parsed record carries exactly the allowed keys — none missing, none extra.
  *
  * The one strictness rule for untrusted input crossing a review boundary. Rejecting extra
@@ -80,15 +92,6 @@ const REVIEW_SHA256_DIGEST_PATTERN = /^[0-9a-f]{64}$/;
  */
 export function isReviewSha256Digest(value: unknown): value is string {
   return typeof value === "string" && REVIEW_SHA256_DIGEST_PATTERN.test(value);
-}
-
-/** Put one externally supplied digest into canonical form, or undefined when it is not one. */
-export function normalizeReviewDigest(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const normalized = value.toLowerCase();
-  return isReviewSha256Digest(normalized) ? normalized : undefined;
 }
 
 /** Compare two digests with both operands normalized, never just one. */

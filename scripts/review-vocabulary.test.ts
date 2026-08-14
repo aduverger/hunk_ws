@@ -9,10 +9,9 @@
  *
  * Two mechanical claims:
  *
- * - The wire action vocabulary **is** the intent vocabulary minus a named exclusion list,
- *   so an intent added in a later phase becomes wire-reachable automatically and one
- *   deliberately withheld has to be named and justified (`browser-review-seam-audit.md`,
- *   B12).
+ * - The wire action vocabulary **is** the intent vocabulary, so an intent added in a later
+ *   phase becomes wire-reachable automatically and one deliberately withheld has to be
+ *   subtracted by name and justified (`browser-review-seam-audit.md`, B12).
  * - Coupled constants are imported, not re-declared: no session module re-declares a name
  *   the shared review model already exports, no digest check is written as an inline
  *   pattern beside the shared validator, and the transport bound the browser-safe protocol
@@ -26,17 +25,17 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { MAX_WS_MESSAGE_BYTES } from "@hunk/session-broker-core";
-import { REVIEW_INTENT_TYPES, type ReviewIntentType } from "../src/core/review/intents";
+import { REVIEW_INTENT_TYPES } from "../src/core/review/intents";
 import {
   HUNK_REVIEW_ACTION_TYPES,
   MAX_HUNK_REVIEW_ENVELOPE_BYTES,
   parseHunkReviewAction,
-  WIRE_UNREACHABLE_REVIEW_INTENT_TYPES,
 } from "../src/session/reviewProtocol";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const REVIEW_MODEL_ROOT = join(REPO_ROOT, "src", "core", "review");
 const SESSION_ROOT = join(REPO_ROOT, "src", "session");
+const PRODUCER_ROOT = join(REPO_ROOT, "src", "app");
 
 /** Every production TypeScript file below one directory. */
 function sourceFiles(directory: string): string[] {
@@ -65,17 +64,12 @@ function exportedConstants(path: string) {
 }
 
 describe("review wire vocabulary derivation", () => {
-  test("is the intent vocabulary minus the named exclusions", () => {
-    const excluded = new Set<string>(WIRE_UNREACHABLE_REVIEW_INTENT_TYPES);
-    expect([...HUNK_REVIEW_ACTION_TYPES]).toEqual(
-      REVIEW_INTENT_TYPES.filter((type) => !excluded.has(type)),
-    );
-  });
-
-  test("names only real intents as unreachable, once each", () => {
-    const excluded = [...WIRE_UNREACHABLE_REVIEW_INTENT_TYPES] as ReviewIntentType[];
-    expect(new Set(excluded).size).toBe(excluded.length);
-    expect(excluded.filter((type) => !REVIEW_INTENT_TYPES.includes(type))).toEqual([]);
+  // Withholding an intent would land here as a named subtraction from the intent
+  // vocabulary; until one is justified, a type missing from the wire is a silent drop.
+  test("is the intent vocabulary, whole and once each", () => {
+    const actionTypes = [...HUNK_REVIEW_ACTION_TYPES];
+    expect(actionTypes).toEqual([...REVIEW_INTENT_TYPES]);
+    expect(new Set(actionTypes).size).toBe(actionTypes.length);
   });
 
   // A type in the vocabulary with no parser would fail open: the action would be reported
@@ -114,10 +108,15 @@ describe("review constant derivation", () => {
 
   // The canonical digest check lives in `core/review/validation.ts`; five inline patterns
   // with differing case sensitivity are what let a writer and a reader disagree about
-  // whether two digests matched.
+  // whether two digests matched. The producer tier is scanned too, because it is the side
+  // that computes the digests the other tiers compare.
   test("no module writes its own SHA-256 digest pattern", () => {
     const pattern = /\{\s*64\s*\}/;
-    const offenders = [...sourceFiles(SESSION_ROOT), ...sourceFiles(REVIEW_MODEL_ROOT)]
+    const offenders = [
+      ...sourceFiles(SESSION_ROOT),
+      ...sourceFiles(REVIEW_MODEL_ROOT),
+      ...sourceFiles(PRODUCER_ROOT),
+    ]
       .filter((path) => repoPath(path) !== "src/core/review/validation.ts")
       .filter((path) => pattern.test(readFileSync(path, "utf8")))
       .map(repoPath);
