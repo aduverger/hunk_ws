@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
-import { act, StrictMode, useEffect, useState } from "react";
+import { act, StrictMode, useEffect, useRef, useState } from "react";
 import { SourceTextTooLargeError } from "../../core/fileSource";
 import type { DiffFile } from "../../core/types";
 import {
@@ -49,7 +49,7 @@ function createTwoHunkFile() {
 }
 
 /** Build one file with three separated hunks for counted navigation coverage. */
-function createThreeHunkFile() {
+function createThreeHunkFile(id = "alpha", path = "alpha.ts") {
   const beforeLines = Array.from(
     { length: 30 },
     (_, index) => `export const line${index + 1} = ${index + 1};`,
@@ -59,7 +59,7 @@ function createThreeHunkFile() {
   afterLines[14] = "export const line15 = 1500;";
   afterLines[29] = "export const line30 = 3000;";
 
-  return createDiffFile("alpha", "alpha.ts", lines(...beforeLines), lines(...afterLines));
+  return createDiffFile(id, path, lines(...beforeLines), lines(...afterLines));
 }
 
 /** Build the same file id with only one hunk so stale hunk indices must clamp. */
@@ -155,23 +155,40 @@ function expectValue<T>(value: T): NonNullable<T> {
 function ReviewControllerHarness({
   initialFiles,
   noteGeometry,
+  publishLineCursors = true,
   stmlEnabled,
   onController,
+  onFirstController,
   onSetFiles,
 }: {
   initialFiles: DiffFile[];
   noteGeometry?: Parameters<typeof useReviewController>[0]["noteGeometry"];
+  /** Publish measured stops, as the diff pane does unless the current-line marker is off. */
+  publishLineCursors?: boolean;
   stmlEnabled?: boolean;
   onController: (controller: ReviewController) => void;
+  /** Receive the first render's controller, before any cursors were published. */
+  onFirstController?: (controller: ReviewController) => void;
   onSetFiles?: (setFiles: (nextFiles: DiffFile[]) => void) => void;
 }) {
   const [files, setFiles] = useState(initialFiles);
   const [lineCursors, setLineCursors] = useState<LineCursor[]>([]);
   const controller = useReviewController({ files, lineCursors, noteGeometry, stmlEnabled });
+  // Capture during render, as a memoized consumer's closure would: the effects
+  // below have not yet published measured cursors on the first pass.
+  const firstControllerRef = useRef<ReviewController | null>(null);
+  if (firstControllerRef.current === null) {
+    firstControllerRef.current = controller;
+    onFirstController?.(controller);
+  }
   const visibleFiles = controller.visibleFiles;
   const { expandedGapsByFileId, sourceStatusByFileId } = controller;
 
   useEffect(() => {
+    if (!publishLineCursors) {
+      return;
+    }
+
     setLineCursors(
       buildLineCursors(
         visibleFiles,
@@ -191,7 +208,7 @@ function ReviewControllerHarness({
         ),
       ),
     );
-  }, [expandedGapsByFileId, sourceStatusByFileId, visibleFiles]);
+  }, [expandedGapsByFileId, publishLineCursors, sourceStatusByFileId, visibleFiles]);
 
   useEffect(() => {
     onController(controller);
@@ -210,11 +227,15 @@ async function renderReviewController(
   {
     strictMode = false,
     noteGeometry,
+    publishLineCursors,
     stmlEnabled,
+    onFirstController,
   }: {
     strictMode?: boolean;
     noteGeometry?: Parameters<typeof useReviewController>[0]["noteGeometry"];
+    publishLineCursors?: boolean;
     stmlEnabled?: boolean;
+    onFirstController?: (controller: ReviewController) => void;
   } = {},
 ) {
   const controllerRef: { current: ReviewController | null } = { current: null };
@@ -223,7 +244,9 @@ async function renderReviewController(
     <ReviewControllerHarness
       initialFiles={initialFiles}
       noteGeometry={noteGeometry}
+      publishLineCursors={publishLineCursors}
       stmlEnabled={stmlEnabled}
+      onFirstController={onFirstController}
       onController={(nextController) => {
         controllerRef.current = nextController;
       }}
@@ -1578,16 +1601,17 @@ describe("useReviewController", () => {
 
     try {
       await flush(setup);
-      const initialRequestId = expectValue(controllerRef.current).lineCursorRevealRequestId;
+      const initialRequestId = expectValue(controllerRef.current).lineCursorRevealRequest.id;
 
       await act(async () => {
         expectValue(controllerRef.current).moveLineCursor(1);
       });
       await flush(setup);
 
-      expect(expectValue(controllerRef.current).lineCursorRevealRequestId).toBe(
-        initialRequestId + 1,
-      );
+      expect(expectValue(controllerRef.current).lineCursorRevealRequest).toEqual({
+        id: initialRequestId + 1,
+        placement: "nearest",
+      });
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -1621,7 +1645,7 @@ describe("useReviewController", () => {
         (cursor) => cursor.stableKey === initial.stableKey && cursor.fileId === initial.fileId,
       );
       const expected = expectValue(expectedCursors[initialIndex + 4]);
-      const initialRequestId = expectValue(controllerRef.current).lineCursorRevealRequestId;
+      const initialRequestId = expectValue(controllerRef.current).lineCursorRevealRequest.id;
 
       await act(async () => {
         expectValue(controllerRef.current).moveLineCursor(4);
@@ -1629,9 +1653,10 @@ describe("useReviewController", () => {
       await flush(setup);
 
       expect(expectValue(controllerRef.current).lineCursor).toEqual(expected);
-      expect(expectValue(controllerRef.current).lineCursorRevealRequestId).toBe(
-        initialRequestId + 1,
-      );
+      expect(expectValue(controllerRef.current).lineCursorRevealRequest).toEqual({
+        id: initialRequestId + 1,
+        placement: "nearest",
+      });
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -1791,6 +1816,135 @@ describe("useReviewController", () => {
       await flush(setup);
 
       expect(expectValue(expectValue(controllerRef.current).lineCursor).fileId).toBe("alpha");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("reveals one line of another file and asks for the reveal placement", async () => {
+    // Cursors are measured for every visible file, so a cross-file jump resolves in the same
+    // pass as a local one — no pending second reveal once the target file renders.
+    const { controllerRef, setup } = await renderReviewController([
+      createDiffFile("alpha", "alpha.ts", "export const alpha = 1;\n", "export const alpha = 2;\n"),
+      createThreeHunkFile("beta", "beta.ts"),
+    ]);
+
+    try {
+      await flush(setup);
+      const before = expectValue(controllerRef.current).lineCursorRevealRequest;
+      expect(expectValue(expectValue(controllerRef.current).lineCursor).fileId).toBe("alpha");
+
+      let outcome: string | undefined;
+      await act(async () => {
+        outcome = expectValue(controllerRef.current).revealLine("beta", "new", 30);
+      });
+      await flush(setup);
+
+      expect(outcome).toBe("line");
+      expect(expectValue(controllerRef.current).lineCursor).toMatchObject({
+        fileId: "beta",
+        hunkIndex: 2,
+        target: { side: "new", line: 30 },
+      });
+      // Selection follows the revealed line so notes and hunk actions stay on the same target.
+      expect(expectValue(controllerRef.current).selectedFileId).toBe("beta");
+      expect(expectValue(controllerRef.current).selectedHunkIndex).toBe(2);
+      expect(expectValue(controllerRef.current).lineCursorRevealRequest).toEqual({
+        id: before.id + 1,
+        placement: "reveal",
+      });
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("falls back to the containing hunk when nothing measured a row for the line", async () => {
+    // With the current-line marker off the pane publishes no stops at all, so there is no
+    // measured row to scroll to; the hunk covering the line is the closest honest landing spot.
+    const { controllerRef, setup } = await renderReviewController([createThreeHunkFile()], {
+      publishLineCursors: false,
+    });
+
+    try {
+      await flush(setup);
+      const before = expectValue(controllerRef.current).lineCursorRevealRequest;
+
+      let outcome: string | undefined;
+      await act(async () => {
+        outcome = expectValue(controllerRef.current).revealLine("alpha", "new", 15);
+      });
+      await flush(setup);
+
+      expect(outcome).toBe("hunk");
+      expect(expectValue(controllerRef.current).selectedHunkIndex).toBe(1);
+      // A hunk selection reveal, not a line reveal: nothing measured the requested row.
+      expect(expectValue(controllerRef.current).lineCursorRevealRequest.id).toBe(before.id);
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("a revealLine reference held from before cursors were measured still lands the line", async () => {
+    // A memoized extension pane keeps its mount-time `actions`, whose
+    // `revealLine` was minted on the first render — before the diff pane's
+    // effect published any measured cursors. That held reference must read the
+    // stops live: the session's first deferred search jump used to silently
+    // degrade to the hunk fallback because its closure still saw the empty
+    // pre-measurement list.
+    const firstControllerRef: { current: ReviewController | null } = { current: null };
+    const { controllerRef, setup } = await renderReviewController([createThreeHunkFile()], {
+      onFirstController: (controller) => {
+        firstControllerRef.current = controller;
+      },
+    });
+
+    try {
+      await flush(setup);
+      // The captured instance predates the cursor publication…
+      const first = expectValue(firstControllerRef.current);
+      // …while the current instance has long since seen the measured stops.
+      expect(expectValue(controllerRef.current).lineCursor).not.toBeNull();
+
+      let outcome: string | undefined;
+      await act(async () => {
+        outcome = first.revealLine("alpha", "new", 30);
+      });
+      await flush(setup);
+
+      expect(outcome).toBe("line");
+      expect(expectValue(controllerRef.current).lineCursor).toMatchObject({
+        fileId: "alpha",
+        hunkIndex: 2,
+        target: { side: "new", line: 30 },
+      });
+      expect(expectValue(controllerRef.current).lineCursorRevealRequest.placement).toBe("reveal");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("reports a line no hunk of the file covers instead of moving the review", async () => {
+    const { controllerRef, setup } = await renderReviewController([createTwoHunkFile()]);
+
+    try {
+      await flush(setup);
+
+      let outcome: string | undefined;
+      await act(async () => {
+        outcome = expectValue(controllerRef.current).revealLine("alpha", "new", 9001);
+      });
+      await flush(setup);
+
+      expect(outcome).toBe("none");
+      expect(expectValue(expectValue(controllerRef.current).lineCursor).hunkIndex).toBe(0);
     } finally {
       await act(async () => {
         setup.renderer.destroy();
