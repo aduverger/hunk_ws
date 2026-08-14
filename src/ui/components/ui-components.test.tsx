@@ -10,6 +10,7 @@ import {
   createTestSourceFetcher,
   lines,
 } from "../../../test/helpers/diff-helpers";
+import { createVisibleAgentNote } from "../lib/agentAnnotations";
 import { hexColorDistance } from "../lib/color";
 import { RAPID_SCROLL_OVERSCAN_IDLE_MS } from "../lib/adaptiveScrollOverscan";
 import { resolveTheme } from "../themes";
@@ -2301,6 +2302,135 @@ describe("UI components", () => {
     }
   });
 
+  test("DiffPane reveals the note the shared policy names, not the first one drawn in the hunk", async () => {
+    const theme = resolveTheme("github-dark-default", null);
+
+    // Two hunks far apart. Both notes hang from the second hunk and land on its first row:
+    // one is anchored there, the other to a line the collapsed gap swallowed.
+    const beforeLines = Array.from(
+      { length: 80 },
+      (_, index) => `export const line${index + 1} = ${index + 1};`,
+    );
+    const afterLines = [...beforeLines];
+    afterLines[0] = "export const line1 = 100;";
+    afterLines[59] = "export const line60 = 6000;";
+
+    const file = createTestDiffFile(
+      "policy-note",
+      "policy-note.ts",
+      lines(...beforeLines),
+      lines(...afterLines),
+    );
+    const hunkFirstLine = file.metadata.hunks[1]!.additionStart;
+    file.agent = {
+      path: file.path,
+      summary: "file note",
+      annotations: [
+        {
+          newRange: [hunkFirstLine, hunkFirstLine],
+          summary: "HUNK NOTE",
+          // Tall enough that revealing the note below it pushes this one off the top.
+          rationale: Array.from({ length: 6 }, (_, index) => `filler line ${index + 1}`).join(" "),
+        },
+        { newRange: [hunkFirstLine - 20, hunkFirstLine - 20], summary: "GAP NOTE" },
+      ],
+    };
+
+    const props = createDiffPaneProps([file], theme, {
+      diffContentWidth: 40,
+      headerLabelWidth: 20,
+      selectedFileId: file.id,
+      selectedHunkIndex: 1,
+      scrollToNote: true,
+      separatorWidth: 44,
+      showAgentNotes: true,
+      showHunkHeaders: true,
+      width: 48,
+    });
+    const setup = await testRender(<DiffPane {...props} />, { width: 52, height: 12 });
+
+    try {
+      await settleDiffPane(setup);
+      const frame = setup.captureCharFrame();
+
+      // Both notes sit on the same row, so the note drawn first is the one a scan of the
+      // hunk's rows finds. The shared policy takes the earliest anchor instead.
+      expect(frame).toContain("GAP NOTE");
+      expect(frame).not.toContain("HUNK NOTE");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("DiffPane reveal is not confused by an explicit note id that spells an index", async () => {
+    const theme = resolveTheme("github-dark-default", null);
+
+    // Same geometry as the policy test above, but the notes' identities collide under an
+    // index-based id scheme: the policy's winner has no id and sits at index 0, while the
+    // decoy's explicit id is the string "0". If synthesized and explicit ids share a
+    // namespace, the reveal resolves the winner's id to the decoy's row.
+    const beforeLines = Array.from(
+      { length: 80 },
+      (_, index) => `export const line${index + 1} = ${index + 1};`,
+    );
+    const afterLines = [...beforeLines];
+    afterLines[0] = "export const line1 = 100;";
+    afterLines[59] = "export const line60 = 6000;";
+
+    const file = createTestDiffFile(
+      "collide-note",
+      "collide-note.ts",
+      lines(...beforeLines),
+      lines(...afterLines),
+    );
+    const hunkFirstLine = file.metadata.hunks[1]!.additionStart;
+    file.agent = {
+      path: file.path,
+      summary: "file note",
+      annotations: [
+        // The reveal's rightful target: the only note in the selected hunk, with the
+        // explicit id "1" — the string the decoy's index synthesizes.
+        {
+          id: "1",
+          newRange: [hunkFirstLine, hunkFirstLine],
+          summary: "COLLIDE TARGET",
+        },
+        // An id-less note at index 1, two viewports away in the first hunk. Under a shared
+        // namespace its row registers last under the target's id, so the reveal scrolls here.
+        { newRange: [1, 1], summary: "COLLIDE DECOY" },
+      ],
+    };
+
+    const props = createDiffPaneProps([file], theme, {
+      diffContentWidth: 40,
+      headerLabelWidth: 20,
+      selectedFileId: file.id,
+      selectedHunkIndex: 1,
+      scrollToNote: true,
+      separatorWidth: 44,
+      showAgentNotes: true,
+      showHunkHeaders: true,
+      width: 48,
+    });
+    const setup = await testRender(<DiffPane {...props} />, { width: 52, height: 12 });
+
+    try {
+      await settleDiffPane(setup);
+      const frame = setup.captureCharFrame();
+
+      // The shared policy names the earliest-anchored note; its id must resolve to its own
+      // row even though another note's explicit id spells the winner's index.
+      expect(frame).toContain("COLLIDE TARGET");
+      expect(frame).not.toContain("COLLIDE DECOY");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
   test("AgentCard removes top and bottom padding while keeping the footer inside the frame", async () => {
     const theme = resolveTheme("github-dark-default", null);
     const frame = await captureFrame(
@@ -3350,13 +3480,13 @@ describe("UI components", () => {
         width={88}
         selectedHunkIndex={0}
         visibleAgentNotes={[
-          {
+          createVisibleAgentNote(file.metadata.hunks, {
             id: "note:ungrounded",
             annotation: {
               summary: "Ungrounded note",
               rationale: "Falls back to the first visible row.",
             },
-          },
+          }),
         ]}
         showHunkHeaders={false}
         scrollable={false}
