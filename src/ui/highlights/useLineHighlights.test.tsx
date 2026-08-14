@@ -7,7 +7,11 @@ import type { RegisteredLineHighlighter } from "../../extensions/types";
 import { bumpScopedEpoch } from "../lib/scopedEpochs";
 import { registeredLineHighlighterKey, type LineHighlightEpochState } from "./state";
 import { runLineHighlightRequest, useLineHighlights } from "./useLineHighlights";
-import type { ValidatedLineHighlight } from "./validate";
+import {
+  MAX_LINE_HIGHLIGHTS_PER_FILE,
+  MAX_MERGED_LINE_HIGHLIGHTS_PER_FILE,
+  type ValidatedLineHighlight,
+} from "./validate";
 
 /** Build one registration with a test-controlled highlight callback. */
 function createTestHighlighter(
@@ -236,6 +240,213 @@ describe("useLineHighlights", () => {
       expect(latest.get(file.id)).toBeUndefined();
       expect(issues).toHaveLength(1);
       expect(issues[0]).toContain("marks dropped");
+    } finally {
+      await act(async () => setup.renderer.destroy());
+    }
+  });
+
+  test("publishes each file as it lands instead of behind one slow highlighter", async () => {
+    const quickFile = createTestDiffFile({
+      id: "quick",
+      path: "quick.ts",
+      before: "old\n",
+      after: "new\n",
+    });
+    const slowFile = createTestDiffFile({
+      id: "slow",
+      path: "slow.ts",
+      before: "old\n",
+      after: "new\n",
+    });
+    // The slow file never settles, exactly like a highlighter running into its
+    // timeout on every file of a large changeset.
+    const highlighter = createTestHighlighter((input) =>
+      input.file.id === slowFile.id
+        ? new Promise(() => {})
+        : [{ side: "new", line: 1, range: [0, 3] } satisfies ExtensionLineHighlight],
+    );
+    let latest: ReadonlyMap<string, readonly ValidatedLineHighlight[]> = new Map();
+    const bothFiles = [slowFile, quickFile];
+    const highlighters = [highlighter];
+
+    function Harness() {
+      latest = useLineHighlights({
+        files: bothFiles,
+        highlighters,
+        onIssue: ignoreIssue,
+      });
+      return null;
+    }
+
+    const setup = await testRender(createElement(Harness), { width: 10, height: 2 });
+    try {
+      await act(async () => {
+        await Promise.resolve();
+        await setup.renderOnce();
+        await Promise.resolve();
+        await setup.renderOnce();
+      });
+
+      expect(latest.get(quickFile.id)).toEqual([
+        { side: "new", line: 1, start: 0, end: 3, tone: "match" },
+      ]);
+      expect(latest.get(slowFile.id)).toBeUndefined();
+    } finally {
+      await act(async () => setup.renderer.destroy());
+    }
+  });
+
+  test("stops publishing a file's marks once the review replaces that file", async () => {
+    // Reloads usually reuse file ids, so marks addressed at the previous text
+    // would otherwise keep painting at their old offsets on new content for as
+    // long as the replacement takes to prepare.
+    const reloaded = createTestDiffFile({
+      id: file.id,
+      path: file.path,
+      before: "old\n",
+      after: "a completely different line\n",
+    });
+    // The replacement's marks never settle, so anything the map still exposes
+    // for that id is the previous review's.
+    let requests = 0;
+    const highlighter = createTestHighlighter(() =>
+      requests++ === 0
+        ? [{ side: "new", line: 1, range: [0, 3] } satisfies ExtensionLineHighlight]
+        : new Promise(() => {}),
+    );
+    let latest: ReadonlyMap<string, readonly ValidatedLineHighlight[]> = new Map();
+    let reload = () => {};
+    const highlighters = [highlighter];
+
+    function Harness() {
+      const [current, setCurrent] = useState(files);
+      reload = () => setCurrent([reloaded]);
+      latest = useLineHighlights({
+        files: current,
+        highlighters,
+        onIssue: ignoreIssue,
+      });
+      return null;
+    }
+
+    const setup = await testRender(createElement(Harness), { width: 10, height: 2 });
+    try {
+      await act(async () => {
+        await Promise.resolve();
+        await setup.renderOnce();
+        await Promise.resolve();
+        await setup.renderOnce();
+      });
+      expect(latest.get(file.id)).toBeDefined();
+
+      await act(async () => {
+        reload();
+        await setup.renderOnce();
+        await Promise.resolve();
+        await setup.renderOnce();
+      });
+
+      expect(latest.get(reloaded.id)).toBeUndefined();
+    } finally {
+      await act(async () => setup.renderer.destroy());
+    }
+  });
+
+  test("keeps every active file's result retained, however many files the review has", async () => {
+    // Retention used to stop at a fixed entry ceiling, so a review with more
+    // active (file, highlighter) pairs than the ceiling evicted live results
+    // and refreshing one file reran unrelated ones.
+    const manyFiles = Array.from({ length: 600 }, (_, index) =>
+      createTestDiffFile({
+        id: `file-${index}`,
+        path: `file-${index}.ts`,
+        before: "old\n",
+        after: "new\n",
+      }),
+    );
+    const calls: string[] = [];
+    const highlighter = createTestHighlighter((input) => {
+      calls.push(input.file.id);
+      return [{ side: "new", line: 1, range: [0, 3] }];
+    });
+    const key = registeredLineHighlighterKey(highlighter);
+    const highlighters = [highlighter];
+    let bump = () => {};
+
+    function Harness() {
+      const [epochs, setEpochs] = useState<LineHighlightEpochState>(() => new Map());
+      bump = () => setEpochs((current) => bumpScopedEpoch(current, key, "file-0"));
+      useLineHighlights({ files: manyFiles, highlighters, epochs, onIssue: ignoreIssue });
+      return null;
+    }
+
+    const setup = await testRender(createElement(Harness), { width: 10, height: 2 });
+    try {
+      await act(async () => {
+        for (let turn = 0; turn < 20_000 && calls.length < manyFiles.length; turn += 1) {
+          await Promise.resolve();
+        }
+        await setup.renderOnce();
+      });
+      expect(calls).toHaveLength(manyFiles.length);
+
+      calls.length = 0;
+      await act(async () => {
+        bump();
+        await setup.renderOnce();
+        for (let turn = 0; turn < 20_000 && calls.length === 0; turn += 1) {
+          await Promise.resolve();
+        }
+        await setup.renderOnce();
+      });
+
+      expect(calls).toEqual(["file-0"]);
+    } finally {
+      await act(async () => setup.renderer.destroy());
+    }
+  });
+
+  test("drops the highlighter that pushes one file past the merged cap", async () => {
+    // Each highlighter stays under its own per-file cap; only the merge exceeds
+    // what paint should have to carry.
+    const issues: string[] = [];
+    const fullResult = Array.from({ length: MAX_LINE_HIGHLIGHTS_PER_FILE }, (_, index) => ({
+      side: "new" as const,
+      line: Math.floor(index / 50) + 1,
+      range: [index, index + 1] as const,
+    }));
+    const highlighters = [
+      createTestHighlighter(() => fullResult, "first"),
+      createTestHighlighter(() => fullResult, "second"),
+      createTestHighlighter(
+        () => [{ side: "new" as const, line: 1, range: [0, 1] as const }],
+        "third",
+      ),
+    ];
+    let latest: ReadonlyMap<string, readonly ValidatedLineHighlight[]> = new Map();
+
+    function Harness() {
+      latest = useLineHighlights({
+        files,
+        highlighters,
+        onIssue: (message) => issues.push(message),
+      });
+      return null;
+    }
+
+    const setup = await testRender(createElement(Harness), { width: 10, height: 2 });
+    try {
+      await act(async () => {
+        await Promise.resolve();
+        await setup.renderOnce();
+        await Promise.resolve();
+        await setup.renderOnce();
+      });
+
+      expect(latest.get(file.id)).toHaveLength(MAX_MERGED_LINE_HIGHLIGHTS_PER_FILE);
+      expect(issues).toHaveLength(1);
+      expect(issues[0]).toContain('line highlighter "third"');
+      expect(issues[0]).toContain("merged ranges");
     } finally {
       await act(async () => setup.renderer.destroy());
     }
