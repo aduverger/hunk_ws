@@ -472,6 +472,11 @@ export function App({
   const currentLinePaintPending =
     currentLinePaintState.status === "pending" ||
     (currentLinePaintState.status === "ready" && !currentLinePaintMatchesCursor);
+  /** The review stream's current line, or null when line-level navigation is off. */
+  const activeLineCursor = useMemo(
+    () => (cursorLine === "off" ? null : review.lineCursor),
+    [cursorLine, review.lineCursor],
+  );
   const sessionFileViews = useMemo(
     () => (extensions ? resolveExtensionFileViews(extensions.registry).views : []),
     [extensions],
@@ -1384,7 +1389,7 @@ export function App({
 
   /** Step one line: move the current line, or scroll the viewport when there is no marker. */
   const stepDiffLine = (delta: number) => {
-    if (cursorLine === "off" || !review.lineCursor) {
+    if (!activeLineCursor) {
       scrollDiff(delta, "step");
       return;
     }
@@ -1745,6 +1750,7 @@ export function App({
     const message = openSelectedFileInEditor({
       basePath,
       file: selectedFile,
+      lineCursor: activeLineCursor,
       renderer,
       selectedHunk: review.selectedHunk,
     });
@@ -1758,6 +1764,7 @@ export function App({
       triggerRefreshCurrentInput();
     }
   }, [
+    activeLineCursor,
     bootstrap.changeset.sourceLabel,
     bootstrap.input.kind,
     canRefreshCurrentInput,
@@ -1911,8 +1918,7 @@ export function App({
   const startUserNote = useCallback(
     (fileId?: string, hunkIndex?: number, target?: UserNoteLineTarget) => {
       const hoverTarget = fileId === undefined ? activeAddNoteTarget : null;
-      const keyboardTarget =
-        hoverTarget ?? (fileId === undefined && cursorLine !== "off" ? review.lineCursor : null);
+      const keyboardTarget = hoverTarget ?? (fileId === undefined ? activeLineCursor : null);
       const draft = review.startUserNote(
         fileId ?? keyboardTarget?.fileId,
         hunkIndex ?? keyboardTarget?.hunkIndex,
@@ -1924,7 +1930,7 @@ export function App({
         setFocusArea("note");
       }
     },
-    [activeAddNoteTarget, cursorLine, review.lineCursor, review.startUserNote],
+    [activeAddNoteTarget, activeLineCursor, review.startUserNote],
   );
 
   /** Mark the inline draft note textarea as the active keyboard input. */
