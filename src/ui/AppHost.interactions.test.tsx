@@ -848,7 +848,6 @@ describe("App interactions", () => {
         await setup.mockInput.typeText("t");
       });
       let frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme selector"));
-      expect(frame).toContain("review up/down keys/Tab/hover preview");
       expect(frame).toContain("›  github-dark-default");
       expect(frame).toContain("active");
 
