@@ -5,8 +5,10 @@ import type { DiffFile } from "../../core/types";
 import {
   buildSplitRows,
   buildStackRows,
+  HIGHLIGHT_WORKER_MIN_LINES,
   highlightedDiffLineCount,
   loadHighlightedDiff,
+  shouldOffloadHighlight,
   loadHighlightedSourceLines,
   shouldHighlightDiff,
   spansForHighlightedSourceLine,
@@ -20,6 +22,7 @@ import { measureTextWidth } from "../lib/text";
 import { TRANSPARENT_BACKGROUND, resolveTheme } from "../themes";
 import { createTestSourceFetcher } from "../../../test/helpers/diff-helpers";
 import { createTestCustomThemes } from "../../../test/helpers/theme-helpers";
+import { registerHighlightWorker } from "./worker";
 
 function createDiffFile(): DiffFile {
   const metadata = parseDiffFromFile(
@@ -121,6 +124,80 @@ function createElixirHeredocDiffFile(sourceFetcher?: DiffFile["sourceFetcher"]):
   };
 }
 
+/** Build a large changed TypeScript file that crosses the interactive worker threshold. */
+function createLargeDiffFile(): DiffFile {
+  const additions = Array.from(
+    { length: HIGHLIGHT_WORKER_MIN_LINES },
+    (_, index) => `export const generated${index} = ${index};`,
+  ).join("\n");
+  const metadata = parseDiffFromFile(
+    {
+      name: "large.ts",
+      contents: "export const changed = 1;\n",
+      cacheKey: "large-before",
+    },
+    {
+      name: "large.ts",
+      contents: `export const changed = 2;\n${additions}\n`,
+      cacheKey: "large-after",
+    },
+    { context: 3 },
+    true,
+  );
+
+  return {
+    id: "large",
+    path: "large.ts",
+    patch: "",
+    language: "typescript",
+    stats: { additions: HIGHLIGHT_WORKER_MIN_LINES + 1, deletions: 1 },
+    metadata,
+    agent: null,
+  };
+}
+
+/** Build a large partial source diff that must remap compact full-source ranges onto its patch. */
+function createLargeSourceBackedDiffFile(prefixLineCount = HIGHLIGHT_WORKER_MIN_LINES): DiffFile {
+  const prefix = Array.from(
+    { length: prefixLineCount },
+    (_, index) => `  value${index} = ${index}`,
+  ).join("\n");
+  const before = `${prefix}\n${ELIXIR_HEREDOC_BEFORE}`;
+  const after = before.replace("Line five.", "Line five, edited.");
+  const patch = createTwoFilesPatch("large.ex", "large.ex", before, after, "", "", { context: 3 });
+  const metadata = parsePatchFiles(patch, "large-source", true)[0]?.files[0];
+  if (!metadata) {
+    throw new Error("Expected large source-backed metadata");
+  }
+
+  return {
+    id: "large-source",
+    path: "large.ex",
+    patch,
+    language: "elixir",
+    stats: { additions: 1, deletions: 1 },
+    metadata,
+    agent: null,
+    sourceFetcher: createTestSourceFetcher((side) => (side === "old" ? before : after)),
+  };
+}
+
+/** Register a worker double that reports a startup failure as soon as it receives work. */
+function registerFailingHighlightWorkerForTest() {
+  const worker = {
+    onmessage: null as ((event: MessageEvent) => void) | null,
+    onerror: null as ((event: ErrorEvent) => void) | null,
+    postMessage() {
+      this.onerror?.({ message: "test worker failure" } as ErrorEvent);
+    },
+    terminate() {
+      return Promise.resolve(0);
+    },
+    unref() {},
+  };
+  registerHighlightWorker(worker as unknown as Worker);
+}
+
 function createEmptyLineDiffFile(): DiffFile {
   const metadata = parseDiffFromFile(
     {
@@ -213,6 +290,152 @@ describe("Pierre diff rows", () => {
 
     // A source file of ordinary size is unaffected.
     expect(shouldHighlightDiff(createDiffFile())).toBe(true);
+  });
+
+  test("matches inline spans when a large bundled-theme diff uses the worker", async () => {
+    const file = createLargeDiffFile();
+    const theme = resolveTheme("github-dark-default", null);
+
+    expect(shouldOffloadHighlight(file.metadata, theme, { offloadLargeDiff: true })).toBe(true);
+
+    const [inline, offloaded] = await Promise.all([
+      loadHighlightedDiff(file, theme),
+      loadHighlightedDiff(file, theme, { offloadLargeDiff: true }),
+    ]);
+    const inlineRows = buildSplitRows(file, inline, theme);
+    const workerRows = buildSplitRows(file, offloaded, theme);
+
+    expect(offloaded.deletionLines).toEqual([]);
+    expect(offloaded.additionLines).toEqual([]);
+    expect(offloaded.compact?.payload.foregroundPalette.length).toBeGreaterThan(0);
+    expect(workerRows).toEqual(inlineRows);
+    const changedRow = workerRows.find(
+      (row) =>
+        row.type === "split-line" && row.left.kind === "deletion" && row.right.kind === "addition",
+    );
+    expect(
+      changedRow?.type === "split-line" && changedRow.right.spans.some((span) => span.bg),
+    ).toBe(true);
+  }, 30_000);
+
+  test("maps compact full-source worker ranges back onto a partial patch", async () => {
+    const file = createLargeSourceBackedDiffFile();
+    const theme = resolveTheme("github-dark-default", null);
+
+    const [inline, offloaded] = await Promise.all([
+      loadHighlightedDiff(file, theme),
+      loadHighlightedDiff(file, theme, { offloadLargeDiff: true }),
+    ]);
+
+    expect(offloaded.compact?.deletionLineMap).toHaveLength(file.metadata.deletionLines.length);
+    expect(offloaded.compact?.additionLineMap).toHaveLength(file.metadata.additionLines.length);
+    expect(buildStackRows(file, offloaded, theme)).toEqual(buildStackRows(file, inline, theme));
+  }, 30_000);
+
+  test("falls back to plain spans for an out-of-range compact source mapping", () => {
+    const file = createDiffFile();
+    const theme = resolveTheme("github-dark-default", null);
+    const emptySide = {
+      lineOffsets: Uint32Array.of(0, 0),
+      starts: new Uint32Array(),
+      ends: new Uint32Array(),
+      styleIds: new Uint16Array(),
+      flags: new Uint8Array(),
+    };
+    const highlighted = {
+      deletionLines: [],
+      additionLines: [],
+      compact: {
+        payload: {
+          version: 1 as const,
+          foregroundPalette: [],
+          deletion: emptySide,
+          addition: emptySide,
+        },
+        deletionLineMap: Array.from({ length: file.metadata.deletionLines.length }, () => 10_000),
+        additionLineMap: Array.from({ length: file.metadata.additionLines.length }, () => 10_000),
+      },
+    };
+
+    let rows: ReturnType<typeof buildSplitRows> = [];
+    expect(() => {
+      rows = buildSplitRows(file, highlighted, theme);
+    }).not.toThrow();
+    const changedRow = rows.find(
+      (row) =>
+        row.type === "split-line" && row.left.kind === "deletion" && row.right.kind === "addition",
+    );
+    expect(changedRow?.type).toBe("split-line");
+    expect(
+      changedRow?.type === "split-line" ? changedRow.left.spans.some((span) => span.fg) : true,
+    ).toBe(false);
+  });
+
+  test("matches inline context styling for a large patch-only diff", async () => {
+    const context = Array.from(
+      { length: HIGHLIGHT_WORKER_MIN_LINES },
+      (_, index) => `const gap${index} = ${index};`,
+    );
+    const before = [`const message = "closed";`, ...context, "const target = 1;", ""].join("\n");
+    const after = ["const message = `open", ...context, "const target = 2;`", ""].join("\n");
+    const patch = createTwoFilesPatch("state.ts", "state.ts", before, after, "", "", {
+      context: HIGHLIGHT_WORKER_MIN_LINES + 2,
+    });
+    const metadata = parsePatchFiles(patch, "large-patch-only-state", true)[0]?.files[0];
+    if (!metadata) {
+      throw new Error("Expected large patch-only grammar-state metadata");
+    }
+    const file: DiffFile = {
+      id: "large-patch-only-state",
+      path: "state.ts",
+      patch,
+      language: "typescript",
+      stats: { additions: 2, deletions: 2 },
+      metadata,
+      agent: null,
+    };
+    const theme = resolveTheme("github-dark-default", null);
+
+    const [inline, offloaded] = await Promise.all([
+      loadHighlightedDiff(file, theme),
+      loadHighlightedDiff(file, theme, { offloadLargeDiff: true }),
+    ]);
+
+    expect(offloaded.compact).toBeDefined();
+    expect(buildSplitRows(file, offloaded, theme)).toEqual(buildSplitRows(file, inline, theme));
+  }, 30_000);
+
+  test("falls back to patch highlighting when source-backed metadata exceeds the cap", async () => {
+    // A 6,000-line file produces 12,000 full-source side lines, although the visible patch has
+    // only one changed line. It should use the safe patch fragment rather than render plain rows.
+    const file = createLargeSourceBackedDiffFile(HIGHLIGHT_WORKER_MIN_LINES * 3);
+    const theme = resolveTheme("github-dark-default", null);
+    const highlighted = await loadHighlightedDiff(file, theme);
+    const rows = buildStackRows(file, highlighted, theme);
+    const functionRow = rows.find(
+      (row) =>
+        row.type === "stack-line" && row.cell.spans.some((span) => span.text.includes("def hello")),
+    );
+
+    expect(shouldHighlightDiff(file)).toBe(true);
+    expect(highlighted.deletionLines).toHaveLength(file.metadata.deletionLines.length);
+    expect(highlighted.additionLines).toHaveLength(file.metadata.additionLines.length);
+    expect(functionRow?.type).toBe("stack-line");
+    expect(functionRow?.type === "stack-line" ? functionRow.cell.spans[0]?.fg : undefined).toBe(
+      "#A5D6FF",
+    );
+  });
+
+  test("falls back to plain text when the large-diff worker fails", async () => {
+    registerFailingHighlightWorkerForTest();
+    const file = createLargeDiffFile();
+    const theme = resolveTheme("github-dark-default", null);
+
+    await expect(loadHighlightedDiff(file, theme, { offloadLargeDiff: true })).resolves.toEqual({
+      deletionLines: [],
+      additionLines: [],
+      retryable: true,
+    });
   });
 
   test("uses full source to keep partial Elixir hunks inside the correct heredoc state", async () => {

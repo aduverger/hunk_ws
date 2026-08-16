@@ -86,8 +86,12 @@ export function highlightedDiffCacheKey(theme: AppTheme, file: DiffFile) {
   return `${theme.id}:${syntaxHighlightThemeName(theme)}:${file.id}:${patchFingerprint(file)}:${sourceFetcherFingerprint(file)}`;
 }
 
-/** Only commit a highlight result if the promise is still the active one for that key.
- *  Prevents a superseded or late-resolving promise from overwriting a newer entry. */
+/**
+ * Commit one cacheable highlight result if its promise is still active for that key.
+ *
+ * A transient worker failure resolves to plain rows with `retryable`, which updates the current
+ * view but must not occupy the shared cache and prevent a later worker retry.
+ */
 function commitHighlightResult(
   cacheKey: string,
   promise: Promise<HighlightedDiffCode>,
@@ -98,7 +102,9 @@ function commitHighlightResult(
   }
 
   SHARED_HIGHLIGHT_PROMISES.delete(cacheKey);
-  SHARED_HIGHLIGHTED_DIFF_CACHE.set(cacheKey, result);
+  if (!result.retryable) {
+    SHARED_HIGHLIGHTED_DIFF_CACHE.set(cacheKey, result);
+  }
   return true;
 }
 
@@ -106,6 +112,7 @@ function commitHighlightResult(
 function ensureHighlightedDiffLoaded(
   file: DiffFile,
   theme: AppTheme,
+  offloadLargeDiff: boolean,
   cacheKey = highlightedDiffCacheKey(theme, file),
 ) {
   // Viewport prefetch calls this for every file in its halo on each scroll, so this read is also
@@ -122,7 +129,7 @@ function ensureHighlightedDiffLoaded(
   }
 
   let pending: Promise<HighlightedDiffCode>;
-  pending = loadHighlightedDiff(file, theme)
+  pending = loadHighlightedDiff(file, theme, { offloadLargeDiff })
     .then((nextHighlighted) => {
       commitHighlightResult(cacheKey, pending, nextHighlighted);
       return nextHighlighted;
@@ -141,8 +148,16 @@ function ensureHighlightedDiffLoaded(
 }
 
 /** Queue syntax highlighting for one file without mounting its diff rows first. */
-export function prefetchHighlightedDiff({ file, theme }: { file: DiffFile; theme: AppTheme }) {
-  return ensureHighlightedDiffLoaded(file, theme);
+export function prefetchHighlightedDiff({
+  file,
+  offloadLargeDiff = false,
+  theme,
+}: {
+  file: DiffFile;
+  offloadLargeDiff?: boolean;
+  theme: AppTheme;
+}) {
+  return ensureHighlightedDiffLoaded(file, theme, offloadLargeDiff);
 }
 
 /** Read the best already-available highlight result without starting async work during render. */
@@ -171,10 +186,12 @@ function resolveHighlightedSnapshot({
 /** Resolve highlighted diff content with shared caching and background prefetch support. */
 export function useHighlightedDiff({
   file,
+  offloadLargeDiff = false,
   theme,
   shouldLoadHighlight,
 }: {
   file: DiffFile | undefined;
+  offloadLargeDiff?: boolean;
   theme: AppTheme;
   shouldLoadHighlight?: boolean;
 }) {
@@ -209,19 +226,21 @@ export function useHighlightedDiff({
     let cancelled = false;
     setHighlighted(null);
 
-    ensureHighlightedDiffLoaded(file, theme, appearanceCacheKey).then((nextHighlighted) => {
-      if (cancelled) {
-        return;
-      }
+    ensureHighlightedDiffLoaded(file, theme, offloadLargeDiff, appearanceCacheKey).then(
+      (nextHighlighted) => {
+        if (cancelled) {
+          return;
+        }
 
-      setHighlighted(nextHighlighted);
-      setHighlightedCacheKey(appearanceCacheKey);
-    });
+        setHighlighted(nextHighlighted);
+        setHighlightedCacheKey(appearanceCacheKey);
+      },
+    );
 
     return () => {
       cancelled = true;
     };
-  }, [appearanceCacheKey, file, highlightedCacheKey, shouldLoadHighlight]);
+  }, [appearanceCacheKey, file, highlightedCacheKey, offloadLargeDiff, shouldLoadHighlight]);
 
   // Prefer cached highlights during render so revisiting a file can paint immediately.
   return resolveHighlightedSnapshot({
