@@ -114,9 +114,10 @@ async function launchWithExtension(repo: string, extPath: string): Promise<AppBo
 async function withAppHost(
   bootstrap: AppBootstrap,
   body: (setup: Awaited<ReturnType<typeof testRender>>) => Promise<void>,
+  width = 240,
 ) {
-  // The sidebar only renders on a "full" viewport, which starts at 220 columns.
-  const setup = await testRender(<AppHost bootstrap={bootstrap} />, { width: 240, height: 30 });
+  // Sidebars need the 240-column default; edge-specific tests may request a narrower viewport.
+  const setup = await testRender(<AppHost bootstrap={bootstrap} />, { width, height: 30 });
 
   try {
     await flush(setup);
@@ -319,7 +320,7 @@ describe("extension sidebar views", () => {
     });
   });
 
-  test("opening a view through a command reveals a sidebar area hidden with s", async () => {
+  test("files and extension panes toggle independently", async () => {
     const repo = createTestRepo("hunk-ext-sidebar-reveal-");
     const extPath = join(createTempDir("hunk-ext-sidebar-reveal-ext-"), "ext.ts");
     writeFileSync(
@@ -355,8 +356,8 @@ describe("extension sidebar views", () => {
         "the s key to hide the sidebar area",
       );
 
-      // Opening a view is a request to see it: the hidden area reveals again,
-      // with the extension pane beside the still-open files pane.
+      // Opening an extension pane reveals only that pane; `s` closed the files
+      // pane rather than hiding one shared area around both pane states.
       await act(async () => {
         await setup.mockInput.typeText("y");
       });
@@ -364,9 +365,33 @@ describe("extension sidebar views", () => {
         setup,
         () => {
           const frame = setup.captureCharFrame();
+          return frame.includes("EXTSIDEBAR") && !frame.includes("M alpha.txt");
+        },
+        "the command to open only the extension pane",
+      );
+
+      await act(async () => {
+        await setup.mockInput.typeText("s");
+      });
+      await flushUntil(
+        setup,
+        () => {
+          const frame = setup.captureCharFrame();
           return frame.includes("EXTSIDEBAR") && frame.includes("M alpha.txt");
         },
-        "the command to reveal the sidebar area with the opened view",
+        "the s key to reopen files without closing the extension pane",
+      );
+
+      await act(async () => {
+        await setup.mockInput.typeText("s");
+      });
+      await flushUntil(
+        setup,
+        () => {
+          const frame = setup.captureCharFrame();
+          return frame.includes("EXTSIDEBAR") && !frame.includes("M alpha.txt");
+        },
+        "the s key to close files without closing the extension pane",
       );
     });
   });
@@ -458,6 +483,172 @@ describe("extension sidebar views", () => {
     });
   });
 
+  test("one registered pane owns the named files slot", async () => {
+    const repo = createTestRepo("hunk-ext-sidebar-replacement-owner-");
+    const extPath = join(createTempDir("hunk-ext-sidebar-replacement-owner-ext-"), "ext.ts");
+    writeFileSync(
+      extPath,
+      `import { createElement } from "react";\n` +
+        `export default function (hunk) {\n` +
+        `  hunk.registerPane({\n` +
+        `    id: "first-files",\n` +
+        `    replaces: "hunk:files",\n` +
+        `    component: () => createElement("text", { content: "FIRST FILES PANE" }),\n` +
+        `  });\n` +
+        `  hunk.registerPane({\n` +
+        `    id: "second-files",\n` +
+        `    replaces: "hunk:files",\n` +
+        `    component: () => createElement("text", { content: "SECOND FILES PANE" }),\n` +
+        `  });\n` +
+        `}\n`,
+    );
+
+    const bootstrap = await launchWithExtension(repo, extPath);
+    await withAppHost(bootstrap, async (setup) => {
+      await flushUntil(
+        setup,
+        () => setup.captureCharFrame().includes("FIRST FILES PANE"),
+        "the first registered files replacement to own the slot",
+      );
+      expect(setup.captureCharFrame()).not.toContain("SECOND FILES PANE");
+
+      await act(async () => {
+        await setup.mockInput.typeText("s");
+      });
+      await flushUntil(
+        setup,
+        () => !setup.captureCharFrame().includes("FIRST FILES PANE"),
+        "the files command to close the slot owner",
+      );
+      expect(setup.captureCharFrame()).not.toContain("SECOND FILES PANE");
+
+      await act(async () => {
+        await setup.mockInput.typeText("s");
+      });
+      await flushUntil(
+        setup,
+        () => setup.captureCharFrame().includes("FIRST FILES PANE"),
+        "the files command to reopen the same named slot owner",
+      );
+      expect(setup.captureCharFrame()).not.toContain("SECOND FILES PANE");
+    });
+  });
+
+  test("the View menu reflects the files slot instead of an independent side pane", async () => {
+    const repo = createTestRepo("hunk-ext-sidebar-menu-slot-");
+    const extPath = join(createTempDir("hunk-ext-sidebar-menu-slot-ext-"), "ext.ts");
+    writeFileSync(
+      extPath,
+      `import { createElement } from "react";\n` +
+        `export default function (hunk) {\n` +
+        `  hunk.registerPane({\n` +
+        `    id: "files-owner",\n` +
+        `    replaces: "hunk:files",\n` +
+        `    component: () => createElement("text", { content: "FILES SLOT OWNER" }),\n` +
+        `  });\n` +
+        `  hunk.registerPane({\n` +
+        `    id: "independent",\n` +
+        `    placement: "right",\n` +
+        `    defaultOpen: true,\n` +
+        `    component: () => createElement("text", { content: "INDEPENDENT PANE" }),\n` +
+        `  });\n` +
+        `}\n`,
+    );
+
+    const bootstrap = await launchWithExtension(repo, extPath);
+    await withAppHost(bootstrap, async (setup) => {
+      await flushUntil(
+        setup,
+        () => {
+          const frame = setup.captureCharFrame();
+          return frame.includes("FILES SLOT OWNER") && frame.includes("INDEPENDENT PANE");
+        },
+        "both side panes to render",
+      );
+
+      await act(async () => {
+        await setup.mockInput.typeText("s");
+      });
+      await flushUntil(
+        setup,
+        () => {
+          const frame = setup.captureCharFrame();
+          return !frame.includes("FILES SLOT OWNER") && frame.includes("INDEPENDENT PANE");
+        },
+        "the files slot to close without hiding the independent pane",
+      );
+
+      await act(async () => {
+        await setup.mockInput.pressKey("F10");
+      });
+      await flushUntil(
+        setup,
+        () => setup.captureCharFrame().includes("Toggle files/filter focus"),
+        "the File menu to open",
+      );
+      await act(async () => {
+        await setup.mockInput.pressArrow("right");
+      });
+      await flushUntil(
+        setup,
+        () => setup.captureCharFrame().includes("Files pane"),
+        "the View menu to open",
+      );
+
+      expect(setup.captureCharFrame()).toContain("[ ] Files pane");
+      expect(setup.captureCharFrame()).not.toContain("[x] Files pane");
+    });
+  });
+
+  test("the files command toggles a bottom-edge replacement at medium width", async () => {
+    const repo = createTestRepo("hunk-ext-bottom-files-slot-");
+    const extPath = join(createTempDir("hunk-ext-bottom-files-slot-ext-"), "ext.ts");
+    writeFileSync(
+      extPath,
+      `import { createElement } from "react";\n` +
+        `export default function (hunk) {\n` +
+        `  hunk.registerPane({\n` +
+        `    id: "bottom-files",\n` +
+        `    placement: "bottom",\n` +
+        `    height: { preferred: 1, min: 1, max: 1 },\n` +
+        `    replaces: "hunk:files",\n` +
+        `    component: () => createElement("text", { content: "BOTTOM FILES SLOT" }),\n` +
+        `  });\n` +
+        `}\n`,
+    );
+
+    const bootstrap = await launchWithExtension(repo, extPath);
+    await withAppHost(
+      bootstrap,
+      async (setup) => {
+        await flushUntil(
+          setup,
+          () => setup.captureCharFrame().includes("BOTTOM FILES SLOT"),
+          "the bottom-edge files replacement to render",
+        );
+
+        await act(async () => {
+          await setup.mockInput.typeText("s");
+        });
+        await flushUntil(
+          setup,
+          () => !setup.captureCharFrame().includes("BOTTOM FILES SLOT"),
+          "the files command to close the bottom-edge replacement",
+        );
+
+        await act(async () => {
+          await setup.mockInput.typeText("s");
+        });
+        await flushUntil(
+          setup,
+          () => setup.captureCharFrame().includes("BOTTOM FILES SLOT"),
+          "the files command to reopen the bottom-edge replacement",
+        );
+      },
+      180,
+    );
+  });
+
   test("closes a crashing extra view and restores the built-in sidebar", async () => {
     const repo = createTestRepo("hunk-ext-sidebar-broken-");
     const extPath = join(createTempDir("hunk-ext-sidebar-broken-ext-"), "ext.ts");
@@ -487,6 +678,24 @@ describe("extension sidebar views", () => {
         setup,
         () => setup.captureCharFrame().includes("M alpha.txt"),
         "the built-in sidebar to reopen after the crash",
+      );
+
+      await act(async () => {
+        await setup.mockInput.typeText("s");
+      });
+      await flushUntil(
+        setup,
+        () => !setup.captureCharFrame().includes("M alpha.txt"),
+        "the s key to close the visible built-in fallback",
+      );
+
+      await act(async () => {
+        await setup.mockInput.typeText("s");
+      });
+      await flushUntil(
+        setup,
+        () => setup.captureCharFrame().includes("M alpha.txt"),
+        "the s key to reopen the built-in fallback",
       );
     });
   });

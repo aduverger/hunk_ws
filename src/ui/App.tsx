@@ -128,6 +128,7 @@ import {
   planExtensionPanes,
   reconcilePaneOpenState,
   resolvePaneKey,
+  resolvePaneSlotKey,
   type PlannedPane,
 } from "./lib/extensionPanes";
 import type { ExtensionPanePlacement } from "../extension-api/types";
@@ -1231,6 +1232,14 @@ export function App({
   const renderSidebar = paneLayout.panes.some(
     ({ pane }) => pane.placement === "left" || pane.placement === "right",
   );
+  const visiblePaneKeys = paneLayout.panes.map(({ pane }) => pane.key);
+  const visibleFilesPaneKey = resolvePaneSlotKey({
+    panes: sessionPanes,
+    slotKey: HUNK_FILES_PANE_KEY,
+    openKeys: visiblePaneKeys,
+    quarantined: paneAvailabilityQuarantineRef.current,
+  });
+  const filesPaneVisible = visiblePaneKeys.includes(visibleFilesPaneKey);
   const diffPaneWidth = paneLayout.reviewBounds.width;
   const diffPaneHeight = paneLayout.reviewBounds.height;
   const diffContentWidth = Math.max(0, diffPaneWidth - 2);
@@ -1555,23 +1564,24 @@ export function App({
     acceptThemeSelectorItem(themeSelectorState.selectedIndex);
   }, [acceptThemeSelectorItem, themeSelectorState.selectedIndex]);
 
-  /** Toggle the sidebar, forcing it open on narrower layouts when the app can still fit both panes. */
+  /** Toggle only the active files pane without changing extension pane visibility. */
   const toggleSidebar = () => {
-    if (sidebarVisible && (responsiveLayout.showSidebar || forceSidebarOpen)) {
-      setSidebarVisible(false);
-      setForceSidebarOpen(false);
+    const filesPaneKey = resolvePaneSlotKey({
+      panes: sessionPanes,
+      slotKey: HUNK_FILES_PANE_KEY,
+      openKeys: paneOpenStateRef.current.open,
+      quarantined: paneAvailabilityQuarantineRef.current,
+    });
+
+    const filesPane = sessionPanes.find((pane) => pane.key === filesPaneKey);
+    const usesSidebarArea = filesPane?.placement === "left" || filesPane?.placement === "right";
+    if (usesSidebarArea && !sidebarAreaVisible) {
+      setPaneOpen(filesPaneKey, true);
+      revealSidebarAreaRef.current();
       return;
     }
 
-    if (sidebarVisible && !responsiveLayout.showSidebar) {
-      if (canForceShowSidebar) {
-        setForceSidebarOpen(true);
-      }
-      return;
-    }
-
-    setSidebarVisible(true);
-    setForceSidebarOpen(!responsiveLayout.showSidebar && canForceShowSidebar);
+    setPaneOpen(filesPaneKey, "toggle");
   };
 
   /** Toggle visibility of hunk metadata rows without changing the actual diff lines. */
@@ -2051,7 +2061,7 @@ export function App({
       : undefined,
     copyDecorations,
     layoutMode,
-    renderSidebar,
+    filesPaneVisible,
     showAgentNotes,
     showHelp,
     showHunkHeaders,
@@ -2232,6 +2242,8 @@ export function App({
               : () => {
                   paneAvailabilityQuarantineRef.current.add(pane.registered);
                   if (pane.registered.pane.replaces === HUNK_FILES_PANE_KEY) {
+                    setPaneOpen(pane.key, false);
+                    setPaneOpen(HUNK_FILES_PANE_KEY, true);
                     revealSidebarAreaRef.current();
                   }
                   setPaneFailureEpoch((value) => value + 1);
