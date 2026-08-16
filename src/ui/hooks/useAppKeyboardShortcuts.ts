@@ -7,7 +7,12 @@ import type {
   ExtensionKeyEvent,
 } from "../../extensions/types";
 import type { MenuId } from "../components/chrome/menu";
-import { dispatchAppCommand, executeAppCommand, type AppCommand } from "../lib/appCommands";
+import {
+  dispatchAppCommand,
+  executeAppCommand,
+  type AppCommand,
+  verticalCommandDirection,
+} from "../lib/appCommands";
 import type { ExtensionDialogRequest } from "../lib/extensionDialogs";
 import { toExtensionKeyEvent } from "../lib/extensionKeyEvent";
 import { isEscapeKey, isSaveDraftNoteKey } from "../lib/keyboard";
@@ -185,6 +190,22 @@ export function useAppKeyboardShortcuts({
     key.stopPropagation();
   };
 
+  /**
+   * Move an ordered modal surface through the active review keymap.
+   *
+   * OpenTUI routes keyboard input through this app-level hook rather than modal renderables,
+   * so this is the shared route for every window that presents a vertical selection.
+   */
+  const moveVerticalModalSelection = (key: KeyEvent, move: (delta: number) => void): boolean => {
+    const direction = verticalCommandDirection(commandsRef.current, key);
+    if (direction === undefined) {
+      return false;
+    }
+
+    move(direction);
+    return true;
+  };
+
   /** F10 toggles the menu bar, except while a note draft outranks it. */
   const handleMenuToggleShortcut = (key: KeyEvent): KeyOwner => {
     if (key.name !== "f10") {
@@ -322,6 +343,10 @@ export function useAppKeyboardShortcuts({
     }
 
     if (dialog.kind === "select") {
+      if (moveVerticalModalSelection(key, moveExtensionDialogSelectionRef.current)) {
+        return "mine";
+      }
+
       if (key.name === "up") {
         moveExtensionDialogSelectionRef.current(-1);
         return "mine";
@@ -356,6 +381,10 @@ export function useAppKeyboardShortcuts({
 
     if (isEscapeKey(key)) {
       closeThemeSelector();
+      return "mine";
+    }
+
+    if (moveVerticalModalSelection(key, moveThemeSelector)) {
       return "mine";
     }
 
@@ -409,6 +438,10 @@ export function useAppKeyboardShortcuts({
 
     if (key.name === "right" || key.name === "tab") {
       switchMenu(1);
+      return "mine";
+    }
+
+    if (moveVerticalModalSelection(key, moveMenuItem)) {
       return "mine";
     }
 

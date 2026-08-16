@@ -835,7 +835,7 @@ describe("App interactions", () => {
     }
   });
 
-  test("theme shortcut opens a selector and Enter applies the highlighted theme", async () => {
+  test("theme shortcut opens a selector, j/k move it, and Enter applies the highlighted theme", async () => {
     const setup = await testRender(<AppHost bootstrap={createSingleFileBootstrap()} />, {
       width: 240,
       height: 24,
@@ -848,16 +848,26 @@ describe("App interactions", () => {
         await setup.mockInput.typeText("t");
       });
       let frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("Theme selector"));
-      expect(frame).toContain("↑/↓/Tab/hover preview  Enter/click accept  Esc cancel");
+      expect(frame).toContain("review up/down keys/Tab/hover preview");
       expect(frame).toContain("›  github-dark-default");
       expect(frame).toContain("active");
 
       await act(async () => {
-        await setup.mockInput.pressArrow("down");
+        await setup.mockInput.typeText("j");
       });
       frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("›  github-dark-dimmed"));
       expect(frame).not.toContain("UI");
       expect(frame).not.toContain("Syntax");
+
+      await act(async () => {
+        await setup.mockInput.typeText("k");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("›  github-dark-default"));
+
+      await act(async () => {
+        await setup.mockInput.typeText("j");
+      });
+      await waitForFrame(setup, (nextFrame) => nextFrame.includes("›  github-dark-dimmed"));
 
       await act(async () => {
         await setup.mockInput.pressEnter();

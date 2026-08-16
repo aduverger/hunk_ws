@@ -37,6 +37,9 @@ export type AppCommandLocus = "semantic" | "client-local" | "host-only";
 /** The id group a command lives under, and the menu-level grouping users read. */
 export type AppCommandCategory = "app" | "review" | "view";
 
+/** The direction a command moves a vertically ordered surface. */
+export type VerticalCommandDirection = -1 | 1;
+
 /**
  * What a semantic command does to the review, declared rather than closed over.
  *
@@ -60,6 +63,13 @@ export interface AppCommandCatalogEntry {
   /** Chords the command ships with, before the user's `[keybindings]` are folded in. */
   defaultKeys: readonly string[];
   locus: AppCommandLocus;
+  /**
+   * The direction this command moves an ordered UI surface, when it has one.
+   *
+   * Selector dialogs use this alongside the resolved keymap, so user bindings for review
+   * movement keep working while a modal owns the keyboard.
+   */
+  verticalDirection?: VerticalCommandDirection;
   /** The review effect a semantic command lowers to, where one is already modelled. */
   review?: AppCommandReviewEffect;
   /** True when extension command controls may invoke this command by id. */
@@ -153,6 +163,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: ["pagedown", "space", "f"],
     locus: "client-local",
+    verticalDirection: 1,
     publicToExtensions: true,
   },
   {
@@ -161,6 +172,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: ["pageup", "b", "shift+space"],
     locus: "client-local",
+    verticalDirection: -1,
     publicToExtensions: true,
   },
   {
@@ -169,6 +181,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: ["d"],
     locus: "client-local",
+    verticalDirection: 1,
     publicToExtensions: true,
   },
   {
@@ -177,6 +190,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: ["u"],
     locus: "client-local",
+    verticalDirection: -1,
     publicToExtensions: true,
   },
   {
@@ -185,6 +199,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: ["down", "j"],
     locus: "client-local",
+    verticalDirection: 1,
     publicToExtensions: true,
   },
   {
@@ -193,6 +208,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: ["up", "k"],
     locus: "client-local",
+    verticalDirection: -1,
     publicToExtensions: true,
   },
   {
@@ -407,6 +423,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: ["["],
     locus: "semantic",
+    verticalDirection: -1,
     review: { kind: "selection/move", scope: "hunk", direction: -1 },
     publicToExtensions: true,
     closesMenu: true,
@@ -417,6 +434,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: ["]"],
     locus: "semantic",
+    verticalDirection: 1,
     review: { kind: "selection/move", scope: "hunk", direction: 1 },
     publicToExtensions: true,
     closesMenu: true,
@@ -427,6 +445,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: [","],
     locus: "semantic",
+    verticalDirection: -1,
     review: { kind: "selection/move", scope: "file", direction: -1 },
     publicToExtensions: true,
     closesMenu: true,
@@ -437,6 +456,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: ["."],
     locus: "semantic",
+    verticalDirection: 1,
     review: { kind: "selection/move", scope: "file", direction: 1 },
     publicToExtensions: true,
     closesMenu: true,
@@ -447,6 +467,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: ["{"],
     locus: "semantic",
+    verticalDirection: -1,
     review: { kind: "selection/move", scope: "annotated-hunk", direction: -1 },
     publicToExtensions: true,
     closesMenu: true,
@@ -457,6 +478,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: ["}"],
     locus: "semantic",
+    verticalDirection: 1,
     review: { kind: "selection/move", scope: "annotated-hunk", direction: 1 },
     publicToExtensions: true,
     closesMenu: true,
@@ -467,6 +489,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: [],
     locus: "semantic",
+    verticalDirection: -1,
     review: { kind: "selection/move", scope: "annotated-file", direction: -1 },
     publicToExtensions: true,
     closesMenu: true,
@@ -477,6 +500,7 @@ const BUILTIN_COMMANDS = [
     category: "review",
     defaultKeys: [],
     locus: "semantic",
+    verticalDirection: 1,
     review: { kind: "selection/move", scope: "annotated-file", direction: 1 },
     publicToExtensions: true,
     closesMenu: true,

@@ -3,6 +3,7 @@ import {
   APP_COMMAND_CATALOG,
   type AppCommandCatalogEntry,
   type AppCommandId,
+  type VerticalCommandDirection,
 } from "../../core/commandCatalog";
 import type { ReviewSelectionScope } from "../../core/review/navigation";
 import type { CursorLine, LayoutMode } from "../../core/types";
@@ -71,6 +72,8 @@ export interface AppCommand {
   publicToExtensions: boolean;
   /** Run once with a host-normalized positive movement count. */
   run: (key: KeyEvent, count: number) => void;
+  /** The direction this command moves an ordered UI surface, when it has one. */
+  verticalDirection?: VerticalCommandDirection;
   /** Close an open dropdown menu after running. */
   closesMenu?: boolean;
 }
@@ -280,6 +283,7 @@ function toAppCommand(
     keyLabels: keys.map(formatKeyChord),
     isEnabled: handler.isEnabled,
     publicToExtensions: entry.publicToExtensions,
+    verticalDirection: entry.verticalDirection,
     match: matchesAnyKeyChord(keys),
     run: (key, count) => handler.run(key, count, entry),
     closesMenu: entry.closesMenu,
@@ -386,6 +390,29 @@ export function builtinCommandKeyDefaults(): readonly CommandKeyDefaults[] {
  */
 export function isCommandEnabled(command: AppCommand): boolean {
   return !command.isEnabled || command.isEnabled();
+}
+
+/**
+ * Find the resolved vertical movement binding that matches one key.
+ *
+ * Modal selectors use the same command table as the review, so built-in aliases and user
+ * remaps move the modal instead of dispatching their review action behind it.
+ */
+export function verticalCommandDirection(
+  commands: readonly AppCommand[],
+  key: KeyEvent,
+): VerticalCommandDirection | undefined {
+  for (const command of commands) {
+    if (
+      command.verticalDirection !== undefined &&
+      isCommandEnabled(command) &&
+      command.match(key)
+    ) {
+      return command.verticalDirection;
+    }
+  }
+
+  return undefined;
 }
 
 /**

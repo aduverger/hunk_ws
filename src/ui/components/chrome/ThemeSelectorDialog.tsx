@@ -111,7 +111,10 @@ export function ThemeSelectorDialog({
     >
       <box style={{ width: "100%", height: 1 }}>
         <text fg={theme.muted}>
-          {fitText("↑/↓/Tab/hover preview  Enter/click accept  Esc cancel", bodyWidth)}
+          {fitText(
+            "review up/down keys/Tab/hover preview  Enter/click accept  Esc cancel",
+            bodyWidth,
+          )}
         </text>
       </box>
       <box style={{ width: "100%", height: 1 }} />

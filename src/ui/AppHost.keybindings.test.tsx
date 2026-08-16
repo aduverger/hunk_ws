@@ -183,6 +183,34 @@ describe("user keybindings", () => {
     });
   });
 
+  test("theme selector honors configured vertical review bindings", async () => {
+    const repo = createTestRepo("hunk-keybindings-theme-selector-");
+    const bootstrap = await launchWithConfig(
+      repo,
+      '[keybindings]\n"hunk.review.stepDown" = ["down", "j", "ctrl+n"]\n"hunk.review.stepUp" = ["up", "k", "ctrl+p"]\n',
+    );
+
+    await withAppHost(bootstrap, async (setup) => {
+      await act(async () => {
+        await setup.mockInput.typeText("t");
+      });
+      await flush(setup);
+      expect(setup.captureCharFrame()).toContain("Theme selector");
+
+      await act(async () => {
+        setup.mockInput.pressKey("n", { ctrl: true });
+      });
+      await flush(setup);
+      expect(setup.captureCharFrame()).toContain("›  github-dark-dimmed");
+
+      await act(async () => {
+        setup.mockInput.pressKey("p", { ctrl: true });
+      });
+      await flush(setup);
+      expect(setup.captureCharFrame()).toContain("›  github-dark-default");
+    });
+  });
+
   test("emits command_executed after keyboard dispatch", async () => {
     const repo = createTestRepo("hunk-keybindings-command-event-");
     const bootstrap = await launchWithConfig(repo, "");

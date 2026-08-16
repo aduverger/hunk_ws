@@ -8,6 +8,7 @@ import {
   dispatchAppCommand,
   executeAppCommand,
   observeAppCommandDispatch,
+  verticalCommandDirection,
   type BuildAppCommandsOptions,
   type ResolvedCommandKeys,
 } from "./appCommands";
@@ -133,6 +134,23 @@ describe("built-in command chords", () => {
     expect(ran).toEqual(["scrollCodeHorizontally:-1", "scrollCodeHorizontally:-8"]);
   });
 
+  test("reports the vertical direction for every review-navigation alias", () => {
+    const { commands, ran } = createTestCommands();
+
+    expect(verticalCommandDirection(commands, keyEvent({ name: "down" }))).toBe(1);
+    expect(verticalCommandDirection(commands, keyEvent({ name: "j", sequence: "j" }))).toBe(1);
+    expect(verticalCommandDirection(commands, keyEvent({ name: "up" }))).toBe(-1);
+    expect(verticalCommandDirection(commands, keyEvent({ name: "k", sequence: "k" }))).toBe(-1);
+    expect(verticalCommandDirection(commands, keyEvent({ name: "pagedown" }))).toBe(1);
+    expect(verticalCommandDirection(commands, keyEvent({ name: "pageup" }))).toBe(-1);
+    expect(verticalCommandDirection(commands, keyEvent({ name: "]", sequence: "]" }))).toBe(1);
+    expect(verticalCommandDirection(commands, keyEvent({ name: "[", sequence: "[" }))).toBe(-1);
+    expect(
+      verticalCommandDirection(commands, keyEvent({ name: "q", sequence: "q" })),
+    ).toBeUndefined();
+    expect(ran).toEqual([]);
+  });
+
   test("a matched key is claimed so focused OpenTUI widgets cannot scroll it too", () => {
     const { commands } = createTestCommands();
     const press = (fields: Partial<ParsedKey>) => {
@@ -173,6 +191,16 @@ describe("built-in commands under user keybindings", () => {
     expect(commands.find((command) => command.id === "hunk.app.quit")?.keyLabels).toEqual([
       "Ctrl+X",
     ]);
+  });
+
+  test("uses a user binding for a vertical movement command", () => {
+    const { keys } = resolveCommandKeys({
+      defaults: builtinCommandKeyDefaults(),
+      userBindings: { "hunk.review.stepDown": ["down", "j", "ctrl+n"] },
+    });
+    const { commands } = createTestCommands(keys);
+
+    expect(verticalCommandDirection(commands, keyEvent({ name: "n", ctrl: true }))).toBe(1);
   });
 
   test("claiming a key held by default takes it from its old owner only", () => {
