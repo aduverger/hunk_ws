@@ -138,13 +138,29 @@ test("the more-features list quick-hits the long tail with docs links", async ({
     "href",
     "/docs/workflows/watch-mode/",
   );
-  await expect(list.getByRole("link", { name: /Extensions/ })).toHaveAttribute(
+  await expect(list.getByRole("link", { name: /Live sessions/ })).toHaveAttribute(
     "href",
-    "/docs/extend/extensions/",
+    "/docs/agents/live-session-control/",
   );
   await expect(list.getByRole("link", { name: /Jujutsu & Sapling/ })).toHaveAttribute(
     "href",
     "/docs/workflows/jujutsu-and-sapling/",
+  );
+});
+
+test("the extensions row carries a real code sample as its media", async ({ page }) => {
+  await page.goto("/");
+
+  // Extensions close the tour as an ordinary showcase row: copy left, framed
+  // media right — source instead of a capture, titled with the path users drop
+  // extensions into.
+  const row = page.locator(".show-item").filter({ hasText: "Extend it however you want" });
+  await expect(row.locator(".show-media.show-code")).toHaveCount(1);
+  await expect(row.locator(".paper-bar .pt")).toHaveText("~/.config/hunk/extensions/hello.ts");
+  await expect(row.locator("pre")).toContainText('from "hunkdiff/extension"');
+  await expect(row.getByRole("link", { name: /Writing extensions/ })).toHaveAttribute(
+    "href",
+    "/docs/extend/extensions/",
   );
 });
 

@@ -498,6 +498,27 @@ a:focus-visible {
   }
 }
 
+/* The extensions row's media is source rather than a capture, so it wears the
+   same frame with a title bar carrying the path the file lives at. */
+.marketing .show-code pre {
+  overflow-x: auto;
+  margin: 0;
+  padding: 18px 20px;
+  color: #ccd3da;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+/* Fixed colors on the fixed-dark card, like the terminal captures. */
+.marketing .show-code .k {
+  color: #7fd1ff;
+}
+
+.marketing .show-code .s {
+  color: #b5cea8;
+}
+
 /* Community videos: paused-embed cards that link out, so no third-party player script loads.
    The player chrome (scrim, red play button, duration badge) always sits on the dark
    thumbnail, so it stays fixed-color instead of following the site theme. */
