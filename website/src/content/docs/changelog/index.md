@@ -24,7 +24,7 @@ head:
 
 ## [Hunk 0.19](/changelog/0.19/)
 
-Latest · August 16, 2026 · 1 release · 34 changes
+Latest · August 16, 2026 – August 24, 2026 · 2 releases · 39 changes
 
 Hunk 0.19.0 expands the extension platform, makes live agent guidance more precise, and keeps large reviews responsive.
 
