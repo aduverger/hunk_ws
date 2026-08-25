@@ -74,7 +74,7 @@ test("the index lists every series newest first and links each one", async ({ pa
   const seriesLinks = page.getByRole("heading", { level: 2 }).getByRole("link");
   const labels = await seriesLinks.allTextContents();
   expect(labels.length).toBeGreaterThan(5);
-  expect(labels[0]).toBe("Hunk 0.19");
+  expect(labels[0]).toBe("Hunk 0.20");
 
   // Exactly one series may claim to be the latest.
   await expect(page.getByText(/^Latest ·/)).toHaveCount(1);

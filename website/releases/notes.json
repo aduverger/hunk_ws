@@ -1,4 +1,13 @@
 {
+  "0.20": {
+    "summary": "Hunk 0.20 adds a checksum-verified one-line installer and self-updates, launches a directory of 12 community extensions, and makes line-level reviewing faster and more precise.",
+    "tagline": "One-line install, self-updates, extension directory",
+    "links": [
+      { "label": "Install", "href": "/docs/start/install/" },
+      { "label": "Extensions", "href": "/docs/extend/extensions/" },
+      { "label": "Extension API", "href": "/docs/extend/extension-api/" }
+    ]
+  },
   "0.19": {
     "tagline": "Git-installable extensions, exact-line agent guidance",
     "links": [

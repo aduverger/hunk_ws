@@ -8,6 +8,13 @@
     "alt": "Hunk changelog — 19 release series · March 2026 – August 2026"
   },
   {
+    "slug": "0.20",
+    "title": "Hunk 0.20",
+    "tagline": "Hunk 0.20 adds a checksum-verified one-line installer and self-updates, launches a directory of 12 community extensions, and makes…",
+    "meta": "Unreleased · 1 release · 11 changes",
+    "alt": "Hunk 0.20 release notes — Unreleased · 1 release · 11 changes"
+  },
+  {
     "slug": "0.19",
     "title": "Hunk 0.19",
     "tagline": "Hunk 0.19.0 expands the extension platform, makes live agent guidance more precise, and keeps large reviews responsive.",

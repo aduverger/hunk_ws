@@ -22,6 +22,12 @@ head:
 
 [RSS](https://hunk.dev/changelog/rss.xml) · [CHANGELOG.md](https://github.com/modem-dev/hunk/blob/main/CHANGELOG.md)
 
+## [Hunk 0.20](/changelog/0.20/)
+
+Unreleased · 1 release · 11 changes
+
+Hunk 0.20 adds a checksum-verified one-line installer and self-updates, launches a directory of 12 community extensions, and makes line-level reviewing faster and more precise.
+
 ## [Hunk 0.19](/changelog/0.19/)
 
 Latest · August 16, 2026 – August 24, 2026 · 2 releases · 39 changes
