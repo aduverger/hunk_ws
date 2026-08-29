@@ -1,18 +1,27 @@
 import { describe, expect, test } from "bun:test";
 import { createTestCustomThemes } from "../../test/helpers/theme-helpers";
 import { blendHex, contrastRatio, hexColorDistance } from "./lib/color";
-import { BUNDLED_SHIKI_THEME_IDS } from "../core/theme/catalog";
+import {
+  BUNDLED_SHIKI_THEME_IDS,
+  getBundledShikiThemeBackground,
+  getBundledShikiThemeDiffColors,
+} from "../core/theme/catalog";
+import { resolveWordDiffHighlightBg } from "./diff/diffRows";
 import {
   availableThemeIds,
   availableThemes,
   DEFAULT_DARK_THEME_ID,
   DEFAULT_LIGHT_THEME_ID,
+  MIN_DIFF_SIGN_CONTRAST,
+  MIN_EMPHASIS_SEPARATION,
+  readableDiffSign,
   resolveTheme,
   TRANSPARENT_BACKGROUND,
   withTransparentSurfaces,
 } from "./themes";
 
 const MIN_READABLE_TEXT_CONTRAST = 4.5;
+const MAX_RESCUE_HUE_DRIFT = 2;
 const SYNTAX_ROLES = [
   "default",
   "keyword",
@@ -26,6 +35,46 @@ const SYNTAX_ROLES = [
   "operator",
   "punctuation",
 ] as const;
+
+/** Return the HSL hue in degrees for a #rrggbb color, or null when achromatic. */
+function hexHueDegrees(hex: string): number | null {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === min) {
+    return null;
+  }
+  const chroma = max - min;
+  const segment =
+    max === r ? ((g - b) / chroma) % 6 : max === g ? (b - r) / chroma + 2 : (r - g) / chroma + 4;
+  return (segment * 60 + 360) % 360;
+}
+
+/** Return the shortest angular distance between two hues in degrees. */
+function hueDistance(left: number, right: number) {
+  const delta = Math.abs(left - right) % 360;
+  return delta > 180 ? 360 - delta : delta;
+}
+
+/** List each bundled theme's catalog diff accents beside the derived theme slots. */
+function bundledDiffSignSlots(themeId: string) {
+  const background = getBundledShikiThemeBackground(themeId) ?? "#0d1117";
+  const diffColors = getBundledShikiThemeDiffColors(themeId);
+  const theme = resolveTheme(themeId, null);
+  const slots: Array<{ slot: string; source: string; derived: string }> = [];
+  if (diffColors?.added) {
+    slots.push({ slot: "added", source: diffColors.added, derived: theme.addedSignColor });
+  }
+  if (diffColors?.removed) {
+    slots.push({ slot: "removed", source: diffColors.removed, derived: theme.removedSignColor });
+  }
+  if (diffColors?.modified) {
+    slots.push({ slot: "modified", source: diffColors.modified, derived: theme.accent });
+  }
+  return { background, slots };
+}
 
 /** Return a compact failure list for semantic theme foreground/background pairs. */
 function themeContrastFailures(
@@ -78,7 +127,7 @@ describe("themes", () => {
     expect(dark.syntaxColors.default).toBe("#e6edf3");
     expect(dark.addedSignColor).toBe("#3fb950");
     expect(dark.removedSignColor).toBe("#f85149");
-    expect(dark.addedBg).toBe(blendHex("#3fb950", "#0d1117", 0.2));
+    expect(dark.addedBg).toBe(blendHex("#3fb950", "#0d1117", 0.18));
     expect(dark.removedBg).toBe(blendHex("#f85149", "#0d1117", 0.2));
 
     expect(light.background).toBe("#ffffff");
@@ -229,6 +278,111 @@ describe("themes", () => {
         hexColorDistance(theme.removedBg, theme.contextBg),
       );
     }
+  });
+
+  test("keeps catalog diff accents untouched when they already meet the sign contrast floor", () => {
+    const failures = BUNDLED_SHIKI_THEME_IDS.flatMap((themeId) => {
+      const { background, slots } = bundledDiffSignSlots(themeId);
+      return slots.flatMap(({ slot, source, derived }) => {
+        if (contrastRatio(source, background) < MIN_DIFF_SIGN_CONTRAST) {
+          return [];
+        }
+        return derived === source ? [] : [`${themeId} ${slot}: ${source} rescued to ${derived}`];
+      });
+    });
+
+    expect(failures).toEqual([]);
+  });
+
+  test("rescued diff signs keep the source accent hue and clear the contrast floor", () => {
+    const failures = BUNDLED_SHIKI_THEME_IDS.flatMap((themeId) => {
+      const { background, slots } = bundledDiffSignSlots(themeId);
+      return slots.flatMap(({ slot, source, derived }) => {
+        if (contrastRatio(source, background) >= MIN_DIFF_SIGN_CONTRAST) {
+          return [];
+        }
+        const label = `${themeId} ${slot}: ${source} rescued to ${derived}`;
+        const rescuedContrast = contrastRatio(derived, background);
+        if (rescuedContrast < MIN_DIFF_SIGN_CONTRAST) {
+          return [`${label} but contrast is ${rescuedContrast.toFixed(2)}`];
+        }
+        const sourceHue = hexHueDegrees(source);
+        const derivedHue = hexHueDegrees(derived);
+        if (sourceHue === null || derivedHue === null) {
+          // Achromatic accents (e.g. slack-ochin's white removed slot) have no hue to keep.
+          return [];
+        }
+        const drift = hueDistance(sourceHue, derivedHue);
+        return drift <= MAX_RESCUE_HUE_DRIFT ? [] : [`${label}, hue drifted ${drift.toFixed(1)}°`];
+      });
+    });
+
+    expect(failures).toEqual([]);
+  });
+
+  test("rescues diff signs with the smallest blend that clears the contrast floor", () => {
+    const failures = BUNDLED_SHIKI_THEME_IDS.flatMap((themeId) => {
+      const { background, slots } = bundledDiffSignSlots(themeId);
+      return slots.flatMap(({ slot, source, derived }) => {
+        if (contrastRatio(source, background) >= MIN_DIFF_SIGN_CONTRAST) {
+          return [];
+        }
+        const minimalRescues = ["#000000", "#ffffff"].flatMap((anchor) => {
+          for (let amount = 0.02; amount < 1; amount += 0.02) {
+            const candidate = blendHex(anchor, source, amount);
+            if (contrastRatio(candidate, background) >= MIN_DIFF_SIGN_CONTRAST) {
+              return [candidate];
+            }
+          }
+          return [];
+        });
+        return minimalRescues.includes(derived)
+          ? []
+          : [
+              `${themeId} ${slot}: ${source} rescued to ${derived}, expected a minimal rescue (${minimalRescues.join(", ")})`,
+            ];
+      });
+    });
+
+    expect(failures).toEqual([]);
+  });
+
+  test("nudges catppuccin-latte's near-miss green instead of washing it out", () => {
+    expect(resolveTheme("catppuccin-latte", null).addedSignColor).toBe("#3f9d2a");
+  });
+
+  test("readableDiffSign upholds the contrast floor on mid-luminance backgrounds", () => {
+    const rescued = readableDiffSign("#b0b0b0", "#aaaaaa");
+    expect(contrastRatio(rescued, "#aaaaaa")).toBeGreaterThanOrEqual(MIN_DIFF_SIGN_CONTRAST);
+  });
+
+  test("keeps the rendered word-level emphasis separated and readable on every bundled theme", () => {
+    const failures = BUNDLED_SHIKI_THEME_IDS.flatMap((themeId) => {
+      const theme = resolveTheme(themeId, null);
+      return (
+        [
+          ["added", theme.addedBg, theme.addedContentBg, theme.addedSignColor],
+          ["removed", theme.removedBg, theme.removedContentBg, theme.removedSignColor],
+        ] as const
+      ).flatMap(([slot, rowBackground, contentBackground, signColor]) => {
+        const rendered = resolveWordDiffHighlightBg(contentBackground, rowBackground, signColor);
+        const problems: string[] = [];
+        if (rendered !== contentBackground) {
+          problems.push(`renderer rewrote ${contentBackground} to ${rendered}`);
+        }
+        const separation = hexColorDistance(rowBackground, rendered);
+        if (separation < MIN_EMPHASIS_SEPARATION) {
+          problems.push(`separation ${separation} vs ${rowBackground}`);
+        }
+        const textContrast = contrastRatio(theme.text, rendered);
+        if (textContrast + 0.005 < MIN_READABLE_TEXT_CONTRAST) {
+          problems.push(`text contrast ${textContrast.toFixed(2)} on ${rendered}`);
+        }
+        return problems.map((problem) => `${themeId} ${slot}: ${problem}`);
+      });
+    });
+
+    expect(failures).toEqual([]);
   });
 
   test("layers custom theme overrides on a bundled base", () => {
