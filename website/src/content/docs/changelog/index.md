@@ -24,7 +24,7 @@ head:
 
 ## [Hunk 0.20](/changelog/0.20/)
 
-Latest · August 25, 2026 · 1 release · 11 changes
+Latest · August 25, 2026 – August 28, 2026 · 2 releases · 14 changes
 
 Hunk 0.20 adds a checksum-verified one-line installer and self-updates, launches a directory of 12 community extensions, and makes line-level reviewing faster and more precise.
 
