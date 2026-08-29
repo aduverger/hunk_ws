@@ -12,6 +12,7 @@ import {
 } from "react";
 import type { PersistedViewPreferences } from "../core/run/config";
 import { experimentalFeatureEnabled, resolveExperimentalDiffFiles } from "../core/run/experimental";
+import { DEFAULT_FILE_GAP, DEFAULT_HUNK_GAP } from "../core/run/reviewGap";
 import { DEFAULT_TAB_WIDTH } from "../core/run/tabWidth";
 import { isVcsReviewInput } from "../core/vcs";
 import type { AppBootstrap } from "../core/bootstrap";
@@ -157,6 +158,8 @@ export function App({
 
   const pagerMode = Boolean(bootstrap.input.options.pager);
   const tabWidth = bootstrap.initialTabWidth ?? DEFAULT_TAB_WIDTH;
+  const fileGap = bootstrap.initialFileGap ?? DEFAULT_FILE_GAP;
+  const hunkGap = bootstrap.initialHunkGap ?? DEFAULT_HUNK_GAP;
   const stmlEnabled = experimentalFeatureEnabled(bootstrap.input.options, "stml");
   const reviewFiles = useMemo(
     () => resolveExperimentalDiffFiles(bootstrap.changeset.files, bootstrap.input.options),
@@ -1282,6 +1285,8 @@ export function App({
             showHunkHeaders={showHunkHeaders}
             sourceStatusByFileId={review.sourceStatusByFileId}
             tabWidth={tabWidth}
+            fileGap={fileGap}
+            hunkGap={hunkGap}
             wrapLines={wrapLines}
             wrapToggleScrollTop={wrapToggleScrollTopRef.current}
             layoutToggleScrollTop={layoutToggleScrollTopRef.current}

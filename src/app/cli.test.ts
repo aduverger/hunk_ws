@@ -61,6 +61,10 @@ describe("parseCli", () => {
     expect(parsed.text).toContain("hunk skill path");
     expect(parsed.text).toContain("Global options:");
     expect(parsed.text).toContain("Common review options:");
+    expect(parsed.text).toContain("--file-gap");
+    expect(parsed.text).toContain("file separator rows, including ─");
+    expect(parsed.text).toContain("--hunk-gap");
+    expect(parsed.text).toContain("blank rows before later hunks");
     expect(parsed.text).toContain("auto-reload when the current diff input changes");
     expect(parsed.text).toContain("--experimental");
     expect(parsed.text).toContain("experimental STML");
@@ -1494,6 +1498,22 @@ describe("parseCli argument validation", () => {
         "Invalid tab width",
       );
     }
+  });
+
+  test("parses file and hunk gaps and rejects values outside 0-8", async () => {
+    const parsed = await parseCli(["bun", "hunk", "diff", "--file-gap", "3", "--hunk-gap", "1"]);
+
+    expect(parsed).toMatchObject({
+      kind: "vcs",
+      options: { fileGap: 3, hunkGap: 1 },
+    });
+
+    await expect(parseCli(["bun", "hunk", "diff", "--file-gap", "9"])).rejects.toThrow(
+      "Invalid file gap",
+    );
+    await expect(parseCli(["bun", "hunk", "diff", "--hunk-gap", "abc"])).rejects.toThrow(
+      "Invalid hunk gap",
+    );
   });
 
   test("rejects an invalid layout mode and rethrows the parser error", async () => {

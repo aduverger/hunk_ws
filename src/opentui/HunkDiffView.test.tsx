@@ -109,6 +109,36 @@ describe("OpenTUI public components", () => {
     expect(frame).toContain("a       c");
   });
 
+  test("inserts planned hunk-gap rows before later hunk headers", async () => {
+    const before =
+      Array.from(
+        { length: 12 },
+        (_, index) => `export const line${index + 1} = ${index + 1};`,
+      ).join("\n") + "\n";
+    const after = before
+      .replace("export const line2 = 2;", "export const line2 = 200;")
+      .replace("export const line11 = 11;", "export const line11 = 1100;");
+    const metadata = parseDiffFromFile(
+      { cacheKey: "gaps-before", contents: before, name: "multi.ts" },
+      { cacheKey: "gaps-after", contents: after, name: "multi.ts" },
+      { context: 3 },
+      true,
+    );
+    const file = createHunkDiffFile({ id: "multi", metadata, path: "multi.ts" });
+    const frame = await captureFrame(
+      <HunkDiffBody file={file} layout="stack" width={88} hunkGap={2} highlight={false} />,
+      92,
+      24,
+    );
+    const lines = frame.split("\n");
+    const headerIndexes = lines.flatMap((line, index) => (line.includes("@@") ? [index] : []));
+
+    expect(headerIndexes.length).toBeGreaterThanOrEqual(2);
+    const secondHeader = headerIndexes[1]!;
+    expect(lines[secondHeader - 2]?.trim()).toBe("");
+    expect(lines[secondHeader - 1]?.trim()).toBe("");
+  });
+
   test("renders reusable file header and multi-file review stream primitives", async () => {
     const diff = createExampleDiff();
     const frame = await captureFrame(

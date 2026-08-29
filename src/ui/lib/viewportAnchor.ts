@@ -1,4 +1,5 @@
 import type { DiffFile } from "../../core/changeset/model";
+import { DEFAULT_FILE_GAP } from "../../core/run/reviewGap";
 import type { DiffSectionGeometry, DiffSectionRowBounds } from "../diff/diffSectionGeometry";
 import { buildFileSectionLayouts } from "./fileSectionLayout";
 
@@ -43,11 +44,13 @@ export function findViewportRowAnchor(
   scrollTop: number,
   headerHeights: number[],
   preferredStableKey?: string | null,
+  fileGap = DEFAULT_FILE_GAP,
 ) {
   const fileSectionLayouts = buildFileSectionLayouts(
     files,
     sectionGeometry.map((metrics) => metrics?.bodyHeight ?? 0),
     headerHeights,
+    fileGap,
   );
 
   for (let index = 0; index < files.length; index += 1) {
@@ -86,11 +89,13 @@ export function resolveViewportRowAnchorTop(
   sectionGeometry: DiffSectionGeometry[],
   anchor: ViewportRowAnchor,
   headerHeights: number[],
+  fileGap = DEFAULT_FILE_GAP,
 ) {
   const fileSectionLayouts = buildFileSectionLayouts(
     files,
     sectionGeometry.map((metrics) => metrics?.bodyHeight ?? 0),
     headerHeights,
+    fileGap,
   );
 
   for (let index = 0; index < files.length; index += 1) {

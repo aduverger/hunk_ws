@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { DiffFile } from "../../core/changeset/model";
 import {
+  buildFileSectionLayouts,
   collectIntersectingFileSectionIds,
   findFileSectionAtOffset,
   type FileSectionLayout,
@@ -73,5 +75,29 @@ describe("fileSectionLayout helpers", () => {
       "file:5001",
       "file:5002",
     ]);
+  });
+
+  test("file gap 0, 1, and 3 shift later section offsets and keep the first file flush", () => {
+    const files = [{ id: "a" }, { id: "b" }] as DiffFile[];
+    const bodyHeights = [5, 4];
+
+    const gap0 = buildFileSectionLayouts(files, bodyHeights, undefined, 0);
+    expect(gap0[0]?.sectionTop).toBe(0);
+    expect(gap0[0]?.headerTop).toBe(0);
+    expect(gap0[0]?.bodyTop).toBe(0);
+    expect(gap0[1]?.sectionTop).toBe(5);
+    expect(gap0[1]?.headerTop).toBe(5);
+    expect(gap0[1]?.bodyTop).toBe(6);
+
+    const gap1 = buildFileSectionLayouts(files, bodyHeights, undefined, 1);
+    expect(gap1[1]?.sectionTop).toBe(5);
+    expect(gap1[1]?.headerTop).toBe(6);
+    expect(gap1[1]?.bodyTop).toBe(7);
+
+    const gap3 = buildFileSectionLayouts(files, bodyHeights, undefined, 3);
+    expect(gap3[1]?.sectionTop).toBe(5);
+    expect(gap3[1]?.headerTop).toBe(8);
+    expect(gap3[1]?.bodyTop).toBe(9);
+    expect(gap3[1]?.sectionBottom).toBe(13);
   });
 });

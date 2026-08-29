@@ -105,6 +105,17 @@ function inlineNote(key: string, hunkIndex: number): PlannedReviewRow {
   };
 }
 
+function hunkGap(key: string, hunkIndex: number, height: number): PlannedReviewRow {
+  return {
+    kind: "hunk-gap",
+    key,
+    stableKey: key,
+    fileId: "file-1",
+    hunkIndex,
+    height,
+  };
+}
+
 function guidedLine(key: string, hunkIndex: number): PlannedReviewRow {
   const row = splitLine(key, hunkIndex) as Extract<PlannedReviewRow, { kind: "diff-row" }>;
   return {
@@ -130,6 +141,7 @@ describe("planned review row geometry", () => {
     ).toBe(false);
     expect(plannedReviewRowHeight(splitLine("line", 0), baseOptions)).toBe(1);
     expect(plannedReviewRowHeight(guidedLine("guide", 0), baseOptions)).toBe(1);
+    expect(plannedReviewRowHeight(hunkGap("gap", 1, 2), baseOptions)).toBe(2);
     expect(plannedReviewRowHeight(inlineNote("note", 0), baseOptions)).toBeGreaterThan(3);
   });
 
@@ -160,6 +172,56 @@ describe("planned review row geometry", () => {
       top: 4 + noteHeight,
       height: 2,
       startRowId: reviewRowId("h1"),
+      endRowId: reviewRowId("line-1"),
+    });
+  });
+
+  test("measured hunk bounds ignore decorative hunk-gap rows", () => {
+    const rows = [
+      hunkHeader("h0", 0, "hunk-0"),
+      splitLine("line-0", 0),
+      hunkGap("spacer", 1, 2),
+      hunkHeader("h1", 1, "hunk-1"),
+      splitLine("line-1", 1),
+    ];
+
+    const measured = measurePlannedSectionGeometry(rows, baseOptions);
+
+    expect(measured.bodyHeight).toBe(6);
+    expect(measured.hunkAnchorRows.get(1)).toBe(4);
+    expect(measured.hunkBounds.get(0)).toEqual({
+      top: 0,
+      height: 2,
+      startRowId: reviewRowId("h0"),
+      endRowId: reviewRowId("line-0"),
+    });
+    expect(measured.hunkBounds.get(1)).toEqual({
+      top: 4,
+      height: 2,
+      startRowId: reviewRowId("h1"),
+      endRowId: reviewRowId("line-1"),
+    });
+  });
+
+  test("hunk-gap rows still occupy height when hunk headers are hidden", () => {
+    const rows = [
+      hunkHeader("h0", 0, "hunk-0"),
+      splitLine("line-0", 0),
+      hunkGap("spacer", 1, 2),
+      hunkHeader("h1", 1, "hunk-1"),
+      splitLine("line-1", 1),
+    ];
+
+    const measured = measurePlannedSectionGeometry(rows, {
+      ...baseOptions,
+      showHunkHeaders: false,
+    });
+
+    expect(measured.bodyHeight).toBe(4);
+    expect(measured.hunkBounds.get(1)).toEqual({
+      top: 3,
+      height: 1,
+      startRowId: reviewRowId("line-1"),
       endRowId: reviewRowId("line-1"),
     });
   });

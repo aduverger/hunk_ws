@@ -28,6 +28,8 @@ This reference is generated from the command metadata used by Hunk itself. Run `
 | `--line-numbers`            | show line numbers                                               |
 | `--no-line-numbers`         | hide line numbers                                               |
 | `-x, --tab-width <columns>` | tab stop width: 1-16 Default: 4.                                |
+| `--file-gap <rows>`         | file separator rows, including the ─ rule: 0-8 Default: 1.      |
+| `--hunk-gap <rows>`         | blank rows before each later hunk: 0-8 Default: 0.              |
 | `--wrap`                    | wrap long diff lines                                            |
 | `--no-wrap`                 | truncate long diff lines to one row                             |
 | `--hunk-headers`            | show hunk metadata rows                                         |

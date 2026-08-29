@@ -6,6 +6,7 @@
  */
 import { useRenderer } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DEFAULT_HUNK_GAP } from "../../core/run/reviewGap";
 import { DEFAULT_TAB_WIDTH } from "../../core/run/tabWidth";
 import type { DiffFile } from "../../core/changeset/model";
 import type { LayoutMode } from "../../core/run/commandInputs";
@@ -89,6 +90,7 @@ export function DiffSectionBody({
   showHunkHeaders = true,
   sourceStatus,
   tabWidth = DEFAULT_TAB_WIDTH,
+  hunkGap = DEFAULT_HUNK_GAP,
   wrapLines = false,
   theme,
   visibleAgentNotes = EMPTY_VISIBLE_AGENT_NOTES,
@@ -121,6 +123,7 @@ export function DiffSectionBody({
   showHunkHeaders?: boolean;
   sourceStatus?: FileSourceStatus | undefined;
   tabWidth?: number;
+  hunkGap?: number;
   wrapLines?: boolean;
   theme: AppTheme;
   visibleAgentNotes?: VisibleAgentNote[];
@@ -239,6 +242,7 @@ export function DiffSectionBody({
         sourceLineSpans,
         sourceStatus,
         tabWidth,
+        hunkGap,
         theme,
         visibleAgentNotes,
       }),
@@ -251,6 +255,7 @@ export function DiffSectionBody({
       sourceLineSpans,
       sourceStatus,
       tabWidth,
+      hunkGap,
       theme,
       visibleAgentNotes,
     ],
@@ -413,6 +418,21 @@ export function DiffSectionBody({
                 width={width}
               />
             </box>
+          );
+        }
+
+        if (plannedRow.kind === "hunk-gap") {
+          return (
+            <box
+              key={plannedRow.key}
+              id={rowId}
+              style={{
+                width: "100%",
+                height: plannedRow.height,
+                backgroundColor: theme.panel,
+              }}
+              onMouseOver={clearHoveredRow}
+            />
           );
         }
 

@@ -1,5 +1,6 @@
 import { reviewExpansionSide } from "../../core/review/expansion";
 import { DEFAULT_TAB_WIDTH } from "../../core/run/tabWidth";
+import { DEFAULT_HUNK_GAP } from "../../core/run/reviewGap";
 import type { DiffFile } from "../../core/changeset/model";
 import type { LayoutMode } from "../../core/run/commandInputs";
 import type { VisibleAgentNote } from "../lib/agentAnnotations";
@@ -31,6 +32,7 @@ export interface BuildDiffSectionRowPlanOptions {
   sourceLineSpans?: (line: string | undefined, sourceLineNumber: number) => RenderSpan[];
   sourceStatus?: FileSourceStatus | undefined;
   tabWidth?: number;
+  hunkGap?: number;
   theme: AppTheme;
   visibleAgentNotes?: VisibleAgentNote[];
 }
@@ -58,6 +60,7 @@ export function buildDiffSectionRowPlan({
   sourceLineSpans,
   sourceStatus,
   tabWidth = DEFAULT_TAB_WIDTH,
+  hunkGap = DEFAULT_HUNK_GAP,
   theme,
   visibleAgentNotes = EMPTY_VISIBLE_AGENT_NOTES,
 }: BuildDiffSectionRowPlanOptions): DiffSectionRowPlan {
@@ -85,6 +88,7 @@ export function buildDiffSectionRowPlan({
       rows,
       showHunkHeaders,
       visibleAgentNotes,
+      hunkGap,
     }),
   };
 }

@@ -48,6 +48,7 @@ import {
   HIGHLIGHT_RANGE_MESSAGE,
   RELOAD_SEPARATOR_MESSAGE,
 } from "../session/agent/errors";
+import { DEFAULT_FILE_GAP, DEFAULT_HUNK_GAP, parseReviewGap } from "../core/run/reviewGap";
 import { DEFAULT_TAB_WIDTH, parseTabWidth } from "../core/run/tabWidth";
 import { resolveCliVersion } from "../core/run/version";
 
@@ -55,7 +56,14 @@ import { resolveCliVersion } from "../core/run/version";
 export interface CliReferenceOption {
   readonly flag: string;
   readonly description: string;
-  readonly parse?: "layout" | "cursorLine" | "positiveInt" | "tabWidth" | "collect";
+  readonly parse?:
+    | "layout"
+    | "cursorLine"
+    | "positiveInt"
+    | "tabWidth"
+    | "fileGap"
+    | "hunkGap"
+    | "collect";
   readonly defaultValue?: string;
   /** Default applied directly by Commander (as opposed to a config-resolved default). */
   readonly commanderDefault?: string;
@@ -96,6 +104,18 @@ export const COMMON_REVIEW_OPTIONS = [
     description: "tab stop width: 1-16",
     parse: "tabWidth",
     defaultValue: String(DEFAULT_TAB_WIDTH),
+  },
+  {
+    flag: "--file-gap <rows>",
+    description: "file separator rows, including the ─ rule: 0-8",
+    parse: "fileGap",
+    defaultValue: String(DEFAULT_FILE_GAP),
+  },
+  {
+    flag: "--hunk-gap <rows>",
+    description: "blank rows before each later hunk: 0-8",
+    parse: "hunkGap",
+    defaultValue: String(DEFAULT_HUNK_GAP),
   },
   { flag: "--wrap", description: "wrap long diff lines" },
   { flag: "--no-wrap", description: "truncate long diff lines to one row" },
@@ -351,6 +371,8 @@ function buildCommonOptions(
     fast?: boolean;
     transparentBackground?: boolean;
     tabWidth?: number;
+    fileGap?: number;
+    hunkGap?: number;
     extension?: string[];
   },
   argv: string[],
@@ -374,6 +396,8 @@ function buildCommonOptions(
     ),
     lineNumbers: resolveBooleanFlag(argv, "--line-numbers", "--no-line-numbers"),
     tabWidth: options.tabWidth,
+    fileGap: options.fileGap,
+    hunkGap: options.hunkGap,
     wrapLines: resolveBooleanFlag(argv, "--wrap", "--no-wrap"),
     hunkHeaders: resolveBooleanFlag(argv, "--hunk-headers", "--no-hunk-headers"),
     sidebar: resolveBooleanFlag(argv, "--sidebar", "--no-sidebar"),
@@ -398,6 +422,10 @@ function applyReferenceOption(command: Command, option: CliReferenceOption) {
     commanderOption.argParser(parsePositiveInt);
   } else if (option.parse === "tabWidth") {
     commanderOption.argParser(parseTabWidth);
+  } else if (option.parse === "fileGap") {
+    commanderOption.argParser((value: string) => parseReviewGap(value, "file gap"));
+  } else if (option.parse === "hunkGap") {
+    commanderOption.argParser((value: string) => parseReviewGap(value, "hunk gap"));
   } else if (option.parse === "collect") {
     commanderOption.argParser(collectRepeatedValue);
   }
@@ -493,6 +521,8 @@ function renderCliHelp() {
     "  --pager                                 use pager-style chrome",
     "  --line-numbers / --no-line-numbers      show or hide line numbers",
     "  -x, --tab-width <columns>                tab stop width: 1-16 (default: 4)",
+    "  --file-gap <rows>                       file separator rows, including ─: 0-8 (default: 1)",
+    "  --hunk-gap <rows>                       blank rows before later hunks: 0-8 (default: 0)",
     "  --wrap / --no-wrap                      wrap or truncate long diff lines",
     "  --hunk-headers / --no-hunk-headers      show or hide hunk metadata rows",
     "  --sidebar / --no-sidebar                show or hide files pane by default",

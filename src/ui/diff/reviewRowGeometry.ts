@@ -33,6 +33,10 @@ export type PlannedSectionGeometry = SectionGeometry<PlannedHunkBounds>;
 
 /** Return whether this planned row should count toward a hunk's own visible extent. */
 export function plannedReviewRowContributesToHunkBounds(row: PlannedReviewRow) {
+  if (row.kind === "hunk-gap") {
+    return false;
+  }
+
   if (row.kind !== "diff-row") {
     return true;
   }
@@ -65,6 +69,10 @@ export function plannedReviewRowHeight(
       layout,
       width,
     });
+  }
+
+  if (row.kind === "hunk-gap") {
+    return row.height;
   }
 
   if (row.row.type === "hunk-header") {

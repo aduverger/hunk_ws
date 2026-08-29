@@ -14,6 +14,7 @@ import {
   useState,
   type RefObject,
 } from "react";
+import { DEFAULT_FILE_GAP, DEFAULT_HUNK_GAP } from "../../../core/run/reviewGap";
 import { DEFAULT_TAB_WIDTH } from "../../../core/run/tabWidth";
 import type { DiffFile } from "../../../core/changeset/model";
 import type { CursorLine, LayoutMode } from "../../../core/run/commandInputs";
@@ -290,6 +291,8 @@ export function DiffPane({
   showHunkHeaders,
   sourceStatusByFileId = EMPTY_SOURCE_STATUS_BY_FILE_ID,
   tabWidth = DEFAULT_TAB_WIDTH,
+  fileGap = DEFAULT_FILE_GAP,
+  hunkGap = DEFAULT_HUNK_GAP,
   wrapLines,
   wrapToggleScrollTop,
   layoutToggleScrollTop = null,
@@ -353,6 +356,8 @@ export function DiffPane({
   showHunkHeaders: boolean;
   sourceStatusByFileId?: Record<string, FileSourceStatus>;
   tabWidth?: number;
+  fileGap?: number;
+  hunkGap?: number;
   wrapLines: boolean;
   wrapToggleScrollTop: number | null;
   layoutToggleScrollTop?: number | null;
@@ -845,6 +850,7 @@ export function DiffPane({
           sourceStatusByFileId[file.id],
           reserveAddNoteColumn,
           tabWidth,
+          hunkGap,
         );
       }),
     [
@@ -852,6 +858,7 @@ export function DiffPane({
       expandedGapsByFileId,
       fileViewRenderPlans,
       files,
+      hunkGap,
       layout,
       reserveAddNoteColumn,
       showHunkHeaders,
@@ -891,6 +898,7 @@ export function DiffPane({
           sourceStatusByFileId[file.id],
           reserveAddNoteColumn,
           tabWidth,
+          hunkGap,
         );
       }),
     [
@@ -900,6 +908,7 @@ export function DiffPane({
       expandedGapsByFileId,
       fileViewRenderPlans,
       files,
+      hunkGap,
       layout,
       reserveAddNoteColumn,
       showHunkHeaders,
@@ -915,8 +924,8 @@ export function DiffPane({
     [sectionGeometry],
   );
   const fileSectionLayouts = useMemo(
-    () => buildFileSectionLayouts(files, estimatedBodyHeights, sectionHeaderHeights),
-    [estimatedBodyHeights, files, sectionHeaderHeights],
+    () => buildFileSectionLayouts(files, estimatedBodyHeights, sectionHeaderHeights, fileGap),
+    [estimatedBodyHeights, fileGap, files, sectionHeaderHeights],
   );
   const totalContentHeight = fileSectionLayouts[fileSectionLayouts.length - 1]?.sectionBottom ?? 0;
   const fileSectionIndexById = useMemo(
@@ -1892,6 +1901,8 @@ export function DiffPane({
           previousSectionMetrics,
           previousScrollTop,
           previousSectionHeaderHeights,
+          undefined,
+          fileGap,
         );
       const cursorToPreserve = scrollToNote ? null : lineCursor;
       const previousCursorSectionIndex = cursorToPreserve
@@ -1904,6 +1915,7 @@ export function DiffPane({
                 previousFiles,
                 previousSectionMetrics.map((metrics) => metrics?.bodyHeight ?? 0),
                 previousSectionHeaderHeights,
+                fileGap,
               ),
               previousSectionMetrics,
               previousCursorSectionIndex,
@@ -1920,7 +1932,13 @@ export function DiffPane({
       const anchorTop =
         cursorAnchoredTop ??
         (anchor
-          ? resolveViewportRowAnchorTop(files, sectionGeometry, anchor, sectionHeaderHeights)
+          ? resolveViewportRowAnchorTop(
+              files,
+              sectionGeometry,
+              anchor,
+              sectionHeaderHeights,
+              fileGap,
+            )
           : null);
 
       if (anchorTop !== null) {
@@ -1981,6 +1999,7 @@ export function DiffPane({
         previousScrollTop,
         previousSectionHeaderHeights,
         lastViewportRowAnchorRef.current?.stableKey,
+        fileGap,
       );
       if (anchor) {
         const nextTop = resolveViewportRowAnchorTop(
@@ -1988,6 +2007,7 @@ export function DiffPane({
           sectionGeometry,
           anchor,
           sectionHeaderHeights,
+          fileGap,
         );
         const restoreViewportAnchor = () => {
           scrollRef.current?.scrollTo(nextTop);
@@ -2022,6 +2042,7 @@ export function DiffPane({
   }, [
     draftNoteFileId,
     draftNoteId,
+    fileGap,
     files,
     layout,
     lineCursor,
@@ -2052,12 +2073,13 @@ export function DiffPane({
       currentScrollTop,
       sectionHeaderHeights,
       lastViewportRowAnchorRef.current?.stableKey,
+      fileGap,
     );
 
     if (nextAnchor) {
       lastViewportRowAnchorRef.current = nextAnchor;
     }
-  }, [files, scrollRef, scrollViewport.top, sectionGeometry, sectionHeaderHeights]);
+  }, [fileGap, files, scrollRef, scrollViewport.top, sectionGeometry, sectionHeaderHeights]);
 
   useLayoutEffect(() => {
     if (previousSelectedFileTopAlignRequestIdRef.current === selectedFileTopAlignRequestId) {
@@ -2499,11 +2521,12 @@ export function DiffPane({
                         sectionGeometry={sectionGeometry[index]}
                         separatorWidth={separatorWidth}
                         showHeader={shouldRenderInStreamFileHeader(index)}
-                        showSeparator={index > 0}
+                        separatorHeight={index > 0 ? fileGap : 0}
                         showLineNumbers={showLineNumbers}
                         showHunkHeaders={showHunkHeaders}
                         sourceStatus={sourceStatusByFileId[file.id]}
                         tabWidth={tabWidth}
+                        hunkGap={hunkGap}
                         wrapLines={wrapLines}
                         theme={theme}
                         hoverActive={hoveredFileId === null || hoveredFileId === file.id}

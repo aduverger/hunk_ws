@@ -47,6 +47,7 @@ export interface HunkDiffBodyProps {
   horizontalOffset?: number;
   highlight?: boolean;
   selectedHunkIndex?: number;
+  hunkGap?: number;
 }
 
 /** Public props for the reusable OpenTUI diff convenience component. */
@@ -73,6 +74,8 @@ export interface HunkReviewStreamProps {
   showLineNumbers?: boolean;
   showHunkHeaders?: boolean;
   tabWidth?: number;
+  fileGap?: number;
+  hunkGap?: number;
   wrapLines?: boolean;
   horizontalOffset?: number;
   highlight?: boolean;

@@ -15,6 +15,7 @@ import { buildDiffFile, type BuildDiffFileOptions, type DiffFileSourceContext } 
 import { createFileSourceFetcher, type FileSourceSpec } from "./fileSource";
 import { changesetFromPatch } from "./fromPatch";
 
+import { DEFAULT_FILE_GAP, DEFAULT_HUNK_GAP } from "../run/reviewGap";
 import { DEFAULT_TAB_WIDTH } from "../run/tabWidth";
 import {
   getConfiguredVcsAdapter,
@@ -330,6 +331,8 @@ export async function loadAppBootstrap(
     customThemes,
     initialShowLineNumbers: input.options.lineNumbers ?? true,
     initialTabWidth: input.options.tabWidth ?? DEFAULT_TAB_WIDTH,
+    initialFileGap: input.options.fileGap ?? DEFAULT_FILE_GAP,
+    initialHunkGap: input.options.hunkGap ?? DEFAULT_HUNK_GAP,
     initialWrapLines: input.options.wrapLines ?? false,
     initialShowHunkHeaders: input.options.hunkHeaders ?? true,
     initialShowMenuBar: input.options.menuBar ?? true,

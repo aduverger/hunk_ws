@@ -18,6 +18,13 @@ import {
 } from "../theme/legacySyntaxScopes";
 import { resolveGlobalConfigPath } from "./paths";
 import { LEGACY_CUSTOM_SYNTAX_NOTICES, type StartupNotice } from "../process/startupNotice";
+import {
+  DEFAULT_FILE_GAP,
+  DEFAULT_HUNK_GAP,
+  MAX_REVIEW_GAP,
+  MIN_REVIEW_GAP,
+  validateReviewGap,
+} from "./reviewGap";
 import { DEFAULT_TAB_WIDTH, validateTabWidth } from "./tabWidth";
 import { findProjectRootCandidate } from "../process/projectRoot";
 import { createVcsCatalog, detectVcs } from "../vcs";
@@ -248,6 +255,21 @@ function normalizeTabWidth(value: unknown) {
   return validateTabWidth(value, "tab_width");
 }
 
+/** Accept a bounded integer file or hunk gap from TOML configuration. */
+function normalizeReviewGap(value: unknown, key: "file_gap" | "hunk_gap") {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new Error(
+      `Expected ${key} to be an integer from ${MIN_REVIEW_GAP} to ${MAX_REVIEW_GAP}.`,
+    );
+  }
+
+  return validateReviewGap(value, key);
+}
+
 /** One top-level configuration key shared by runtime parsing and generated reference docs. */
 export interface ConfigReferenceOption {
   readonly key: string;
@@ -334,6 +356,23 @@ export const CONFIG_REFERENCE_OPTIONS: readonly ConfigReferenceOption[] = [
     accepted: "1 through 16",
     runtimeDefault: DEFAULT_TAB_WIDTH,
     description: "Set terminal-cell tab stops used for display and wrapping.",
+  },
+  {
+    key: "file_gap",
+    property: "fileGap",
+    type: "integer",
+    accepted: `${MIN_REVIEW_GAP} through ${MAX_REVIEW_GAP}`,
+    runtimeDefault: DEFAULT_FILE_GAP,
+    description:
+      "Rows between files in the review stream, including the `─` rule. `1` keeps the current rule; `0` hides it; larger values add blank rows above it.",
+  },
+  {
+    key: "hunk_gap",
+    property: "hunkGap",
+    type: "integer",
+    accepted: `${MIN_REVIEW_GAP} through ${MAX_REVIEW_GAP}`,
+    runtimeDefault: DEFAULT_HUNK_GAP,
+    description: "Blank rows before each hunk after the first in a file.",
   },
   {
     key: "wrap_lines",
@@ -894,6 +933,10 @@ function normalizeConfigReferenceValue(property: keyof CommonOptions, value: unk
       return normalizeString(value);
     case "tabWidth":
       return normalizeTabWidth(value);
+    case "fileGap":
+      return normalizeReviewGap(value, "file_gap");
+    case "hunkGap":
+      return normalizeReviewGap(value, "hunk_gap");
     case "sidebar":
       return normalizeSidebarVisibility(value);
     default:
@@ -952,6 +995,8 @@ function mergeOptions(base: CommonOptions, overrides: CommonOptions): CommonOpti
     excludeUntracked: overrides.excludeUntracked ?? base.excludeUntracked,
     lineNumbers: overrides.lineNumbers ?? base.lineNumbers,
     tabWidth: overrides.tabWidth ?? base.tabWidth,
+    fileGap: overrides.fileGap ?? base.fileGap,
+    hunkGap: overrides.hunkGap ?? base.hunkGap,
     wrapLines: overrides.wrapLines ?? base.wrapLines,
     hunkHeaders: overrides.hunkHeaders ?? base.hunkHeaders,
     menuBar: overrides.menuBar ?? base.menuBar,
@@ -1174,6 +1219,8 @@ export function resolveConfiguredCliInput(
     mode: resolvedOptions.mode ?? DEFAULT_VIEW_PREFERENCES.mode,
     lineNumbers: resolvedOptions.lineNumbers ?? DEFAULT_VIEW_PREFERENCES.showLineNumbers,
     tabWidth: resolvedOptions.tabWidth ?? DEFAULT_TAB_WIDTH,
+    fileGap: resolvedOptions.fileGap ?? DEFAULT_FILE_GAP,
+    hunkGap: resolvedOptions.hunkGap ?? DEFAULT_HUNK_GAP,
     wrapLines: resolvedOptions.wrapLines ?? DEFAULT_VIEW_PREFERENCES.wrapLines,
     hunkHeaders: resolvedOptions.hunkHeaders ?? DEFAULT_VIEW_PREFERENCES.showHunkHeaders,
     menuBar: resolvedOptions.menuBar ?? DEFAULT_VIEW_PREFERENCES.showMenuBar,

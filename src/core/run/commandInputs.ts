@@ -35,6 +35,10 @@ export interface CommonOptions {
   excludeUntracked?: boolean;
   lineNumbers?: boolean;
   tabWidth?: number;
+  /** Blank rows between files in the review stream, including the `─` rule. */
+  fileGap?: number;
+  /** Blank rows before each hunk after the first in a file. */
+  hunkGap?: number;
   wrapLines?: boolean;
   hunkHeaders?: boolean;
   menuBar?: boolean;

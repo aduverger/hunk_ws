@@ -41,9 +41,10 @@ interface DiffSectionProps {
   showHunkHeaders: boolean;
   sourceStatus: FileSourceStatus | undefined;
   tabWidth: number;
+  hunkGap: number;
   wrapLines: boolean;
   showHeader: boolean;
-  showSeparator: boolean;
+  separatorHeight: number;
   theme: AppTheme;
   visibleAgentNotes: VisibleAgentNote[];
   visibleBodyBounds?: VisibleBodyBounds;
@@ -82,9 +83,10 @@ function DiffSectionComponent({
   showHunkHeaders,
   sourceStatus,
   tabWidth,
+  hunkGap,
   wrapLines,
   showHeader,
-  showSeparator,
+  separatorHeight,
   theme,
   visibleAgentNotes,
   visibleBodyBounds,
@@ -112,17 +114,35 @@ function DiffSectionComponent({
         overflow: "visible",
       }}
     >
-      {showSeparator ? (
+      {separatorHeight > 0 ? (
         <box
           style={{
             width: "100%",
-            height: 1,
-            paddingLeft: 1,
-            paddingRight: 1,
+            height: separatorHeight,
+            flexDirection: "column",
             backgroundColor: theme.panel,
           }}
         >
-          <text fg={theme.border}>{fitText("─".repeat(separatorWidth), separatorWidth)}</text>
+          {separatorHeight > 1 ? (
+            <box
+              style={{
+                width: "100%",
+                height: separatorHeight - 1,
+                backgroundColor: theme.panel,
+              }}
+            />
+          ) : null}
+          <box
+            style={{
+              width: "100%",
+              height: 1,
+              paddingLeft: 1,
+              paddingRight: 1,
+              backgroundColor: theme.panel,
+            }}
+          >
+            <text fg={theme.border}>{fitText("─".repeat(separatorWidth), separatorWidth)}</text>
+          </box>
         </box>
       ) : null}
 
@@ -170,6 +190,7 @@ function DiffSectionComponent({
           showHunkHeaders={showHunkHeaders}
           sourceStatus={sourceStatus}
           tabWidth={tabWidth}
+          hunkGap={hunkGap}
           wrapLines={wrapLines}
           codeHorizontalOffset={codeHorizontalOffset}
           copySelectedRowRanges={copySelectedRowRanges}
@@ -223,9 +244,10 @@ export const DiffSection = memo(DiffSectionComponent, (previous, next) => {
     previous.showHunkHeaders === next.showHunkHeaders &&
     previous.sourceStatus === next.sourceStatus &&
     previous.tabWidth === next.tabWidth &&
+    previous.hunkGap === next.hunkGap &&
     previous.wrapLines === next.wrapLines &&
     previous.showHeader === next.showHeader &&
-    previous.showSeparator === next.showSeparator &&
+    previous.separatorHeight === next.separatorHeight &&
     previous.hoverActive === next.hoverActive &&
     previous.hoverClearSignal === next.hoverClearSignal &&
     previous.onMouseScroll === next.onMouseScroll &&

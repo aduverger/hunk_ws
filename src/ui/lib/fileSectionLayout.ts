@@ -1,4 +1,5 @@
 import type { DiffFile } from "../../core/changeset/model";
+import { DEFAULT_FILE_GAP } from "../../core/run/reviewGap";
 
 /** Stream geometry for one file section in the main review pane. */
 export interface FileSectionLayout {
@@ -26,17 +27,18 @@ export function buildInStreamFileHeaderHeights(files: DiffFile[]) {
   return files.map((_, index) => getInStreamFileHeaderHeight(index));
 }
 
-/** Build absolute section offsets from file order, header heights, and measured body heights. */
+/** Build absolute section offsets from file order, header heights, measured body heights, and file gap. */
 export function buildFileSectionLayouts(
   files: DiffFile[],
   bodyHeights: number[],
   headerHeights?: number[],
+  fileGap = DEFAULT_FILE_GAP,
 ) {
   const layouts: FileSectionLayout[] = [];
   let cursor = 0;
 
   files.forEach((file, index) => {
-    const separatorHeight = index > 0 ? 1 : 0;
+    const separatorHeight = index > 0 ? Math.max(0, fileGap) : 0;
     const headerHeight = Math.max(0, headerHeights?.[index] ?? getInStreamFileHeaderHeight(index));
     const bodyHeight = Math.max(0, bodyHeights[index] ?? 0);
     const sectionTop = cursor;

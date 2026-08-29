@@ -191,6 +191,10 @@ export function renderDecoratedPlannedRowText(
     return [fitText(title, width), ...summaryLines, ...rationaleLines];
   }
 
+  if (row.kind === "hunk-gap") {
+    return Array.from({ length: row.height }, () => "");
+  }
+
   const preparedRow = row.row;
 
   if (preparedRow.type === "hunk-header") {

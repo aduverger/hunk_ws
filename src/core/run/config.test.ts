@@ -328,6 +328,40 @@ describe("config resolution", () => {
     }
   });
 
+  test("defaults file and hunk gaps and rejects invalid configured values", () => {
+    const home = createTempDir("hunk-config-gap-home-");
+    const repo = createTempDir("hunk-config-gap-repo-");
+    createRepo(repo);
+
+    const input = createPatchPagerInput();
+    const resolved = resolveConfiguredCliInput(input, { cwd: repo, env: { HOME: home } }).input
+      .options;
+    expect(resolved.fileGap).toBe(1);
+    expect(resolved.hunkGap).toBe(0);
+
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "hunk", "config.toml"),
+      ["file_gap = 3", "hunk_gap = 1"].join("\n"),
+    );
+    const configured = resolveConfiguredCliInput(input, { cwd: repo, env: { HOME: home } }).input
+      .options;
+    expect(configured.fileGap).toBe(3);
+    expect(configured.hunkGap).toBe(1);
+
+    for (const [key, invalid] of [
+      ["file_gap", "-1"],
+      ["file_gap", "9"],
+      ["file_gap", '"2"'],
+      ["hunk_gap", "9"],
+    ] as const) {
+      writeFileSync(join(home, ".config", "hunk", "config.toml"), `${key} = ${invalid}\n`);
+      expect(() => resolveConfiguredCliInput(input, { cwd: repo, env: { HOME: home } })).toThrow(
+        new RegExp(key),
+      );
+    }
+  });
+
   test("resolves the sidebar preference from config, CLI flags, and the auto default", () => {
     const home = createTempDir("hunk-config-home-");
     const repo = createTempDir("hunk-config-repo-");
@@ -1037,6 +1071,8 @@ describe("config resolution", () => {
         'theme = "github-light-default"',
         "line_numbers = false",
         "tab_width = 8",
+        "file_gap = 3",
+        "hunk_gap = 1",
         "wrap_lines = true",
         "menu_bar = false",
         "sidebar = true",
@@ -1066,6 +1102,8 @@ describe("config resolution", () => {
     expect(bootstrap.initialTheme).toBe("github-light-default");
     expect(bootstrap.initialShowLineNumbers).toBe(false);
     expect(bootstrap.initialTabWidth).toBe(8);
+    expect(bootstrap.initialFileGap).toBe(3);
+    expect(bootstrap.initialHunkGap).toBe(1);
     expect(bootstrap.initialWrapLines).toBe(true);
     expect(bootstrap.initialShowMenuBar).toBe(false);
     expect(bootstrap.initialSidebar).toBe(true);

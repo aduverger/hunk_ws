@@ -65,11 +65,28 @@ describe("measureDiffSectionGeometry", () => {
       false,
       8,
     );
+    const differentHunkGap = measureDiffSectionGeometry(
+      file,
+      "split",
+      true,
+      theme,
+      [],
+      120,
+      true,
+      false,
+      undefined,
+      undefined,
+      false,
+      4,
+      2,
+    );
 
     expect(second).toBe(first);
     expect(differentWidth).not.toBe(first);
     expect(differentAddNotePolicy).not.toBe(first);
     expect(differentTabWidth).not.toBe(first);
+    expect(differentHunkGap).not.toBe(first);
+    expect(differentHunkGap.bodyHeight).toBeGreaterThan(first.bodyHeight);
   });
 
   test("caches planned rows after the lazy geometry property is first read", () => {

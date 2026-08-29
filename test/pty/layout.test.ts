@@ -43,6 +43,74 @@ describe("PTY layout", () => {
     }
   });
 
+  test("a larger file gap inserts blank rows before the next file header", async () => {
+    const fixture = harness.createTwoFileRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "stack", "--no-sidebar", "--file-gap", "3"],
+      cwd: fixture.dir,
+      cols: 100,
+      rows: 24,
+    });
+
+    try {
+      await session.waitForText(/View\s+Navigate\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+      const snapshot = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("alpha.ts") && text.includes("beta.ts"),
+        8_000,
+      );
+      const lines = snapshot.split("\n");
+      const betaIndex = lines.findIndex((line) => line.includes("beta.ts"));
+      expect(betaIndex).toBeGreaterThan(2);
+      const preceding = lines.slice(betaIndex - 3, betaIndex);
+      expect(preceding).toHaveLength(3);
+      expect(preceding[0]?.trim()).toBe("");
+      expect(preceding[1]?.trim()).toBe("");
+      expect(preceding[2]).toContain("─");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("a hunk gap inserts blank rows before the next hunk header", async () => {
+    const fixture = harness.createMultiHunkFilePair();
+    const session = await harness.launchHunk({
+      args: [
+        "diff",
+        fixture.before,
+        fixture.after,
+        "--mode",
+        "stack",
+        "--no-sidebar",
+        "--hunk-gap",
+        "2",
+      ],
+      cols: 100,
+      rows: 32,
+    });
+
+    try {
+      await session.waitForText(/View\s+Navigate\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+      const snapshot = await harness.waitForSnapshot(
+        session,
+        (text) => (text.match(/@@/g) ?? []).length >= 2,
+        8_000,
+      );
+      const lines = snapshot.split("\n");
+      const headerIndexes = lines.flatMap((line, index) => (line.includes("@@") ? [index] : []));
+      expect(headerIndexes.length).toBeGreaterThanOrEqual(2);
+      const secondHeader = headerIndexes[1]!;
+      expect(lines[secondHeader - 2]?.trim()).toBe("");
+      expect(lines[secondHeader - 1]?.trim()).toBe("");
+    } finally {
+      session.close();
+    }
+  });
+
   test("split rows keep the center separator aligned after wide characters", async () => {
     const fixture = harness.createWideCharacterFilePair();
     const session = await harness.launchHunk({

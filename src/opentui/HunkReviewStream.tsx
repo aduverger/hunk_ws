@@ -1,3 +1,4 @@
+import { DEFAULT_FILE_GAP, DEFAULT_HUNK_GAP } from "../core/run/reviewGap";
 import { resolveTheme } from "../ui/themes";
 import { HunkDiffBody } from "./HunkDiffBody";
 import { HunkDiffFileHeader } from "./HunkDiffFileHeader";
@@ -25,6 +26,8 @@ export function HunkReviewStream({
   showLineNumbers = true,
   showHunkHeaders = true,
   tabWidth,
+  fileGap = DEFAULT_FILE_GAP,
+  hunkGap = DEFAULT_HUNK_GAP,
   wrapLines = false,
   horizontalOffset = 0,
   highlight = true,
@@ -56,8 +59,17 @@ export function HunkReviewStream({
               backgroundColor: resolvedTheme.panel,
             }}
           >
-            {showFileSeparators && index > 0 ? (
-              <box style={{ width: "100%", height: 1, paddingLeft: 1, paddingRight: 1 }}>
+            {showFileSeparators && index > 0 && fileGap > 0 ? (
+              <box
+                style={{
+                  width: "100%",
+                  height: fileGap,
+                  flexDirection: "column",
+                  paddingLeft: 1,
+                  paddingRight: 1,
+                }}
+              >
+                {fileGap > 1 ? <box style={{ width: "100%", height: fileGap - 1 }} /> : null}
                 <text fg={resolvedTheme.border}>{"─".repeat(Math.max(1, width - 2))}</text>
               </box>
             ) : null}
@@ -77,6 +89,7 @@ export function HunkReviewStream({
               showLineNumbers={showLineNumbers}
               showHunkHeaders={showHunkHeaders}
               tabWidth={tabWidth}
+              hunkGap={hunkGap}
               wrapLines={wrapLines}
               horizontalOffset={horizontalOffset}
               highlight={highlight}

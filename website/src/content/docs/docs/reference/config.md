@@ -100,6 +100,26 @@ Set terminal-cell tab stops used for display and wrapping.
 
 ---
 
+**`file_gap`**
+
+Rows between files in the review stream, including the `─` rule. `1` keeps the current rule; `0` hides it; larger values add blank rows above it.
+
+- **Type:** integer
+- **Accepted:** 0 through 8
+- **Built-in default:** `1`
+
+---
+
+**`hunk_gap`**
+
+Blank rows before each hunk after the first in a file.
+
+- **Type:** integer
+- **Accepted:** 0 through 8
+- **Built-in default:** `0`
+
+---
+
 **`wrap_lines`**
 
 Wrap long diff lines instead of keeping one visual row.

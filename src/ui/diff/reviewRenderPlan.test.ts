@@ -402,6 +402,62 @@ describe("review render plan", () => {
   });
 });
 
+describe("hunk-gap rows", () => {
+  test("inserts a spacer before each hunk after the first in split and stack plans", () => {
+    const theme = resolveTheme("github-dark-default", null);
+    const file = createDiffFile("multi", "multi.ts", TWELVE_LINES_BEFORE, TWELVE_LINES_AFTER);
+
+    for (const rows of [buildSplitRows(file, null, theme), buildStackRows(file, null, theme)]) {
+      expect(
+        buildReviewRenderPlan({ fileId: file.id, rows, showHunkHeaders: true }).some(
+          (row) => row.kind === "hunk-gap",
+        ),
+      ).toBe(false);
+
+      const plannedRows = buildReviewRenderPlan({
+        fileId: file.id,
+        rows,
+        showHunkHeaders: true,
+        hunkGap: 2,
+      });
+      const headerIndex = plannedRows.findIndex(
+        (row) => row.kind === "diff-row" && row.row.type === "hunk-header" && row.hunkIndex === 1,
+      );
+      const gap = plannedRows[headerIndex - 1];
+
+      expect(headerIndex).toBeGreaterThan(0);
+      expect(gap?.kind).toBe("hunk-gap");
+      if (gap?.kind === "hunk-gap") {
+        expect(gap.height).toBe(2);
+        expect(gap.hunkIndex).toBe(1);
+      }
+      expect(plannedRows.filter((row) => row.kind === "hunk-gap")).toHaveLength(1);
+    }
+  });
+
+  test("keeps the spacer before a later hunk when hunk headers are hidden", () => {
+    const theme = resolveTheme("github-dark-default", null);
+    const file = createDiffFile("multi", "multi.ts", TWELVE_LINES_BEFORE, TWELVE_LINES_AFTER);
+    const rows = buildSplitRows(file, null, theme);
+    const plannedRows = buildReviewRenderPlan({
+      fileId: file.id,
+      rows,
+      showHunkHeaders: false,
+      hunkGap: 2,
+    });
+    const headerIndex = plannedRows.findIndex(
+      (row) => row.kind === "diff-row" && row.row.type === "hunk-header" && row.hunkIndex === 1,
+    );
+    const gap = plannedRows[headerIndex - 1];
+
+    expect(headerIndex).toBeGreaterThan(0);
+    expect(gap?.kind).toBe("hunk-gap");
+    if (gap?.kind === "hunk-gap") {
+      expect(gap.height).toBe(2);
+    }
+  });
+});
+
 describe("line stable key targets", () => {
   test("reads a single-sided anchor back into a note target", () => {
     expect(lineStableKeyTarget(lineStableKey(2, "old", 41))).toEqual({

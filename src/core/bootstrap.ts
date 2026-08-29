@@ -45,6 +45,8 @@ export interface AppBootstrap<ExtensionState = unknown> {
   customThemes?: readonly NamedCustomThemeConfig[];
   initialShowLineNumbers?: boolean;
   initialTabWidth?: number;
+  initialFileGap?: number;
+  initialHunkGap?: number;
   initialWrapLines?: boolean;
   initialShowHunkHeaders?: boolean;
   initialShowMenuBar?: boolean;

@@ -1,3 +1,4 @@
+import { DEFAULT_HUNK_GAP } from "../../core/run/reviewGap";
 import { DEFAULT_TAB_WIDTH } from "../../core/run/tabWidth";
 import type { DiffFile } from "../../core/changeset/model";
 import type { LayoutMode } from "../../core/run/commandInputs";
@@ -149,6 +150,7 @@ function createLazyPlannedRowsResolver({
   showHunkHeaders,
   sourceStatus,
   tabWidth,
+  hunkGap,
   theme,
   visibleAgentNotes,
 }: {
@@ -158,6 +160,7 @@ function createLazyPlannedRowsResolver({
   showHunkHeaders: boolean;
   sourceStatus: FileSourceStatus | undefined;
   tabWidth: number;
+  hunkGap: number;
   theme: AppTheme;
   visibleAgentNotes: VisibleAgentNote[];
 }) {
@@ -172,6 +175,7 @@ function createLazyPlannedRowsResolver({
     showHunkHeaders,
     sourceStatus: sourceStatus ? structuredClone(sourceStatus) : undefined,
     tabWidth,
+    hunkGap,
     theme,
     visibleAgentNotes:
       visibleAgentNotes.length === 0
@@ -244,6 +248,10 @@ function measurePlannedDiffSectionRowHeight(
     });
   }
 
+  if (row.kind === "hunk-gap") {
+    return row.height;
+  }
+
   return measurePlannedRenderedRowHeight(row, {
     lineNumberDigits,
     reserveAddNoteColumn,
@@ -268,6 +276,7 @@ export function measureDiffSectionGeometry(
   sourceStatus: FileSourceStatus | undefined = undefined,
   reserveAddNoteColumn = false,
   tabWidth = DEFAULT_TAB_WIDTH,
+  hunkGap = DEFAULT_HUNK_GAP,
 ): DiffSectionGeometry {
   if (file.metadata.hunks.length === 0) {
     return {
@@ -296,7 +305,7 @@ export function measureDiffSectionGeometry(
     theme.lineNumberBg,
     theme.lineNumberFg,
   ].join(":");
-  const cacheKey = `${file.id}:${layout}:${showHunkHeaders ? 1 : 0}:${themeCacheKey}:${width}:${showLineNumbers ? 1 : 0}:${wrapLines ? 1 : 0}:${reserveAddNoteColumn ? 1 : 0}:tabs:${tabWidth}${expansionCacheKey(expandedKeys, sourceStatus)}${notesCacheKey(visibleAgentNotes)}`;
+  const cacheKey = `${file.id}:${layout}:${showHunkHeaders ? 1 : 0}:${themeCacheKey}:${width}:${showLineNumbers ? 1 : 0}:${wrapLines ? 1 : 0}:${reserveAddNoteColumn ? 1 : 0}:tabs:${tabWidth}:hunkGap:${hunkGap}${expansionCacheKey(expandedKeys, sourceStatus)}${notesCacheKey(visibleAgentNotes)}`;
   const cacheSlot = sectionGeometryCacheSlot(visibleAgentNotes);
   const cached = getCachedSectionGeometry(file, cacheSlot, cacheKey);
   if (cached) {
@@ -310,6 +319,7 @@ export function measureDiffSectionGeometry(
     showHunkHeaders,
     sourceStatus,
     tabWidth,
+    hunkGap,
     theme,
     visibleAgentNotes,
   });
@@ -389,6 +399,7 @@ export function measureDiffSectionGeometry(
     showHunkHeaders,
     sourceStatus,
     tabWidth,
+    hunkGap,
     theme,
     visibleAgentNotes,
   });

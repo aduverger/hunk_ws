@@ -1,3 +1,4 @@
+import { DEFAULT_HUNK_GAP } from "../../core/run/reviewGap";
 import { reviewNoteAnchorLine, reviewNoteOwnerHunkIndex } from "../../core/review/state";
 import type { ReviewRangeAnchorV1 } from "../../core/review/types";
 import type { UserNoteLineTarget } from "../../core/liveComments";
@@ -45,6 +46,14 @@ export type PlannedReviewRow =
       anchorSide?: "old" | "new";
       noteCount: number;
       noteIndex: number;
+    }
+  | {
+      kind: "hunk-gap";
+      key: string;
+      stableKey: string;
+      fileId: string;
+      hunkIndex: number;
+      height: number;
     };
 
 function lineRows(rows: DiffRow[]) {
@@ -342,7 +351,7 @@ function rowCanAnchorHunk(row: DiffRow, showHunkHeaders: boolean) {
 /**
  * Build the explicit presentational row plan for one file diff body.
  * The plan always preserves diff-row order and may insert inline notes for every visible note
- * anchored in this file.
+ * anchored in this file. Decorative hunk-gap rows sit before each hunk after the first.
  */
 export function buildReviewRenderPlan({
   fileId,
@@ -350,12 +359,14 @@ export function buildReviewRenderPlan({
   showHunkHeaders,
   visibleAgentNotes = EMPTY_VISIBLE_AGENT_NOTES,
   selectedHunkIndex: _selectedHunkIndex,
+  hunkGap = DEFAULT_HUNK_GAP,
 }: {
   fileId: string;
   rows: DiffRow[];
   showHunkHeaders: boolean;
   visibleAgentNotes?: VisibleAgentNote[];
   selectedHunkIndex?: number;
+  hunkGap?: number;
 }) {
   const placementsByAnchor = buildInlineVisibleNotePlacements(rows, visibleAgentNotes);
   const noteGuideSideByRowKey = buildNoteGuideSideByRowKey(placementsByAnchor);
@@ -369,6 +380,17 @@ export function buildReviewRenderPlan({
     const diffStableKeys = diffRowStableKeys(row);
     const diffStableKey = diffStableKeys[0] ?? `row:${row.key}`;
     const diffStableAliasKeys = diffStableKeys.slice(1);
+
+    if (hunkGap > 0 && row.type === "hunk-header" && row.hunkIndex > 0) {
+      plannedRows.push({
+        kind: "hunk-gap",
+        key: `hunk-gap:${fileId}:${row.hunkIndex}`,
+        stableKey: `hunk-gap:${row.hunkIndex}`,
+        fileId,
+        hunkIndex: row.hunkIndex,
+        height: hunkGap,
+      });
+    }
 
     if (shouldAnchorHunk) {
       anchoredHunks.add(row.hunkIndex);
