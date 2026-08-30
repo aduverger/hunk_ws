@@ -93,7 +93,7 @@ export interface SessionBrokerSocketMessageEvent {
 export interface SessionBrokerSocketLike {
   readonly readyState: number;
   send(data: string): void;
-  close(): void;
+  close(code?: number, reason?: string): void;
   onopen: (() => void) | null;
   onmessage: ((event: SessionBrokerSocketMessageEvent) => void) | null;
   onclose: ((event: SessionBrokerSocketCloseEvent) => void) | null;
