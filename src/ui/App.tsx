@@ -20,6 +20,10 @@ import { DEFAULT_FILE_GAP, DEFAULT_HUNK_GAP } from "../core/run/reviewGap";
 import { DEFAULT_TAB_WIDTH } from "../core/run/tabWidth";
 import { isVcsReviewInput } from "../core/vcs";
 import type { AppBootstrap } from "../core/bootstrap";
+import {
+  selectActiveEditableReviewNoteId,
+  selectActiveReplyableReviewNoteId,
+} from "../core/review/selectors";
 import type { CliInput, CursorLine, LayoutMode } from "../core/run/commandInputs";
 import { sanitizeTerminalLine } from "../lib/terminalText";
 import {
@@ -981,12 +985,16 @@ export function App({
     onActiveAddNoteAffordanceChange,
     saveDraftNote,
     startUserNote,
+    startUserNoteEdit,
+    startUserNoteReply,
     updateDraftNote,
   } = useUserNoteComposer({
     draftNote: review.draftNote,
     keyboardCursorEnabled: cursorLine !== "off",
     getLineCursor: review.getLineCursor,
     startDraft: review.startUserNote,
+    startEdit: review.startUserNoteEdit,
+    startReply: review.startUserNoteReply,
     updateDraft: review.updateDraftNote,
     saveDraft: review.saveDraftNote,
     cancelDraft: review.cancelDraftNote,
@@ -998,6 +1006,9 @@ export function App({
     publishEvent: publishNoteEvent,
   });
 
+  const activeEditableNoteId = selectActiveEditableReviewNoteId(review.store.getSnapshot());
+  const activeReplyableNoteId = selectActiveReplyableReviewNoteId(review.store.getSnapshot());
+
   // One dispatch table for every app-level shortcut: the built-in commands
   // over App's live callbacks, then extension commands, so built-ins always
   // win a key and extension order follows load order.
@@ -1006,10 +1017,18 @@ export function App({
       ...buildAppCommands({
         canAlignCurrentLine: cursorLine !== "off" && review.lineCursor !== null,
         canApplyFilePresentationToAllMatching: selectedFileViewBulkTarget !== null,
+        canEditActiveNote: activeEditableNoteId !== undefined && review.draftNote === null,
+        canReplyToActiveNote: activeReplyableNoteId !== undefined && review.draftNote === null,
         canRefreshCurrentInput,
         alignCurrentLine,
         applyFilePresentationToAllMatching,
         focusFilter,
+        editActiveNote: () => {
+          if (activeEditableNoteId) startUserNoteEdit(activeEditableNoteId);
+        },
+        replyToActiveNote: () => {
+          if (activeReplyableNoteId) startUserNoteReply(activeReplyableNoteId);
+        },
         moveSelection: review.moveSelection,
         openAgentSkill,
         openThemeSelector,
@@ -1336,6 +1355,9 @@ export function App({
             width={diffPaneWidth}
             height={diffPaneHeight}
             onActiveAddNoteAffordanceChange={onActiveAddNoteAffordanceChange}
+            onEditUserNote={startUserNoteEdit}
+            onReplyToNote={startUserNoteReply}
+            onRemoveLiveNote={review.removeLiveComment}
             onRemoveUserNote={review.removeUserNote}
             onSaveDraftNote={saveDraftNote}
             onStartUserNoteAtHunk={startUserNote}

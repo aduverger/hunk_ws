@@ -30,7 +30,7 @@ import type { ActiveAddNoteAffordance } from "../../diff/DiffSectionBody";
 import type { CursorHighlight } from "../../diff/cursorHighlight";
 import { isNestedRowMouseAction } from "../../diff/rowMouseActions";
 import { setMouseCapture } from "../../lib/mouseCapture";
-import type { DraftReviewNote } from "../../lib/reviewNoteMapping";
+import type { DraftReviewNote, StoredReviewNoteRenderMetadata } from "../../lib/reviewNoteMapping";
 import {
   createVisibleAgentNote,
   reviewNoteSource,
@@ -122,6 +122,53 @@ import {
 } from "./copySelection";
 
 const EMPTY_VISIBLE_AGENT_NOTES: VisibleAgentNote[] = [];
+
+/** Read terminal-only semantic note metadata without granting it to static sidecars. */
+function storedReviewNoteMetadata(
+  annotation: AgentAnnotation,
+): StoredReviewNoteRenderMetadata | undefined {
+  const candidate = annotation as AgentAnnotation & Partial<StoredReviewNoteRenderMetadata>;
+  return candidate.semanticallyStored === true && typeof candidate.reviewNoteId === "string"
+    ? (candidate as AgentAnnotation & StoredReviewNoteRenderMetadata)
+    : undefined;
+}
+
+/** Grant saved-note card actions from semantic ownership rather than presentation labels. */
+export function storedReviewNoteActions({
+  editable,
+  hasReplies,
+  noteId,
+  onEditUserNote,
+  onRemoveLiveNote,
+  onRemoveUserNote,
+  onReplyToNote,
+  source,
+}: {
+  editable: boolean;
+  hasReplies: boolean;
+  noteId: string;
+  onEditUserNote?: (noteId: string, options?: { preserveViewport?: boolean }) => void;
+  onRemoveLiveNote?: (noteId: string) => void;
+  onRemoveUserNote?: (noteId: string) => void;
+  onReplyToNote?: (noteId: string, options?: { preserveViewport?: boolean }) => void;
+  source: "agent" | "ai" | "user";
+}): VisibleAgentNote["actions"] {
+  const actions: NonNullable<VisibleAgentNote["actions"]> = {};
+  if (source === "user" && editable && onEditUserNote) {
+    actions.onEdit = () => onEditUserNote(noteId, { preserveViewport: true });
+  }
+  if (onReplyToNote) {
+    actions.onReply = () => onReplyToNote(noteId, { preserveViewport: true });
+  }
+  if (!hasReplies) {
+    if (source === "user" && onRemoveUserNote) {
+      actions.onDelete = () => onRemoveUserNote(noteId);
+    } else if (source !== "user" && onRemoveLiveNote) {
+      actions.onDelete = () => onRemoveLiveNote(noteId);
+    }
+  }
+  return Object.keys(actions).length > 0 ? actions : undefined;
+}
 
 /**
  * Resets OpenTUI's wheel remainder after Hunk reroutes a shifted wheel event.
@@ -293,6 +340,9 @@ export function DiffPane({
   height,
   cancelCopySelectionRef,
   onActiveAddNoteAffordanceChange,
+  onEditUserNote,
+  onReplyToNote,
+  onRemoveLiveNote,
   onRemoveUserNote,
   onSaveDraftNote,
   onStartUserNoteAtHunk,
@@ -361,6 +411,9 @@ export function DiffPane({
   onActiveAddNoteAffordanceChange?: (
     affordance: (ActiveAddNoteAffordance & { fileId: string }) | null,
   ) => void;
+  onEditUserNote?: (noteId: string, options?: { preserveViewport?: boolean }) => void;
+  onReplyToNote?: (noteId: string, options?: { preserveViewport?: boolean }) => void;
+  onRemoveLiveNote?: (noteId: string) => void;
   onRemoveUserNote?: (noteId: string) => void;
   onSaveDraftNote?: () => void;
   onStartUserNoteAtHunk?: (fileId: string, hunkIndex: number, target?: UserNoteLineTarget) => void;
@@ -522,7 +575,8 @@ export function DiffPane({
     const next = new Map<string, VisibleAgentNote[]>();
 
     files.forEach((file) => {
-      const annotations = (file.agent?.annotations ?? []).filter(
+      const allAnnotations = file.agent?.annotations ?? [];
+      const annotations = allAnnotations.filter(
         // One shared visibility rule over the normalized note source, so the terminal and
         // any other surface hide the same notes when the layer is off.
         (annotation) =>
@@ -532,56 +586,162 @@ export function DiffPane({
       // render plan places sidecar annotations, agent comments, reviewer notes, and the open
       // draft from one decision about where each of them hangs.
       const hunks = file.metadata.hunks;
-      const notes: VisibleAgentNote[] = annotations.map((annotation, index) => {
+      const notes: VisibleAgentNote[] = annotations.flatMap((annotation, index) => {
         const source = reviewNoteSource(annotation);
+        const metadata = storedReviewNoteMetadata(annotation);
+        if (
+          metadata &&
+          draftNote?.kind === "edit" &&
+          draftNote.targetNoteId === metadata.reviewNoteId
+        ) {
+          return [];
+        }
         // Explicit ids and synthesized index ids live in disjoint namespaces so an
         // annotation named "3" can never collide with an id-less annotation at index 3 —
         // reveal resolves rows by this id, and a collision would aim it at the wrong note.
         const id = annotation.id
           ? `annotation:${file.id}:id:${annotation.id}`
           : `annotation:${file.id}:at:${index}`;
-        if (source !== "user") {
-          return createVisibleAgentNote(hunks, { id, annotation });
-        }
+        const actions =
+          metadata && !draftNote
+            ? storedReviewNoteActions({
+                editable: annotation.editable === true,
+                hasReplies: metadata.hasReplies === true,
+                noteId: metadata.reviewNoteId,
+                onEditUserNote,
+                onRemoveLiveNote,
+                onRemoveUserNote,
+                onReplyToNote,
+                source,
+              })
+            : undefined;
 
-        return createVisibleAgentNote(hunks, {
-          id,
-          annotation,
-          source,
-          editable: true,
-          onRemove: annotation.id ? () => onRemoveUserNote?.(annotation.id!) : undefined,
-        });
+        return [
+          createVisibleAgentNote(hunks, {
+            id,
+            annotation,
+            source,
+            editable: source === "user" && annotation.editable === true,
+            ...(metadata
+              ? {
+                  thread: {
+                    noteId: metadata.reviewNoteId,
+                    ...(metadata.parentId ? { parentId: metadata.parentId } : {}),
+                    depth: metadata.threadDepth,
+                    hasNextSibling: metadata.hasNextSibling,
+                    ancestorHasNextSibling: metadata.ancestorHasNextSibling,
+                  },
+                }
+              : {}),
+            ...(actions ? { actions } : {}),
+          }),
+        ];
       });
 
       if (draftNote?.fileId === file.id) {
+        const parentMetadata = allAnnotations
+          .map(storedReviewNoteMetadata)
+          .find(
+            (metadata) => metadata?.reviewNoteId === (draftNote.parentId ?? draftNote.targetNoteId),
+          );
+        const threadDepth =
+          draftNote.kind === "reply"
+            ? (parentMetadata?.threadDepth ?? 0) + 1
+            : (parentMetadata?.threadDepth ?? 0);
         const draftAnnotation: AgentAnnotation = {
           id: draftNote.id,
           source: "user-draft",
+          title:
+            draftNote.kind === "edit"
+              ? "Edit note"
+              : draftNote.kind === "reply"
+                ? "Reply"
+                : undefined,
           summary: draftNote.body || " ",
           oldRange: draftNote.oldRange,
           newRange: draftNote.newRange,
           editable: true,
         };
-        notes.push(
-          createVisibleAgentNote(hunks, {
-            id: draftNote.id,
-            annotation: draftAnnotation,
-            // The draft knows exactly where the reviewer opened it, including on an expanded
-            // gap line no hunk contains.
-            target: { hunkIndex: draftNote.hunkIndex, side: draftNote.side, line: draftNote.line },
-            source: "draft",
-            editable: true,
-            draft: {
-              body: draftNote.body,
-              focused: draftNoteFocused,
-              onBlur: onBlurDraftNote,
-              onCancel: onCancelDraftNote ?? (() => {}),
-              onFocus: onFocusDraftNote,
-              onInput: onUpdateDraftNote ?? (() => {}),
-              onSave: onSaveDraftNote ?? (() => {}),
-            },
-          }),
-        );
+        const visibleDraft = createVisibleAgentNote(hunks, {
+          id:
+            draftNote.kind === "edit" && draftNote.targetNoteId
+              ? `annotation:${file.id}:id:${draftNote.targetNoteId}`
+              : draftNote.id,
+          annotation: draftAnnotation,
+          // The draft knows exactly where the reviewer opened it, including on an expanded
+          // gap line no hunk contains.
+          target: { hunkIndex: draftNote.hunkIndex, side: draftNote.side, line: draftNote.line },
+          source: "draft",
+          editable: true,
+          thread: {
+            noteId: draftNote.id,
+            ...(draftNote.parentId ? { parentId: draftNote.parentId } : {}),
+            depth: threadDepth,
+            hasNextSibling: draftNote.kind === "edit" ? parentMetadata?.hasNextSibling : false,
+            ancestorHasNextSibling:
+              draftNote.kind === "reply"
+                ? [
+                    ...(parentMetadata?.ancestorHasNextSibling ?? []),
+                    parentMetadata?.hasNextSibling ?? false,
+                  ]
+                : parentMetadata?.ancestorHasNextSibling,
+          },
+          draft: {
+            body: draftNote.body,
+            focused: draftNoteFocused,
+            onBlur: onBlurDraftNote,
+            onCancel: onCancelDraftNote ?? (() => {}),
+            onFocus: onFocusDraftNote,
+            onInput: onUpdateDraftNote ?? (() => {}),
+            onSave: onSaveDraftNote ?? (() => {}),
+          },
+        });
+        if (draftNote.kind === "edit" && draftNote.targetNoteId) {
+          const targetIndex = annotations.findIndex(
+            (annotation) =>
+              storedReviewNoteMetadata(annotation)?.reviewNoteId === draftNote.targetNoteId,
+          );
+          notes.splice(targetIndex < 0 ? notes.length : targetIndex, 0, visibleDraft);
+        } else if (draftNote.kind === "reply" && draftNote.parentId) {
+          const parentIndex = notes.findIndex((note) => note.thread?.noteId === draftNote.parentId);
+          let insertIndex = parentIndex < 0 ? notes.length : parentIndex + 1;
+          const parentDepth = notes[parentIndex]?.thread?.depth ?? 0;
+          while ((notes[insertIndex]?.thread?.depth ?? -1) > parentDepth) {
+            insertIndex += 1;
+          }
+
+          // The unsaved reply is the new last sibling. Extend the previous sibling's rail
+          // through its whole subtree so the draft joins the same visible thread immediately.
+          let previousSiblingIndex = -1;
+          for (let index = parentIndex + 1; index < insertIndex; index += 1) {
+            const candidate = notes[index]?.thread;
+            if (candidate?.parentId === draftNote.parentId && candidate.depth === threadDepth) {
+              previousSiblingIndex = index;
+            }
+          }
+          if (previousSiblingIndex >= 0) {
+            const previousSibling = notes[previousSiblingIndex]!;
+            notes[previousSiblingIndex] = {
+              ...previousSibling,
+              thread: { ...previousSibling.thread!, hasNextSibling: true },
+            };
+            for (let index = previousSiblingIndex + 1; index < insertIndex; index += 1) {
+              const descendant = notes[index]!;
+              if (!descendant.thread || descendant.thread.depth <= threadDepth) {
+                break;
+              }
+              const ancestorHasNextSibling = [...(descendant.thread.ancestorHasNextSibling ?? [])];
+              ancestorHasNextSibling[threadDepth] = true;
+              notes[index] = {
+                ...descendant,
+                thread: { ...descendant.thread, ancestorHasNextSibling },
+              };
+            }
+          }
+          notes.splice(insertIndex, 0, visibleDraft);
+        } else {
+          notes.push(visibleDraft);
+        }
       }
 
       if (notes.length > 0) {
@@ -597,6 +757,9 @@ export function DiffPane({
     onBlurDraftNote,
     onCancelDraftNote,
     onFocusDraftNote,
+    onEditUserNote,
+    onReplyToNote,
+    onRemoveLiveNote,
     onRemoveUserNote,
     onSaveDraftNote,
     onUpdateDraftNote,
