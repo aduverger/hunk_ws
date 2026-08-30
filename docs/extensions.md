@@ -280,11 +280,12 @@ new instances and run that shutdown/startup pair around the replacement.
 
 ### `hunk.apiVersion`
 
-The API generation this Hunk speaks (currently `10`). Branch on it if you want
-one file to support several Hunk versions. Version 10 adds generic top-level CLI commands;
-version 9 added exact-filename and glob selectors to `registerFileLanguage`; version 8 added authoritative review snapshots to command handlers;
-version 7 added the current source line to
-command selection snapshots. Version 6 added session behavior,
+The API generation this Hunk speaks (currently `11`). Branch on it if you want
+one file to support several Hunk versions. Version 11 adds the `"dim"`
+line-highlight tone; version 10 added generic top-level CLI commands; version 9
+added exact-filename and glob selectors to `registerFileLanguage`; version 8
+added authoritative review snapshots to command handlers; version 7 added the
+current source line to command selection snapshots. Version 6 added session behavior,
 terminal-command observation, and live navigation/dialogs in event handlers;
 version 5 added line highlighters and line-granular navigation (`revealLine`);
 version 4 added keyboard modes and docked panes, with API-v3 sidebar names
@@ -1224,19 +1225,23 @@ mark paints terminal columns, so a range covering only characters that occupy
 no column — bidi controls, zero-width spaces and joiners — paints nothing.
 
 The `tone` says what a mark means — `"match"` (the default), `"current"` for
-the one hit a search is standing on, `"info"`, `"warning"`, or `"error"`.
-Tones exist because a **color would be the extension's problem to get right
-and it cannot be**: a fixed background that reads on a context line is
+the one hit a search is standing on, `"info"`, `"warning"`, `"error"`, or
+`"dim"`. Tones exist because a **color would be the extension's problem to get
+right and it cannot be**: a fixed background that reads on a context line is
 invisible on an added line's green. Hunk resolves each tinted tone against the
 actual background of each marked line until it clears a minimum perceptual
 distance — stronger than its own word-diff emphasis, backing off only before
 the code on top would stop being readable — per theme, so a mark is never
-invisible on a line kind or a theme. On a transparent cell there is no color to
-blend against, so resolution falls back to the theme background and then to the
-appearance's own extreme: the mark still paints, chosen against the surface
-Hunk assumes rather than the one behind the terminal. `"current"` renders as
-reverse video (theme text as the block, theme background as the glyphs), the
-convention `less` and vim use for the active hit.
+invisible on a line kind or a theme. `"dim"` recedes the marked text toward the
+line background (blending token foregrounds ~45% into the line background while
+preserving token hues) with a guaranteed readability floor, ideal for
+review-progress workflows (e.g. marked-as-reviewed hunks) or noise de-emphasis.
+On a transparent cell there is no color to blend against, so resolution falls
+back to the theme background and then to the appearance's own extreme: the mark
+still paints, chosen against the surface Hunk assumes rather than the one behind
+the terminal. `"current"` renders as reverse video (theme text as the block,
+theme background as the glyphs), the convention `less` and vim use for the
+active hit.
 
 `highlight({ file, signal, readDocument })` may be sync or async, and returns
 the complete set of marks for one file — or `null` for none. Hunk calls it per

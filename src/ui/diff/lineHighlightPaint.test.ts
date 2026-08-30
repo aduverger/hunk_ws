@@ -143,7 +143,7 @@ describe("buildLineHighlightPaintIndex", () => {
     );
   });
 
-  test("sorts ranges by start column for deterministic painting", () => {
+  test("preserves semantic input order when ranges start out of order", () => {
     const file = createTestDiffFile({
       before: lines("none"),
       after: lines("abcdefghij"),
@@ -155,9 +155,34 @@ describe("buildLineHighlightPaintIndex", () => {
     });
 
     expect(index?.get(lineHighlightPaintKey("new", 1))).toEqual([
-      { startCol: 1, endCol: 3, tone: "match" },
       { startCol: 6, endCol: 8, tone: "info" },
+      { startCol: 1, endCol: 3, tone: "match" },
     ]);
+  });
+
+  test("preserves interleaved old/new mark order on one mirrored context line", () => {
+    const file = createTestDiffFile({
+      before: lines("shared line", "old only"),
+      after: lines("shared line", "new only"),
+      context: 1,
+    });
+
+    const index = buildLineHighlightPaintIndex({
+      file,
+      marks: [
+        mark("old", 1, 7, 11, "dim"),
+        mark("new", 1, 0, 6, "info"),
+        mark("old", 1, 3, 9, "current"),
+      ],
+    });
+
+    const ranges = index?.get(lineHighlightPaintKey("new", 1));
+    expect(ranges).toEqual([
+      { startCol: 7, endCol: 11, tone: "dim" },
+      { startCol: 0, endCol: 6, tone: "info" },
+      { startCol: 3, endCol: 9, tone: "current" },
+    ]);
+    expect(index?.get(lineHighlightPaintKey("old", 1))).toBe(ranges!);
   });
 
   test("returns undefined for no marks", () => {
@@ -250,6 +275,77 @@ describe("applyLineHighlightsToSpans", () => {
     ]);
   });
 
+  test("defers foreground transforms until the final background is known", () => {
+    const spans: RenderSpan[] = [
+      { text: "const ", fg: "#c678dd" },
+      { text: "alpha", fg: "#e5c07b" },
+      { text: " = 10;", fg: "#abb2bf" },
+    ];
+    const transformFg = (fg: string | undefined, bg: string | undefined) =>
+      `${fg ?? "default"}:${bg ?? "none"}`;
+
+    const painted = applyLineHighlightsToSpans(
+      spans,
+      [{ startCol: 0, endCol: 17, tone: "dim" }],
+      () => ({ transformFg }),
+    );
+
+    expect(painted).toEqual([
+      { text: "const ", fg: "#c678dd", transformFg },
+      { text: "alpha", fg: "#e5c07b", transformFg },
+      { text: " = 10;", fg: "#abb2bf", transformFg },
+    ]);
+    expect(painted.map((span) => span.transformFg?.(span.fg, "#101010"))).toEqual([
+      "#c678dd:#101010",
+      "#e5c07b:#101010",
+      "#abb2bf:#101010",
+    ]);
+  });
+
+  test("preserves word-diff backgrounds for deferred dim transforms", () => {
+    const spans: RenderSpan[] = [
+      { text: "alpha", fg: "#c678dd", bg: "#204020" },
+      { text: "beta", fg: "#e5c07b" },
+    ];
+    const transformFg = (fg: string | undefined, bg: string | undefined) =>
+      `${fg ?? ""}:${bg ?? "none"}`;
+
+    const painted = applyLineHighlightsToSpans(
+      spans,
+      [{ startCol: 0, endCol: 9, tone: "dim" }],
+      () => ({ transformFg }),
+    );
+
+    expect(painted).toEqual([
+      { text: "alpha", fg: "#c678dd", bg: "#204020", transformFg },
+      { text: "beta", fg: "#e5c07b", transformFg },
+    ]);
+  });
+
+  test("keeps a later current overlay above an earlier dim range", () => {
+    const file = createTestDiffFile({
+      before: lines("none"),
+      after: lines("abcdefghijklmnopq"),
+      context: 0,
+    });
+    const ranges = buildLineHighlightPaintIndex({
+      file,
+      marks: [mark("new", 1, 6, 17, "dim"), mark("new", 1, 0, 11, "current")],
+    })?.get(lineHighlightPaintKey("new", 1));
+    const transformFg = () => "#dimmed";
+
+    const painted = applyLineHighlightsToSpans(
+      [{ text: "abcdefghijklmnopq", fg: "#ffffff" }],
+      ranges ?? [],
+      (tone) => (tone === "dim" ? { transformFg } : { bg: "#eeeeee", fg: "#111111" }),
+    );
+
+    expect(painted).toEqual([
+      { text: "abcdefghijk", fg: "#111111", bg: "#eeeeee" },
+      { text: "lmnopq", fg: "#ffffff", transformFg },
+    ]);
+  });
+
   test("resolves overlaps with the later range winning", () => {
     const spans: RenderSpan[] = [{ text: "abcdefghij" }];
 
@@ -292,7 +388,7 @@ describe("applyLineHighlightsToSpans", () => {
     const ranges = Array.from({ length: 10_000 }, (_, index) => {
       const startCol = (index * 7_919) % (width - 12);
       return { startCol, endCol: startCol + 1 + (index % 11), tone: "match" as const };
-    }).sort((a, b) => a.startCol - b.startCol || a.endCol - b.endCol);
+    });
 
     const started = performance.now();
     const painted = applyLineHighlightsToSpans(spans, ranges, resolveBg);

@@ -7,7 +7,16 @@ The extension factory receives one API object. Registration calls are only valid
 
 ## `hunk.apiVersion`
 
-The API generation this Hunk speaks (currently `10`). Branch on it if you want one file to support several Hunk versions. Version 10 adds generic top-level CLI commands; version 9 added exact-filename and glob selectors to `registerFileLanguage`; version 8 added authoritative review snapshots to command handlers; version 7 added the current source line to command selection snapshots. Version 6 added session behavior, terminal-command observation, and live navigation/dialogs in lifecycle and bus handlers; version 5 added line highlighters and line-granular navigation (`revealLine`); version 4 added keyboard modes and docked panes, with API-v3 sidebar names remaining as deprecated aliases.
+The API generation this Hunk speaks (currently `11`). Branch on it if you want
+one file to support several Hunk versions. Version 11 adds the `dim`
+line-highlight tone; version 10 added generic top-level CLI commands; version 9
+added exact-filename and glob selectors to `registerFileLanguage`; version 8
+added authoritative review snapshots to command handlers; version 7 added the
+current source line to command selection snapshots. Version 6 added session
+behavior, terminal-command observation, and live navigation/dialogs in lifecycle
+and bus handlers; version 5 added line highlighters and line-granular navigation
+(`revealLine`); version 4 added keyboard modes and docked panes, with API-v3
+sidebar names remaining as deprecated aliases.
 
 ## `hunk.registerCliCommand(command, handler)`
 
@@ -144,7 +153,15 @@ hunk.registerLineHighlighter({
 });
 ```
 
-Marks are addressed by source coordinates — `side`, a 1-based `line`, and a `[start, end)` range in UTF-16 code units of the raw line text — so they survive split vs stack layout, wrapping, horizontal scrolling, and collapsed-context expansion. A mark paints terminal columns, so a range covering only zero-width characters (bidi controls, ZWSP) paints nothing. Tones (`match`, `current`, `info`, `warning`, `error`) rather than colors: Hunk resolves each tinted tone against the actual background of each marked line with a minimum-contrast guarantee stronger than its own word-diff emphasis, so a mark is never invisible on an added line's green; on a transparent cell the tint is resolved against the background Hunk assumes rather than the one behind the terminal. `current` renders as reverse video, the `less`/vim convention for the active hit.
+Marks are addressed by source coordinates — `side`, a 1-based `line`, and a `[start, end)` range in UTF-16 code units of
+the raw line text — so they survive split vs stack layout, wrapping, horizontal scrolling, and collapsed-context
+expansion. A mark paints terminal columns, so a range covering only zero-width characters (bidi controls, ZWSP) paints
+nothing. Tones (`match`, `current`, `info`, `warning`, `error`, `dim`) rather than colors: Hunk resolves each tinted tone
+against the actual background of each marked line with a minimum-contrast guarantee stronger than its own word-diff
+emphasis, so a mark is never invisible on an added line's green; `dim` recedes text toward the background while
+preserving token hues for review progress or noise reduction; on a transparent cell the tint is resolved against the
+background Hunk assumes rather than the one behind the terminal. `current` renders as reverse video, the `less`/vim
+convention for the active hit.
 
 `highlight` may be sync or async and is treated as a pure derivation of the file plus an invalidation epoch: results are cached until `ctx.highlights.refresh("todos")` (optionally `{ fileId }`-scoped) re-derives them. Failures, oversized results, and invalid entries cost that file's marks and nothing else — highlights change colors, never text or geometry.
 
