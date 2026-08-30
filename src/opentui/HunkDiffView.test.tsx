@@ -197,6 +197,38 @@ describe("OpenTUI public components", () => {
     expect(frame).toContain("+2 -1");
   });
 
+  test("uses a single ellipsis when a file navigation name is truncated", async () => {
+    const example = createExampleDiff();
+    const file = createHunkDiffFile({
+      ...example,
+      id: "long-name",
+      path: "src/extraordinarily-long-component-name",
+    });
+    const frame = await captureFrame(<HunkFileNav files={[file]} width={18} />, 22, 6);
+
+    expect(frame).toContain("…");
+  });
+
+  test("adapts file navigation from grouped paths to an expanded hierarchy", async () => {
+    const example = createExampleDiff();
+    const files = [
+      createHunkDiffFile({ ...example, id: "alpha", path: "src/ui/alpha.ts" }),
+      createHunkDiffFile({ ...example, id: "beta", path: "src/ui/beta.ts" }),
+    ];
+    const narrowFrame = await captureFrame(<HunkFileNav files={files} width={32} />, 36, 8);
+    const wideFrame = await captureFrame(<HunkFileNav files={files} width={33} />, 36, 8);
+
+    expect(narrowFrame).toContain("src/ui/");
+    expect(wideFrame).not.toContain("src/ui/");
+    expect(wideFrame).toContain("src/");
+    expect(wideFrame).toContain("ui/");
+    const wideLines = wideFrame.split("\n");
+    expect(wideLines.find((line) => line.includes("src/"))?.indexOf("src/")).toBe(1);
+    expect(wideLines.find((line) => line.includes("ui/"))?.indexOf("ui/")).toBe(3);
+    expect(wideFrame).toContain("alpha.ts");
+    expect(wideFrame).toContain("beta.ts");
+  });
+
   test("creates public file models from patch text", () => {
     const files = createHunkDiffFilesFromPatch(`diff --git a/example.ts b/example.ts
 --- a/example.ts
