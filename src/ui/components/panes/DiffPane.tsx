@@ -53,6 +53,7 @@ import {
   clampLineCursorToViewport,
   EMPTY_LINE_CURSORS,
   firstLineCursorInHunk,
+  reuseEquivalentLineCursors,
   type LineCursor,
   type LineCursorBoundsLookup,
 } from "../../lib/lineCursors";
@@ -72,7 +73,11 @@ import {
 } from "../../lib/fileSectionLayout";
 import { diffHunkId, diffSectionId } from "../../lib/ids";
 import { findViewportCenteredHunkTarget } from "../../lib/viewportSelection";
-import { VIEWPORT_READ_COALESCE_MS } from "../../lib/viewportTiming";
+import {
+  estimateInitialRenderViewportHeight,
+  resolveRenderViewportHeight,
+  VIEWPORT_READ_COALESCE_MS,
+} from "../../lib/viewportTiming";
 import {
   findViewportRowAnchor,
   resolveViewportRowAnchorTop,
@@ -150,11 +155,6 @@ export function resetOpenTuiScrollAccumulators(scrollBox: ScrollBoxRenderable) {
 function clampVerticalScrollTop(scrollTop: number, contentHeight: number, viewportHeight: number) {
   const maxScrollTop = Math.max(0, contentHeight - viewportHeight);
   return Math.min(Math.max(0, scrollTop), maxScrollTop);
-}
-
-/** Estimate render-only viewport bounds before OpenTUI publishes exact scrollbox geometry. */
-function estimateInitialRenderViewportHeight(rendererHeight: number, screenTop: number) {
-  return Math.max(1, rendererHeight - Math.max(0, screenTop));
 }
 
 /** Resolve one file-relative measured row through its precomputed whole-stream section layout. */
@@ -285,6 +285,7 @@ export function DiffPane({
   wrapToggleScrollTop,
   layoutToggleScrollTop = null,
   layoutToggleRequestId = 0,
+  scrollEdgeRequest,
   selectedFileTopAlignRequestId = 0,
   selectedHunkRevealRequestId,
   theme,
@@ -350,6 +351,7 @@ export function DiffPane({
   wrapToggleScrollTop: number | null;
   layoutToggleScrollTop?: number | null;
   layoutToggleRequestId?: number;
+  scrollEdgeRequest?: { id: number; edge: "top" | "bottom" };
   selectedFileTopAlignRequestId?: number;
   selectedHunkRevealRequestId?: number;
   theme: AppTheme;
@@ -644,6 +646,7 @@ export function DiffPane({
   const previousFilesRef = useRef<DiffFile[]>(files);
   const previousLayoutRef = useRef(layout);
   const previousWrapLinesRef = useRef(wrapLines);
+  const previousViewportPaneHeightRef = useRef(height);
   const draftNoteId = draftNote?.id ?? null;
   const draftNoteFileId = draftNote?.fileId ?? null;
   const previousDraftNoteIdRef = useRef(draftNoteId);
@@ -727,14 +730,20 @@ export function DiffPane({
     if (!scrollBox) {
       return;
     }
+    const paneHeightChanged = previousViewportPaneHeightRef.current !== height;
+    previousViewportPaneHeightRef.current = height;
 
     let cancelled = false;
     let scheduled = false;
     let scheduledViewportRead: ReturnType<typeof setTimeout> | null = null;
+    let lastReadTop = scrollBox.scrollTop ?? 0;
+    let lastReadHeight = scrollBox.viewport.height ?? 0;
 
     const readViewport = () => {
       const nextTop = scrollBox.scrollTop ?? 0;
       const nextHeight = scrollBox.viewport.height ?? 0;
+      lastReadTop = nextTop;
+      lastReadHeight = nextHeight;
 
       // The first viewport read is a baseline snapshot, not scroll input. The scroll box may retain
       // a non-zero top across remounts, so do not treat that retained position as a rapid burst.
@@ -764,15 +773,15 @@ export function DiffPane({
       );
     };
 
-    // OpenTUI emits `change` synchronously from inside its own slider sync, and other
-    // useLayoutEffects in this pane scroll the box from inside React's commit phase.
-    // Calling setScrollViewport directly from the listener can run setState while React
-    // is already committing — which downstream layout effects can amplify into a render
-    // loop and trip React's max-update-depth guard. Coalesce listener events into one
-    // timer-deferred read so rapid wheel/key bursts collapse into bounded React updates instead of
-    // turning every native scroll delta into a full review-stream render. Wrapped views use a
-    // half-frame interval to reduce blank-band latency; nowrap retains one frame.
+    // OpenTUI emits viewport events from its own layout and slider work. Keep React state updates
+    // timer-deferred so wheel/key bursts collapse into bounded review-stream renders.
     const handleViewportChange = () => {
+      if (
+        (scrollBox.scrollTop ?? 0) === lastReadTop &&
+        (scrollBox.viewport.height ?? 0) === lastReadHeight
+      ) {
+        return;
+      }
       if (scheduled) {
         return;
       }
@@ -795,10 +804,26 @@ export function DiffPane({
       );
     };
 
+    // Wait for one real Yoga height change only when geometry is still unknown or the planned pane
+    // height changed. Leaving this armed after a successful read feeds later content relayouts back
+    // into React even though the viewport height is already authoritative.
+    const handleViewportResize = () => {
+      if ((scrollBox.viewport.height ?? 0) === lastReadHeight) {
+        return;
+      }
+      scrollBox.viewport.off("resize", handleViewportResize);
+      queueMicrotask(() => {
+        if (!cancelled) {
+          readViewport();
+        }
+      });
+    };
+
     readViewport();
     scrollBox.verticalScrollBar.on("change", handleViewportChange);
-    scrollBox.viewport.on("layout-changed", handleViewportChange);
-    scrollBox.viewport.on("resized", handleViewportChange);
+    if (lastReadHeight <= 0 || paneHeightChanged) {
+      scrollBox.viewport.on("resize", handleViewportResize);
+    }
 
     return () => {
       cancelled = true;
@@ -806,10 +831,16 @@ export function DiffPane({
         clearTimeout(scheduledViewportRead);
       }
       scrollBox.verticalScrollBar.off("change", handleViewportChange);
-      scrollBox.viewport.off("layout-changed", handleViewportChange);
-      scrollBox.viewport.off("resized", handleViewportChange);
+      scrollBox.viewport.off("resize", handleViewportResize);
     };
-  }, [activateRapidScrollOverscan, clearAddNoteHoverForScroll, files.length, scrollRef, wrapLines]);
+  }, [
+    activateRapidScrollOverscan,
+    clearAddNoteHoverForScroll,
+    files.length,
+    height,
+    scrollRef,
+    wrapLines,
+  ]);
 
   const sectionHeaderHeights = useMemo(() => buildInStreamFileHeaderHeights(files), [files]);
   const reserveAddNoteColumn = Boolean(onStartUserNoteAtHunk);
@@ -916,17 +947,68 @@ export function DiffPane({
     [estimatedBodyHeights, fileGap, files, sectionHeaderHeights],
   );
   const totalContentHeight = fileSectionLayouts[fileSectionLayouts.length - 1]?.sectionBottom ?? 0;
+  const previousScrollEdgeRequestIdRef = useRef(scrollEdgeRequest?.id ?? 0);
+  const pendingScrollEdgeRequest =
+    scrollEdgeRequest && scrollEdgeRequest.id !== previousScrollEdgeRequestIdRef.current
+      ? scrollEdgeRequest
+      : null;
+  const scrollEdgeViewportHeight = Math.max(
+    scrollViewport.height,
+    scrollRef.current?.viewport.height ?? 0,
+  );
+  const requestedScrollEdgeTop = pendingScrollEdgeRequest
+    ? clampVerticalScrollTop(
+        pendingScrollEdgeRequest.edge === "bottom" ? totalContentHeight : 0,
+        totalContentHeight,
+        scrollEdgeViewportHeight,
+      )
+    : null;
+  const renderScrollTop = requestedScrollEdgeTop ?? scrollViewport.top;
+
+  // Edge jumps render their destination rows before moving OpenTUI's native viewport, avoiding a
+  // frame where viewport culling points at rows that React has not mounted yet.
+  useLayoutEffect(() => {
+    if (!pendingScrollEdgeRequest || requestedScrollEdgeTop === null) {
+      return;
+    }
+    const scrollBox = scrollRef.current;
+    if (!scrollBox) {
+      return;
+    }
+
+    previousScrollEdgeRequestIdRef.current = pendingScrollEdgeRequest.id;
+    const viewportHeight = scrollBox.viewport.height || scrollEdgeViewportHeight;
+    const nextTop = clampVerticalScrollTop(
+      requestedScrollEdgeTop,
+      totalContentHeight,
+      viewportHeight,
+    );
+    setScrollViewport({ top: nextTop, height: viewportHeight });
+    scrollBox.scrollTo(nextTop);
+  }, [
+    pendingScrollEdgeRequest,
+    requestedScrollEdgeTop,
+    scrollEdgeViewportHeight,
+    scrollRef,
+    totalContentHeight,
+  ]);
   const fileSectionIndexById = useMemo(
     () => buildFileSectionIndexById(fileSectionLayouts),
     [fileSectionLayouts],
   );
 
-  const lineCursors = useMemo(
+  const measuredLineCursors = useMemo(
     // Nothing reads the stops while the marker is off, and enumerating them costs one object per
     // rendered row of the whole changeset every time geometry is remeasured.
     () => (cursorLine === "off" ? EMPTY_LINE_CURSORS : buildLineCursors(files, sectionGeometry)),
     [cursorLine, files, sectionGeometry],
   );
+  const previousLineCursorsRef = useRef<LineCursor[]>(EMPTY_LINE_CURSORS);
+  const lineCursors = reuseEquivalentLineCursors(
+    previousLineCursorsRef.current,
+    measuredLineCursors,
+  );
+  previousLineCursorsRef.current = lineCursors;
   /** Locate one measured row in whole-stream rows, addressed by its file and plan anchor. */
   const rowBoundsInStream = useCallback(
     (fileId: string, stableKey: string) => {
@@ -950,7 +1032,9 @@ export function DiffPane({
 
   // Read the live scroll box position during render so pinned-header ownership flips
   // immediately after imperative scrolls instead of waiting for the polled viewport snapshot.
-  const effectiveScrollTop = scrollRef.current?.scrollTop ?? scrollViewport.top;
+  const effectiveScrollTop = pendingScrollEdgeRequest
+    ? renderScrollTop
+    : (scrollRef.current?.scrollTop ?? scrollViewport.top);
   const pinnedHeaderFile = useMemo(() => {
     if (files.length === 0) {
       return null;
@@ -1432,7 +1516,7 @@ export function DiffPane({
         adjacentPrefetchFileIds,
         fileSectionLayouts,
         rapidScrollOverscanRows,
-        scrollTop: scrollViewport.top,
+        scrollTop: renderScrollTop,
         viewportHeight: scrollViewport.height,
         selectedFileId,
       }),
@@ -1441,7 +1525,7 @@ export function DiffPane({
       fileSectionLayouts,
       rapidScrollOverscanRows,
       scrollViewport.height,
-      scrollViewport.top,
+      renderScrollTop,
       selectedFileId,
     ],
   );
@@ -1551,6 +1635,17 @@ export function DiffPane({
       files.map((file, sectionIndex) => ({ kind: "file", fileId: file.id, sectionIndex })),
     [files],
   );
+  const initialRenderViewportHeight = estimateInitialRenderViewportHeight(
+    renderer.height,
+    screenTop,
+    height,
+  );
+  // File windowing must not see height 0: that range is only the first file plus one overscan
+  // neighbor, which leaves a tall first paint blank until the scrollbox later publishes geometry.
+  const fileWindowViewportHeight = resolveRenderViewportHeight(
+    scrollViewport.height,
+    initialRenderViewportHeight,
+  );
   const fileRenderWindow = useMemo(
     () =>
       windowingEnabled
@@ -1558,16 +1653,16 @@ export function DiffPane({
             fileSectionLayouts,
             indexByFileId: fileSectionIndexById,
             overscanFiles: 1,
-            scrollTop: scrollViewport.top,
+            scrollTop: renderScrollTop,
             selectedFileId,
-            viewportHeight: scrollViewport.height,
+            viewportHeight: fileWindowViewportHeight,
           })
         : null,
     [
       fileSectionIndexById,
       fileSectionLayouts,
-      scrollViewport.height,
-      scrollViewport.top,
+      fileWindowViewportHeight,
+      renderScrollTop,
       selectedFileId,
       windowingEnabled,
     ],
@@ -1605,10 +1700,6 @@ export function DiffPane({
   // back the prior object when top/height are numerically unchanged lets mounted sections skip
   // re-rendering even though the Map itself is rebuilt every snapshot.
   const previousVisibleBodyBoundsRef = useRef<Map<string, VisibleBodyBounds>>(new Map());
-  const initialRenderViewportHeight = estimateInitialRenderViewportHeight(
-    renderer.height,
-    screenTop,
-  );
   const visibleBodyBoundsByFile = useMemo(() => {
     const previous = previousVisibleBodyBoundsRef.current;
     const next = new Map<string, VisibleBodyBounds>();
@@ -1647,9 +1738,9 @@ export function DiffPane({
       // Convert the absolute review-stream viewport into file-body-local coordinates.
       // Example: if the viewport starts at row 2_000 globally and this file body starts at row
       // 1_940, then the file-local visible top is 60 rows into this file.
-      let minTop = scrollViewport.top - sectionLayout.bodyTop - overscanTerminalRows;
+      let minTop = renderScrollTop - sectionLayout.bodyTop - overscanTerminalRows;
       let maxBottom =
-        scrollViewport.top + renderViewportHeight - sectionLayout.bodyTop + overscanTerminalRows;
+        renderScrollTop + renderViewportHeight - sectionLayout.bodyTop + overscanTerminalRows;
 
       // A fitting selected hunk must remain fully mounted even during the zero-halo first paint.
       // Oversized hunks keep ordinary viewport windowing so one selection cannot defeat startup.
@@ -1687,7 +1778,7 @@ export function DiffPane({
     initialWrappedRenderWindowWarmed,
     rapidScrollOverscanRows,
     scrollViewport.height,
-    scrollViewport.top,
+    renderScrollTop,
     initialRenderViewportHeight,
     sectionGeometry,
     mountedFileIndices,
