@@ -21,7 +21,7 @@
  * Extensions can branch on `hunk.apiVersion` so a newer Hunk can keep loading
  * older extensions without guessing at their expectations.
  */
-export const HUNK_EXTENSION_API_VERSION = 13;
+export const HUNK_EXTENSION_API_VERSION = 14;
 export type HunkExtensionApiVersion = typeof HUNK_EXTENSION_API_VERSION;
 
 export type ExtensionNotifyType = "info" | "warning" | "error";
@@ -690,14 +690,34 @@ export interface ExtensionVcsReviewOptions {
   colorMoved?: boolean;
 }
 
-/** Working-tree review request, as extension adapters receive it. */
-export interface ExtensionVcsDiffInput {
-  kind: "vcs";
-  range?: string;
-  staged: boolean;
-  pathspecs?: string[];
-  options: ExtensionVcsReviewOptions;
+/** The two revisions named by `hunk diff <from> <to>`, kept backend-neutral. */
+export interface ExtensionVcsRangeEndpoints {
+  /** Revision supplying the old side of the comparison. */
+  from: string;
+  /** Revision supplying the new side of the comparison. */
+  to: string;
 }
+
+/** Working-tree review request, as extension adapters receive it. */
+export type ExtensionVcsDiffInput =
+  | {
+      kind: "vcs";
+      /** One revision or range expression in the selected backend's language. */
+      range?: string;
+      rangeEndpoints?: never;
+      staged: boolean;
+      pathspecs?: string[];
+      options: ExtensionVcsReviewOptions;
+    }
+  | {
+      kind: "vcs";
+      range?: never;
+      /** Two explicit revisions, kept separate so each backend can spell the comparison correctly. */
+      rangeEndpoints: ExtensionVcsRangeEndpoints;
+      staged: boolean;
+      pathspecs?: string[];
+      options: ExtensionVcsReviewOptions;
+    };
 
 /** Single-revision review request, as extension adapters receive it. */
 export interface ExtensionVcsShowInput {
