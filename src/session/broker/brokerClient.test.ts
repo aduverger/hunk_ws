@@ -9,11 +9,19 @@ import {
   createTestSessionSnapshot,
 } from "../../../test/helpers/session-daemon-fixtures";
 import { HUNK_SESSION_API_VERSION, HUNK_SESSION_DAEMON_VERSION } from "../protocol";
-import { SessionBroker, createSessionBrokerDaemon } from "@hunk/session-broker";
+import {
+  SessionBroker,
+  createSessionBrokerDaemon,
+  type SessionBrokerSocketLike,
+} from "@hunk/session-broker";
 import { serveSessionBrokerDaemon as serveBunSessionBrokerDaemon } from "@hunk/session-broker-bun";
 import { hunkSessionProtocolParsers } from "./protocolParsers";
 import { isQuiescentUpgradeRefusal, SessionBrokerClient } from "./brokerClient";
-import { loadOrCreateHunkSessionBrokerCredentials } from "./credentials";
+import type { ResolvedSessionBrokerConfig } from "./brokerConfig";
+import {
+  loadOrCreateHunkSessionBrokerCredentials,
+  type HunkSessionBrokerCredentials,
+} from "./credentials";
 import { serveSessionBrokerDaemon as serveHunkSessionBrokerDaemon } from "./brokerServer";
 import { createHttpHunkSessionCliClient } from "../agent/cliClient";
 import { resolveSessionBrokerRuntimePaths } from "./brokerLauncher";
@@ -24,6 +32,38 @@ const originalDisable = process.env.HUNK_MCP_DISABLE;
 const originalUnsafeRemote = process.env.HUNK_MCP_UNSAFE_ALLOW_REMOTE;
 const originalRuntimeDir = process.env.XDG_RUNTIME_DIR;
 const originalConsoleError = console.error;
+const nativeSetTimeoutTest = globalThis.setTimeout.bind(globalThis);
+const nativeClearTimeoutTest = globalThis.clearTimeout.bind(globalThis);
+let restoreDeterministicClockTest: (() => void) | null = null;
+let restoreWebSocketObserverTest: (() => void) | null = null;
+
+type DeepPartialTest<T> = T extends object ? { [Key in keyof T]?: DeepPartialTest<T[Key]> } : T;
+
+interface SessionBrokerConnectionTestDouble {
+  start(): void;
+  stop(): void;
+  updateSnapshot(snapshot: ReturnType<typeof createSnapshot>): void;
+  replaceSession(
+    registration: ReturnType<typeof createRegistration>,
+    snapshot: ReturnType<typeof createSnapshot>,
+  ): void;
+}
+
+interface SessionBrokerClientTestAccess {
+  connection: Partial<SessionBrokerConnectionTestDouble> | null;
+  credentials: DeepPartialTest<HunkSessionBrokerCredentials> | null;
+  waitingForIncumbentExit: boolean;
+  restartIncompatibleDaemon?: unknown;
+  connect(config: ResolvedSessionBrokerConfig): void;
+  ensureDaemonAndConnect(): Promise<void>;
+  ensureDaemonAvailable(config: ResolvedSessionBrokerConfig): Promise<void>;
+  scheduleReconnect(delayMs?: number): void;
+}
+
+/** Access lifecycle internals through one explicit, structurally checked test seam. */
+function clientTestAccess(client: SessionBrokerClient) {
+  return client as unknown as SessionBrokerClientTestAccess;
+}
 
 function createRegistration() {
   return createTestSessionRegistration({
@@ -63,7 +103,177 @@ async function waitUntil(
   throw new Error(`Timed out waiting for ${label}.`);
 }
 
+/** Await one lifecycle promise while turning a lost wakeup into a bounded test failure. */
+async function settleWithinTestTimeout<T>(promise: PromiseLike<T> | T, timeoutMs = 500) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise<never>((_resolve, reject) => {
+        timeout = nativeSetTimeoutTest(
+          () => reject(new Error(`Promise did not settle within ${timeoutMs}ms.`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) nativeClearTimeoutTest(timeout);
+  }
+}
+
+/** Create a manually released promise for startup race characterization. */
+function createDeferredTest<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Replace only timeout scheduling with a deterministic, test-local clock. */
+function installDeterministicClockTest() {
+  if (restoreDeterministicClockTest) {
+    throw new Error("A deterministic test clock is already installed.");
+  }
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  let now = 0;
+  let nextId = 1;
+  const scheduled = new Map<
+    number,
+    {
+      due: number;
+      callback: () => void;
+      handle: { id: number; unref: () => unknown };
+    }
+  >();
+
+  let restored = false;
+  const restoreTest = () => {
+    if (restored) return;
+    restored = true;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    if (restoreDeterministicClockTest === restoreTest) restoreDeterministicClockTest = null;
+  };
+  // Register cleanup before the first process-wide mutation so setup failures remain recoverable.
+  restoreDeterministicClockTest = restoreTest;
+
+  globalThis.setTimeout = ((callback: TimerHandler, delay = 0, ...args: unknown[]) => {
+    if (typeof callback !== "function") throw new Error("Test clock requires function callbacks.");
+    const id = nextId++;
+    const handle = {
+      id,
+      unref() {
+        return handle;
+      },
+    };
+    scheduled.set(id, {
+      due: now + Number(delay),
+      callback: () => callback(...args),
+      handle,
+    });
+    return handle;
+  }) as unknown as typeof setTimeout;
+  globalThis.clearTimeout = ((handle: { id?: number } | number | undefined) => {
+    const id = typeof handle === "number" ? handle : handle?.id;
+    if (id !== undefined) scheduled.delete(id);
+  }) as typeof clearTimeout;
+
+  return {
+    /** Advance through every callback whose deadline falls in the requested interval. */
+    advanceByTest(ms: number) {
+      const target = now + ms;
+      for (;;) {
+        const next = [...scheduled.entries()]
+          .filter(([, timer]) => timer.due <= target)
+          .sort((left, right) => left[1].due - right[1].due || left[0] - right[0])[0];
+        if (!next) break;
+        const [id, timer] = next;
+        scheduled.delete(id);
+        now = timer.due;
+        timer.callback();
+      }
+      now = target;
+    },
+    pendingCountTest() {
+      return scheduled.size;
+    },
+    restoreTest,
+  };
+}
+
+/** Observe WebSocket construction without opening a network connection. */
+function installWebSocketObserverTest(throwOnAttempt?: number) {
+  if (restoreWebSocketObserverTest) {
+    throw new Error("A WebSocket observer is already installed.");
+  }
+  const OriginalWebSocket = globalThis.WebSocket;
+  const sockets: Array<{ sent: string[] }> = [];
+  let constructionAttempts = 0;
+
+  class ObservedWebSocketTest implements SessionBrokerSocketLike {
+    readyState = 0;
+    sent: string[] = [];
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: unknown }) => void) | null = null;
+    onclose: ((event: { code: number; reason: string }) => void) | null = null;
+    onerror: (() => void) | null = null;
+
+    constructor(_url: string) {
+      constructionAttempts += 1;
+      if (constructionAttempts === throwOnAttempt) throw new Error("socket factory exploded");
+      sockets.push(this);
+    }
+
+    send(data: string) {
+      this.sent.push(data);
+    }
+
+    close(code = 1000, reason = "") {
+      this.readyState = 3;
+      this.onclose?.({ code, reason });
+    }
+  }
+
+  let restored = false;
+  const restoreTest = () => {
+    if (restored) return;
+    restored = true;
+    globalThis.WebSocket = OriginalWebSocket;
+    if (restoreWebSocketObserverTest === restoreTest) restoreWebSocketObserverTest = null;
+  };
+  // Register cleanup before replacing the host constructor so later setup failures cannot leak it.
+  restoreWebSocketObserverTest = restoreTest;
+  globalThis.WebSocket = ObservedWebSocketTest as unknown as typeof WebSocket;
+  return {
+    sockets,
+    constructionAttemptsTest: () => constructionAttempts,
+    restoreTest,
+  };
+}
+
+/** Supply inert credentials so startup tests can exercise the real connection ownership path. */
+function prepareDirectConnectTest(client: SessionBrokerClient) {
+  clientTestAccess(client).credentials = {
+    producer: {},
+    daemonIdentity: { keyId: "daemon-key-test" },
+    daemonPublicKey: {},
+  };
+  return {
+    host: "127.0.0.1",
+    port: 47657,
+    httpOrigin: "http://127.0.0.1:47657",
+    wsOrigin: "ws://127.0.0.1:47657",
+  };
+}
+
 afterEach(() => {
+  restoreWebSocketObserverTest?.();
+  restoreDeterministicClockTest?.();
+
   if (originalHost === undefined) {
     delete process.env.HUNK_MCP_HOST;
   } else {
@@ -122,7 +332,7 @@ describe("Hunk session daemon client", () => {
   test("keeps its previous registration when the live connection rejects replacement", () => {
     const registration = createRegistration();
     const client = new SessionBrokerClient(registration, createSnapshot());
-    (client as any).connection = {
+    clientTestAccess(client).connection = {
       replaceSession() {
         throw new Error("connection exploded");
       },
@@ -165,7 +375,7 @@ describe("Hunk session daemon client", () => {
 
   test("does not retain the legacy PID-based incompatible-daemon replacement path", () => {
     const client = new SessionBrokerClient(createRegistration(), createSnapshot());
-    expect((client as any).restartIncompatibleDaemon).toBeUndefined();
+    expect(clientTestAccess(client).restartIncompatibleDaemon).toBeUndefined();
     client.stop();
   });
 
@@ -269,17 +479,17 @@ describe("Hunk session daemon client", () => {
         httpOrigin: `http://127.0.0.1:${port}`,
         wsOrigin: `ws://127.0.0.1:${port}`,
       };
-      (client as any).credentials = credentials;
-      (client as any).connect(config);
+      clientTestAccess(client).credentials = credentials;
+      clientTestAccess(client).connect(config);
       await Bun.sleep(7);
-      (skewedClient as any).credentials = credentials;
-      (skewedClient as any).connect(config);
+      clientTestAccess(skewedClient).credentials = credentials;
+      clientTestAccess(skewedClient).connect(config);
       await waitUntil("both incompatible session warnings", () => messages.length === 2);
       expect(messages.every((message) => message.includes("Close older Hunk windows"))).toBe(true);
       await Bun.sleep(60);
       expect(websocketOpens).toBe(2);
-      expect((client as any).waitingForIncumbentExit).toBe(true);
-      expect((skewedClient as any).waitingForIncumbentExit).toBe(true);
+      expect(clientTestAccess(client).waitingForIncumbentExit).toBe(true);
+      expect(clientTestAccess(skewedClient).waitingForIncumbentExit).toBe(true);
     } finally {
       client.stop();
       skewedClient.stop();
@@ -353,7 +563,7 @@ describe("Hunk session daemon client", () => {
 
     try {
       await client.start();
-      const retainedConnection = (client as any).connection;
+      const retainedConnection = clientTestAccess(client).connection;
       await waitUntil("incompatible signed hello", () => helloAttempts === 1);
 
       incumbentDaemon.shutdown();
@@ -385,7 +595,7 @@ describe("Hunk session daemon client", () => {
         25,
       );
       expect(helloAttempts).toBe(1);
-      expect((client as any).connection).toBe(retainedConnection);
+      expect(clientTestAccess(client).connection).toBe(retainedConnection);
     } finally {
       client.stop();
       incumbentDaemon.shutdown();
@@ -442,7 +652,7 @@ describe("Hunk session daemon client", () => {
     const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
       reconnectDelayMs: 10,
     });
-    (client as any).ensureDaemonAvailable = async () => {
+    clientTestAccess(client).ensureDaemonAvailable = async () => {
       try {
         if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return;
       } catch {
@@ -453,7 +663,7 @@ describe("Hunk session daemon client", () => {
 
     try {
       await client.start();
-      const retainedConnection = (client as any).connection;
+      const retainedConnection = clientTestAccess(client).connection;
       await waitUntil("first incompatible websocket", () => helloAttempts === 1);
       await Bun.sleep(35);
       expect(helloAttempts).toBe(1);
@@ -476,7 +686,7 @@ describe("Hunk session daemon client", () => {
         5_000,
         50,
       );
-      expect((client as any).connection).toBe(retainedConnection);
+      expect(clientTestAccess(client).connection).toBe(retainedConnection);
 
       const firstSuccessor = successor as unknown as Awaited<
         ReturnType<typeof serveHunkSessionBrokerDaemon>
@@ -502,7 +712,7 @@ describe("Hunk session daemon client", () => {
         5_000,
         50,
       );
-      expect((client as any).connection).toBe(retainedConnection);
+      expect(clientTestAccess(client).connection).toBe(retainedConnection);
     } finally {
       client.stop();
       incumbent.stop(true);
@@ -515,6 +725,155 @@ describe("Hunk session daemon client", () => {
     }
   }, 10_000);
 
+  test("repeated start after success settles while retaining one socket generation", async () => {
+    delete process.env.HUNK_MCP_DISABLE;
+    const webSockets = installWebSocketObserverTest();
+    const client = new SessionBrokerClient(createRegistration(), createSnapshot());
+    const config = prepareDirectConnectTest(client);
+    clientTestAccess(client).ensureDaemonAndConnect = async () => {
+      clientTestAccess(client).connect(config);
+    };
+
+    try {
+      await settleWithinTestTimeout(client.start());
+      expect(webSockets.sockets).toHaveLength(1);
+
+      await settleWithinTestTimeout(client.start());
+      expect(webSockets.sockets).toHaveLength(1);
+      expect(webSockets.constructionAttemptsTest()).toBe(1);
+    } finally {
+      client.stop();
+      webSockets.restoreTest();
+    }
+  });
+
+  test("concurrent starts share one settlement and perform one startup attempt", async () => {
+    delete process.env.HUNK_MCP_DISABLE;
+    const webSockets = installWebSocketObserverTest();
+    const client = new SessionBrokerClient(createRegistration(), createSnapshot());
+    const config = prepareDirectConnectTest(client);
+    const gate = createDeferredTest();
+    let attempts = 0;
+    clientTestAccess(client).ensureDaemonAndConnect = async () => {
+      attempts += 1;
+      await gate.promise;
+      clientTestAccess(client).connect(config);
+    };
+
+    try {
+      const first = client.start();
+      const second = client.start();
+      expect(attempts).toBe(1);
+      expect(webSockets.sockets).toHaveLength(0);
+
+      gate.resolve();
+      await settleWithinTestTimeout(Promise.all([first, second]));
+      expect(attempts).toBe(1);
+      expect(webSockets.sockets).toHaveLength(1);
+    } finally {
+      client.stop();
+      webSockets.restoreTest();
+    }
+  });
+
+  test("manual start during automatic retry runs now without moving the retry deadline", async () => {
+    delete process.env.HUNK_MCP_DISABLE;
+    const clock = installDeterministicClockTest();
+    const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
+      reconnectDelayMs: 30,
+    });
+    const messages: string[] = [];
+    console.error = (...args: unknown[]) => {
+      messages.push(args.map((value) => String(value)).join(" "));
+    };
+    let attempts = 0;
+    clientTestAccess(client).ensureDaemonAndConnect = async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("startup unavailable");
+    };
+
+    try {
+      await settleWithinTestTimeout(client.start());
+      expect(attempts).toBe(1);
+      expect(messages).toEqual(["[session:broker] startup unavailable"]);
+      expect(clock.pendingCountTest()).toBe(1);
+
+      await settleWithinTestTimeout(client.start());
+      expect(attempts).toBe(2);
+      expect(clock.pendingCountTest()).toBe(1);
+
+      clock.advanceByTest(29);
+      await Promise.resolve();
+      expect(attempts).toBe(2);
+
+      clock.advanceByTest(1);
+      await Promise.resolve();
+      expect(attempts).toBe(3);
+      expect(clock.pendingCountTest()).toBe(0);
+    } finally {
+      client.stop();
+      clock.restoreTest();
+    }
+  });
+
+  test.todo("known regression: client retained after synchronous socket factory failure prevents a later fresh start", async () => {
+    delete process.env.HUNK_MCP_DISABLE;
+    const webSockets = installWebSocketObserverTest(1);
+    const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
+      reconnectDelayMs: 10_000,
+    });
+    const config = prepareDirectConnectTest(client);
+    clientTestAccess(client).ensureDaemonAndConnect = async () => {
+      clientTestAccess(client).connect(config);
+    };
+
+    try {
+      await settleWithinTestTimeout(client.start());
+      await settleWithinTestTimeout(client.start());
+      expect(webSockets.constructionAttemptsTest()).toBe(2);
+      expect(webSockets.sockets).toHaveLength(1);
+    } finally {
+      client.stop();
+      webSockets.restoreTest();
+    }
+  });
+
+  for (const outcome of ["resolve", "reject"] as const) {
+    test(`stop fences a late startup ${outcome} without warning, retry, or socket mutation`, async () => {
+      delete process.env.HUNK_MCP_DISABLE;
+      const clock = installDeterministicClockTest();
+      const webSockets = installWebSocketObserverTest();
+      const messages: string[] = [];
+      console.error = (...args: unknown[]) => {
+        messages.push(args.map((value) => String(value)).join(" "));
+      };
+      const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
+        reconnectDelayMs: 30,
+      });
+      const config = prepareDirectConnectTest(client);
+      const gate = createDeferredTest();
+      clientTestAccess(client).ensureDaemonAndConnect = async () => {
+        await gate.promise;
+        if (outcome === "reject") throw new Error("late startup failure");
+        clientTestAccess(client).connect(config);
+      };
+
+      try {
+        const startup = client.start();
+        client.stop();
+        gate.resolve();
+        await settleWithinTestTimeout(startup);
+        expect(messages).toEqual([]);
+        expect(webSockets.constructionAttemptsTest()).toBe(0);
+        expect(clock.pendingCountTest()).toBe(0);
+      } finally {
+        client.stop();
+        webSockets.restoreTest();
+        clock.restoreTest();
+      }
+    });
+  }
+
   test("retries the complete startup cycle and recovers without restarting the client", async () => {
     const messages: string[] = [];
     console.error = (...args: unknown[]) => {
@@ -524,7 +883,7 @@ describe("Hunk session daemon client", () => {
       reconnectDelayMs: 10,
     });
     let attempts = 0;
-    (client as any).ensureDaemonAndConnect = async () => {
+    clientTestAccess(client).ensureDaemonAndConnect = async () => {
       attempts += 1;
       if (attempts === 1) throw new Error("incumbent incompatible");
     };
@@ -541,7 +900,7 @@ describe("Hunk session daemon client", () => {
   test("does no daemon work when start follows terminal stop", async () => {
     const client = new SessionBrokerClient(createRegistration(), createSnapshot());
     let attempts = 0;
-    (client as any).ensureDaemonAndConnect = async () => {
+    clientTestAccess(client).ensureDaemonAndConnect = async () => {
       attempts += 1;
     };
 
@@ -557,11 +916,11 @@ describe("Hunk session daemon client", () => {
     });
     let reconnectScheduled = false;
     const client = new SessionBrokerClient(createRegistration(), createSnapshot());
-    (client as any).ensureDaemonAndConnect = async () => {
+    clientTestAccess(client).ensureDaemonAndConnect = async () => {
       await gate;
       throw new Error("late startup failure");
     };
-    (client as any).scheduleReconnect = () => {
+    clientTestAccess(client).scheduleReconnect = () => {
       reconnectScheduled = true;
     };
 
