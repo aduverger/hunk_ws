@@ -181,16 +181,33 @@ add_hunk_candidate() {
 	[ -x "$candidate" ] || return 0
 	candidate_identity="$(canonical_executable_path "$candidate")" || candidate_identity="$candidate"
 	[ "$candidate_identity" = "$target_identity" ] && return 0
-	if [ -n "$hunk_candidates" ] && printf '%s\n' "$hunk_candidates" | grep -Fqx "$candidate"; then
+	hunk_discovered_paths="${hunk_discovered_paths}${hunk_discovered_paths:+
+}${candidate}"
+	if [ -n "$hunk_candidate_identities" ] && printf '%s\n' "$hunk_candidate_identities" | grep -Fqx "$candidate_identity"; then
 		return 0
 	fi
+	hunk_candidate_identities="${hunk_candidate_identities}${hunk_candidate_identities:+
+}${candidate_identity}"
 	hunk_candidates="${hunk_candidates}${hunk_candidates:+
 }${candidate}"
 }
 
+# Prefer a manager-shaped alias for diagnostics while canonical identity owns deduplication.
+preferred_manager_path() {
+	preferred_candidate="$1"
+	preferred_identity="$(canonical_executable_path "$preferred_candidate")" || preferred_identity="$preferred_candidate"
+	printf '%s\n' "$hunk_discovered_paths" | while IFS= read -r discovered_candidate; do
+		discovered_identity="$(canonical_executable_path "$discovered_candidate")" || discovered_identity="$discovered_candidate"
+		[ "$discovered_identity" = "$preferred_identity" ] || continue
+		[ "$(competing_install_channel "$discovered_candidate")" = "another package manager" ] && continue
+		printf '%s\n' "$discovered_candidate"
+		break
+	done
+}
+
 # Print whether this path wins or loses against the directory this installer manages.
 shadowing_direction() {
-	candidate_dir="$(dirname "$1")"
+	candidate_identity="$(canonical_executable_path "$1")" || candidate_identity="$1"
 	candidate_position=0
 	target_position=0
 	position=1
@@ -202,8 +219,9 @@ shadowing_direction() {
 		*) path_dir=$remaining_path; remaining_path=""; last_path_entry=1 ;;
 		esac
 		[ -n "$path_dir" ] || path_dir=.
-		[ "$path_dir" = "$candidate_dir" ] && [ "$candidate_position" -eq 0 ] && candidate_position=$position
-		[ "$path_dir" = "$bin_dir" ] && [ "$target_position" -eq 0 ] && target_position=$position
+		path_identity="$(canonical_executable_path "${path_dir%/}/hunk")" || path_identity="${path_dir%/}/hunk"
+		[ "$path_identity" = "$candidate_identity" ] && [ "$candidate_position" -eq 0 ] && candidate_position=$position
+		[ "$path_identity" = "$target_identity" ] && [ "$target_position" -eq 0 ] && target_position=$position
 		position=$((position + 1))
 		[ "${last_path_entry:-0}" = "1" ] && break
 	done
@@ -260,6 +278,8 @@ competing_install_remediation() {
 # Refuse to create version skew unless the caller explicitly accepts the competing installs.
 check_competing_installs() {
 	hunk_candidates=""
+	hunk_candidate_identities=""
+	hunk_discovered_paths=""
 	remaining_path=${PATH:-}
 	last_path_entry=0
 	while :; do
@@ -287,10 +307,12 @@ check_competing_installs() {
 
 	warn "Another Hunk installation already exists; this installer will not overwrite or remove it."
 	printf '%s\n' "$hunk_candidates" | while IFS= read -r candidate; do
+		manager_path="$(preferred_manager_path "$candidate")"
+		[ -n "$manager_path" ] || manager_path="$candidate"
 		candidate_version="$(installed_version "$candidate")"
 		[ -n "$candidate_version" ] || candidate_version="unknown"
-		warn "  ${candidate} ($(competing_install_channel "$candidate"); version ${candidate_version}; $(shadowing_direction "$candidate"))"
-		warn "    Remove with: $(competing_install_remediation "$candidate")"
+		warn "  ${candidate} ($(competing_install_channel "$manager_path"); version ${candidate_version}; $(shadowing_direction "$candidate"))"
+		warn "    Remove with: $(competing_install_remediation "$manager_path")"
 	done
 	fail "Remove every competing Hunk above, then try again. To knowingly keep them, rerun this installer with --force."
 }
