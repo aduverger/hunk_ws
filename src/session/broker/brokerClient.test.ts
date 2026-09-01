@@ -103,6 +103,15 @@ async function waitUntil(
   throw new Error(`Timed out waiting for ${label}.`);
 }
 
+/** Capture broker warnings while afterEach owns restoration of the process-wide console. */
+function captureBrokerWarningsTest() {
+  const messages: string[] = [];
+  console.error = (...args: unknown[]) => {
+    messages.push(args.map((value) => String(value)).join(" "));
+  };
+  return messages;
+}
+
 /** Await one lifecycle promise while turning a lost wakeup into a bounded test failure. */
 async function settleWithinTestTimeout<T>(promise: PromiseLike<T> | T, timeoutMs = 500) {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -357,10 +366,7 @@ describe("Hunk session daemon client", () => {
     delete process.env.HUNK_MCP_UNSAFE_ALLOW_REMOTE;
     delete process.env.HUNK_MCP_DISABLE;
 
-    const messages: string[] = [];
-    console.error = (...args: unknown[]) => {
-      messages.push(args.map((value) => String(value)).join(" "));
-    };
+    const messages = captureBrokerWarningsTest();
 
     const client = new SessionBrokerClient(createRegistration(), createSnapshot());
 
@@ -449,10 +455,7 @@ describe("Hunk session daemon client", () => {
       },
     });
 
-    const messages: string[] = [];
-    console.error = (...args: unknown[]) => {
-      messages.push(args.map((value) => String(value)).join(" "));
-    };
+    const messages = captureBrokerWarningsTest();
     const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
       reconnectDelayMs: 10,
     });
@@ -786,10 +789,7 @@ describe("Hunk session daemon client", () => {
     const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
       reconnectDelayMs: 30,
     });
-    const messages: string[] = [];
-    console.error = (...args: unknown[]) => {
-      messages.push(args.map((value) => String(value)).join(" "));
-    };
+    const messages = captureBrokerWarningsTest();
     let attempts = 0;
     clientTestAccess(client).ensureDaemonAndConnect = async () => {
       attempts += 1;
@@ -802,11 +802,12 @@ describe("Hunk session daemon client", () => {
       expect(messages).toEqual(["[session:broker] startup unavailable"]);
       expect(clock.pendingCountTest()).toBe(1);
 
+      clock.advanceByTest(10);
       await settleWithinTestTimeout(client.start());
       expect(attempts).toBe(2);
       expect(clock.pendingCountTest()).toBe(1);
 
-      clock.advanceByTest(29);
+      clock.advanceByTest(19);
       await Promise.resolve();
       expect(attempts).toBe(2);
 
@@ -814,6 +815,155 @@ describe("Hunk session daemon client", () => {
       await Promise.resolve();
       expect(attempts).toBe(3);
       expect(clock.pendingCountTest()).toBe(0);
+    } finally {
+      client.stop();
+      clock.restoreTest();
+    }
+  });
+
+  test("a retry deadline firing during an active attempt consumes that retry and coalesces", async () => {
+    delete process.env.HUNK_MCP_DISABLE;
+    const clock = installDeterministicClockTest();
+    const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
+      reconnectDelayMs: 30,
+    });
+    const messages = captureBrokerWarningsTest();
+    const activeAttempt = createDeferredTest();
+    let attempts = 0;
+    clientTestAccess(client).ensureDaemonAndConnect = async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("initial startup unavailable");
+      if (attempts === 2) await activeAttempt.promise;
+    };
+
+    try {
+      await settleWithinTestTimeout(client.start());
+      clock.advanceByTest(10);
+      const manualStartup = client.start();
+      expect(attempts).toBe(2);
+      expect(clock.pendingCountTest()).toBe(1);
+
+      clock.advanceByTest(20);
+      expect(attempts).toBe(2);
+      expect(clock.pendingCountTest()).toBe(0);
+      const joinedStartup = client.start();
+      expect(attempts).toBe(2);
+
+      activeAttempt.reject(new Error("active startup unavailable"));
+      await settleWithinTestTimeout(Promise.all([manualStartup, joinedStartup]));
+      expect(messages).toEqual([
+        "[session:broker] initial startup unavailable",
+        "[session:broker] active startup unavailable",
+      ]);
+      expect(clock.pendingCountTest()).toBe(1);
+    } finally {
+      client.stop();
+      clock.restoreTest();
+    }
+  });
+
+  test("a failed manual attempt retains the original automatic retry without duplicating it", async () => {
+    delete process.env.HUNK_MCP_DISABLE;
+    const clock = installDeterministicClockTest();
+    const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
+      reconnectDelayMs: 30,
+    });
+    const messages = captureBrokerWarningsTest();
+    let attempts = 0;
+    clientTestAccess(client).ensureDaemonAndConnect = async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("initial startup unavailable");
+      if (attempts === 2) throw new Error("manual startup unavailable");
+    };
+
+    try {
+      await settleWithinTestTimeout(client.start());
+      expect(clock.pendingCountTest()).toBe(1);
+
+      clock.advanceByTest(10);
+      await settleWithinTestTimeout(client.start());
+      expect(attempts).toBe(2);
+      expect(messages).toEqual([
+        "[session:broker] initial startup unavailable",
+        "[session:broker] manual startup unavailable",
+      ]);
+      expect(clock.pendingCountTest()).toBe(1);
+
+      clock.advanceByTest(19);
+      await Promise.resolve();
+      expect(attempts).toBe(2);
+      clock.advanceByTest(1);
+      await Promise.resolve();
+      expect(attempts).toBe(3);
+      expect(clock.pendingCountTest()).toBe(0);
+    } finally {
+      client.stop();
+      clock.restoreTest();
+    }
+  });
+
+  test("a warning-side stop is terminal and clears the newly owned retry", async () => {
+    delete process.env.HUNK_MCP_DISABLE;
+    const clock = installDeterministicClockTest();
+    const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
+      reconnectDelayMs: 30,
+    });
+    let attempts = 0;
+    clientTestAccess(client).ensureDaemonAndConnect = async () => {
+      attempts += 1;
+      throw new Error("startup unavailable");
+    };
+    console.error = () => client.stop();
+
+    try {
+      await settleWithinTestTimeout(client.start());
+      expect(attempts).toBe(1);
+      expect(clock.pendingCountTest()).toBe(0);
+
+      clock.advanceByTest(30);
+      await settleWithinTestTimeout(client.start());
+      expect(attempts).toBe(1);
+      expect(clock.pendingCountTest()).toBe(0);
+    } finally {
+      client.stop();
+      clock.restoreTest();
+    }
+  });
+
+  test("repeated stop clears a retry retained by an active manual attempt and fences its failure", async () => {
+    delete process.env.HUNK_MCP_DISABLE;
+    const clock = installDeterministicClockTest();
+    const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
+      reconnectDelayMs: 30,
+    });
+    const messages = captureBrokerWarningsTest();
+    const activeAttempt = createDeferredTest();
+    let attempts = 0;
+    clientTestAccess(client).ensureDaemonAndConnect = async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("initial startup unavailable");
+      await activeAttempt.promise;
+      throw new Error("late manual startup failure");
+    };
+
+    try {
+      await settleWithinTestTimeout(client.start());
+      const manualStartup = client.start();
+      expect(attempts).toBe(2);
+      expect(clock.pendingCountTest()).toBe(1);
+
+      client.stop();
+      client.stop();
+      expect(clock.pendingCountTest()).toBe(0);
+      clock.advanceByTest(30);
+      expect(attempts).toBe(2);
+
+      activeAttempt.resolve();
+      await settleWithinTestTimeout(manualStartup);
+      expect(messages).toEqual(["[session:broker] initial startup unavailable"]);
+      expect(clock.pendingCountTest()).toBe(0);
+      await client.start();
+      expect(attempts).toBe(2);
     } finally {
       client.stop();
       clock.restoreTest();
@@ -895,10 +1045,7 @@ describe("Hunk session daemon client", () => {
       delete process.env.HUNK_MCP_DISABLE;
       const clock = installDeterministicClockTest();
       const webSockets = installWebSocketObserverTest();
-      const messages: string[] = [];
-      console.error = (...args: unknown[]) => {
-        messages.push(args.map((value) => String(value)).join(" "));
-      };
+      const messages = captureBrokerWarningsTest();
       const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
         reconnectDelayMs: 30,
       });
@@ -927,10 +1074,7 @@ describe("Hunk session daemon client", () => {
   }
 
   test("retries the complete startup cycle and recovers without restarting the client", async () => {
-    const messages: string[] = [];
-    console.error = (...args: unknown[]) => {
-      messages.push(args.map((value) => String(value)).join(" "));
-    };
+    const messages = captureBrokerWarningsTest();
     const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
       reconnectDelayMs: 10,
     });
@@ -961,28 +1105,6 @@ describe("Hunk session daemon client", () => {
     expect(attempts).toBe(0);
   });
 
-  test("does not schedule recovery after stop wins a startup race", async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let reconnectScheduled = false;
-    const client = new SessionBrokerClient(createRegistration(), createSnapshot());
-    clientTestAccess(client).ensureDaemonAndConnect = async () => {
-      await gate;
-      throw new Error("late startup failure");
-    };
-    clientTestAccess(client).scheduleReconnect = () => {
-      reconnectScheduled = true;
-    };
-
-    const startup = client.start();
-    client.stop();
-    release();
-    await startup;
-    expect(reconnectScheduled).toBe(false);
-  });
-
   test("logs one actionable warning when a non-Hunk listener owns the session daemon port", async () => {
     const conflictingListener = createServer((_request, response) => {
       response.writeHead(404, { "content-type": "text/plain" });
@@ -999,10 +1121,7 @@ describe("Hunk session daemon client", () => {
     process.env.HUNK_MCP_PORT = String(port);
     delete process.env.HUNK_MCP_DISABLE;
 
-    const messages: string[] = [];
-    console.error = (...args: unknown[]) => {
-      messages.push(args.map((value) => String(value)).join(" "));
-    };
+    const messages = captureBrokerWarningsTest();
 
     const client = new SessionBrokerClient(createRegistration(), createSnapshot(), {
       daemonStartupTimeoutMs: 100,
