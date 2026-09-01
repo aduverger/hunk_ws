@@ -11,7 +11,7 @@ head:
   - tag: meta
     attrs:
       property: og:image:alt
-      content: "Hunk changelog — 21 release series · March 2026 – August 2026"
+      content: "Hunk changelog — 21 release series · March 2026 – September 2026"
   - tag: meta
     attrs:
       name: twitter:image
@@ -24,7 +24,7 @@ head:
 
 ## [Hunk 0.21](/changelog/0.21/)
 
-Prerelease · August 30, 2026 · 1 release · 30 changes
+Prerelease · August 30, 2026 – September 1, 2026 · 2 releases · 37 changes
 
 ## [Hunk 0.20](/changelog/0.20/)
 
