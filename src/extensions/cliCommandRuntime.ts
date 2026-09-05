@@ -1,3 +1,4 @@
+import { validateExtensionReviewDescriptor } from "../core/reviewDescriptor";
 import { HunkUserError, isUserFacingError, toUserFacingError } from "../core/run/errors";
 import type {
   ExtensionCliCommandContext,
@@ -187,8 +188,11 @@ function validateExtensionCliResult(result: unknown): ExtensionCliCommandResult 
     throw new Error('must return an object with kind "exit" or "delegate"');
   }
 
-  const candidate = result as { kind?: unknown; code?: unknown; argv?: unknown };
+  const candidate = result as { kind?: unknown; code?: unknown; argv?: unknown; review?: unknown };
   if (candidate.kind === "exit") {
+    if ("review" in candidate) {
+      throw new Error("exit results cannot include delegated review metadata");
+    }
     const code = candidate.code ?? 0;
     if (!Number.isSafeInteger(code) || (code as number) < 0 || (code as number) > 255) {
       throw new Error("exit code must be a safe integer from 0 through 255");
@@ -215,7 +219,15 @@ function validateExtensionCliResult(result: unknown): ExtensionCliCommandResult 
     ) {
       throw new Error("delegate argv cannot change extension bootstrap flags");
     }
-    return Object.freeze({ kind: "delegate", argv: Object.freeze([...argv]) });
+    const review =
+      candidate.review === undefined
+        ? undefined
+        : validateExtensionReviewDescriptor(candidate.review);
+    return Object.freeze({
+      kind: "delegate",
+      argv: Object.freeze([...argv]),
+      ...(review === undefined ? {} : { review }),
+    });
   }
 
   throw new Error('result kind must be "exit" or "delegate"');

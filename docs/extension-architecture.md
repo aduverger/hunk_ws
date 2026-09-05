@@ -20,11 +20,11 @@ object and registry collection (`src/extensions/runExtension.ts`):
   by the app composition root (`app/vcsCatalog.ts`) and loaded synchronously
   before config resolution, so backends exist without making core import the
   extension host. `default/ui/index.ts` is deliberately not part of that list:
-  it synchronously loads the bundled files pane through `runExtensionFactory`
-  only where the app resolves UI panes.
+  it synchronously loads the bundled files and delegated review-info panes through
+  `runExtensionFactory` only where the app resolves UI panes.
 
-Git and the built-in file navigation use the public `registerVcsAdapter` and
-`registerPane` paths. The external [Hunk Lens](https://github.com/modem-dev/hunk-lens)
+Git, built-in file navigation, and delegated change-request identity use the public
+`registerVcsAdapter` and `registerPane` paths. The external [Hunk Lens](https://github.com/modem-dev/hunk-lens)
 extension exercises current-line pane paint through that same public contract.
 
 Bundled extensions are implicitly trusted and stay loaded under
@@ -67,8 +67,15 @@ the raw subtree and runs through leased process I/O. An exit result retires the
 registry before returning an exit plan; a one-time built-in delegation reparses
 through the ordinary planner. Delegated reviews reconcile the already loaded
 candidate/config prefix and hand the same registry to `AppBootstrap`, so factories
-are not rerun merely for the handoff. Headless delegation retires before executing
-the built-in plan. Terminal probing occurs only after the handler releases I/O.
+are not rerun merely for the handoff. A delegated patch may attach a validated, bounded
+provider-neutral review descriptor. Startup carries it beside the input on `AppBootstrap`; it does
+not enter the changeset transform pipeline or `ReviewDocumentV1`. The host preserves it only while
+the same file-backed patch identity reloads and clears it when a reload selects another input.
+Session registration projects the same optional bounded descriptor into list, selected-context, and
+review exports through strict app-wire validation. It remains registration metadata rather than a
+`ReviewDocumentV1` field and does not imply any provider or remote-reload capability. Headless
+delegation retires before executing the built-in plan. Terminal probing occurs only after
+the handler releases I/O.
 
 ## Host-served runtime modules
 
@@ -91,8 +98,10 @@ stream coordinates. Pane registrations may opt into a body-axis `fraction`;
 the planner resolves it to an integer target before applying bounds and lets a
 session-local divider drag override that automatic size.
 
-`src/ui/components/panes/ExtensionPane.tsx` mounts panes with guarded actions and
-failure containment. `DiffPane` exposes optional current-line paint — the row
+`src/ui/components/panes/ExtensionPane.tsx` mounts panes with guarded actions,
+immutable delegated review metadata, and failure containment. The fixed three-row
+`hunk:review-info` top pane uses one border row above two metadata rows and is available only for
+delegated change requests, so ordinary reviews spend no geometry on it. `DiffPane` exposes optional current-line paint — the row
 painter plus the public `{ side, line }` address — without publishing Pierre
 rows, plans, cursor keys, or caches. Deprecated sidebar APIs
 normalize into this same registry and layout path.
