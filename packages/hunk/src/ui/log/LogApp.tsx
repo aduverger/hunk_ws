@@ -23,8 +23,23 @@ import {
   type LogCommandId,
 } from "./commands";
 import { ParentSelectorDialog } from "./ParentSelectorDialog";
-import { monochromeLogTheme } from "./colorPolicy";
+import { monochromeLogTheme, resolveInteractiveLogPalette } from "./colorPolicy";
+import { formatHistoryDay } from "./formatting";
+import { LOG_DAY_HEADER_HEIGHT, planLogViewportGeometry } from "./geometry";
 import { projectResponsiveLogRow, resolveLogResponsiveLayout } from "./responsiveLayout";
+
+/** Render graph cells with stable semantic colors from the active Hunk theme. */
+function HistoryGraphLine({ text, colors }: { text: string; colors: readonly string[] }) {
+  return (
+    <text>
+      {Array.from({ length: Math.ceil(text.length / 2) }, (_, lane) => (
+        <span key={lane} fg={colors[lane % colors.length]!}>
+          {text.slice(lane * 2, lane * 2 + 2)}
+        </span>
+      ))}
+    </text>
+  );
+}
 
 export type LogAppOutcome =
   | { kind: "quit"; exitCode?: number }
@@ -54,6 +69,7 @@ export function LogApp({
   const [showHelp, setShowHelp] = useState(false);
   const [parentSelectorIndex, setParentSelectorIndex] = useState<number | null>(null);
   const [transientNotice, setTransientNotice] = useState("");
+  const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now());
   const [openingCommit, setOpeningCommit] = useState<{ id: string; subject: string } | null>(null);
   const lastClick = useRef({ index: -1, at: 0 });
   // Lock synchronously before requesting review preparation so coalesced input cannot
@@ -75,9 +91,11 @@ export function LogApp({
   const chromeTheme = useColor
     ? themeController.baseTheme
     : monochromeLogTheme(themeController.baseTheme, terminalThemeMode);
+  const logPalette = resolveInteractiveLogPalette(theme);
+  const graphColors = snapshot.presentation.graph ? logPalette.graphLanes : [logPalette.timeline];
   const selectedRow = snapshot.rows[snapshot.selected];
   const responsiveLayout = resolveLogResponsiveLayout(terminal.width, terminal.height);
-  const viewportHeight = responsiveLayout.visibleRows;
+  const viewportBodyHeight = responsiveLayout.bodyHeight;
 
   const copySelected = (row = controller.getSelectedRow()) => {
     const currentRow = row;
@@ -161,31 +179,31 @@ export function LogApp({
         controller.togglePresentation("decorations");
         break;
       case "previous":
-        void controller.move(-1, viewportHeight);
+        void controller.move(-1, viewportBodyHeight);
         break;
       case "next":
-        void controller.move(1, viewportHeight);
+        void controller.move(1, viewportBodyHeight);
         break;
       case "page-up":
-        void controller.page(-1, viewportHeight);
+        void controller.page(-1, viewportBodyHeight);
         break;
       case "page-down":
-        void controller.page(1, viewportHeight);
+        void controller.page(1, viewportBodyHeight);
         break;
       case "first":
-        void controller.first(viewportHeight);
+        void controller.first(viewportBodyHeight);
         break;
       case "last":
-        void controller.last(viewportHeight);
+        void controller.last(viewportBodyHeight);
         break;
       case "search":
         controller.beginSearch();
         break;
       case "next-match":
-        void controller.findMatch(1, viewportHeight);
+        void controller.findMatch(1, viewportBodyHeight);
         break;
       case "previous-match":
-        void controller.findMatch(-1, viewportHeight);
+        void controller.findMatch(-1, viewportBodyHeight);
         break;
       case "open-first-parent": {
         const parent = controller.getSelectedRow()?.commit.parentRevisionIds[0];
@@ -262,11 +280,35 @@ export function LogApp({
     void controller.loadMore();
   }, [controller]);
   useEffect(() => {
-    controller.clampViewport(viewportHeight);
-    if (snapshot.top + viewportHeight + 8 >= snapshot.rows.length && !snapshot.historyDone) {
+    const timer = setInterval(() => setRelativeTimeNow(Date.now()), 60_000);
+    timer.unref?.();
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    controller.clampViewport(viewportBodyHeight);
+    const geometry = planLogViewportGeometry({
+      rows: snapshot.rows,
+      selected: snapshot.selected,
+      requestedTop: snapshot.top,
+      bodyHeight: viewportBodyHeight,
+      groupByDay: !snapshot.presentation.graph,
+    });
+    if (
+      geometry.entries.at(-1)?.index !== undefined &&
+      geometry.entries.at(-1)!.index + 8 >= snapshot.rows.length &&
+      !snapshot.historyDone
+    ) {
       void controller.loadMore();
     }
-  }, [controller, snapshot.historyDone, snapshot.rows.length, snapshot.top, viewportHeight]);
+  }, [
+    controller,
+    snapshot.historyDone,
+    snapshot.presentation.graph,
+    snapshot.rows,
+    snapshot.selected,
+    snapshot.top,
+    viewportBodyHeight,
+  ]);
 
   useKeyboard((key: KeyEvent) => {
     clearTransientNotice();
@@ -360,7 +402,7 @@ export function LogApp({
     if (snapshot.searchEditing) {
       if ((key.ctrl && name === "c") || name === "escape") controller.cancelSearch();
       else if (name === "return" || name === "enter")
-        void controller.finishSearch(1, viewportHeight);
+        void controller.finishSearch(1, viewportBodyHeight);
       else if (name === "backspace") controller.backspaceSearch();
       else if (/^[^\x00-\x1f\x7f]+$/u.test(sequence)) controller.appendSearch(sequence);
       else return;
@@ -378,7 +420,14 @@ export function LogApp({
     consume();
   });
 
-  const visible = snapshot.rows.slice(snapshot.top, snapshot.top + viewportHeight);
+  const viewportGeometry = planLogViewportGeometry({
+    rows: snapshot.rows,
+    selected: snapshot.selected,
+    requestedTop: snapshot.top,
+    bodyHeight: viewportBodyHeight,
+    groupByDay: !snapshot.presentation.graph,
+  });
+  const visible = viewportGeometry.entries;
   const statusHint = terminal.width >= 60 ? "↑↓ move · Enter open · / search · F10 menu" : "";
   const statusTextWidth = Math.max(
     1,
@@ -417,8 +466,8 @@ export function LogApp({
         onMouseScroll={(event: TuiMouseEvent) => {
           menu.closeMenu();
           const direction = event.scroll?.direction;
-          if (direction === "up") controller.move(-3, viewportHeight);
-          else if (direction === "down") controller.move(3, viewportHeight);
+          if (direction === "up") controller.move(-3, viewportBodyHeight);
+          else if (direction === "down") controller.move(3, viewportBodyHeight);
         }}
       >
         {openingCommit ? (
@@ -441,87 +490,125 @@ export function LogApp({
             <text fg={theme.muted}>Preparing review…</text>
           </box>
         ) : (
-          visible.map((row, offset) => {
-            const index = snapshot.top + offset;
+          visible.map(({ index, row, showDayHeader }) => {
             const selected = index === snapshot.selected;
             const projected = projectResponsiveLogRow({
               row,
               presentation: snapshot.presentation,
               layout: responsiveLayout,
               width: terminal.width,
+              now: relativeTimeNow,
             });
             return (
               <box
                 key={row.commit.revisionId}
                 style={{
-                  height: responsiveLayout.rowHeight,
                   width: "100%",
-                  flexDirection: "row",
-                  backgroundColor: selected ? theme.selectedHunk : theme.background,
-                }}
-                onMouseUp={() => {
-                  clearTransientNotice();
-                  const now = Date.now();
-                  const shouldOpen =
-                    lastClick.current.index === index && now - lastClick.current.at < 400;
-                  void controller.select(index, viewportHeight).then(() => {
-                    if (shouldOpen) void openSelected();
-                  });
-                  lastClick.current = { index, at: now };
+                  height: responsiveLayout.rowHeight + (showDayHeader ? LOG_DAY_HEADER_HEIGHT : 0),
+                  flexDirection: "column",
                 }}
               >
-                {projected.graphWidth ? (
+                {showDayHeader ? (
+                  <text>
+                    <span fg={logPalette.timeline}>
+                      {snapshot.presentation.unicode ? "○─" : "o-"}
+                    </span>
+                    <span fg={logPalette.separator}> </span>
+                    <span fg={logPalette.dayHeading}>
+                      {fitText(
+                        formatHistoryDay(row.commit.authoredAt),
+                        Math.max(1, terminal.width - 5),
+                      )}
+                    </span>
+                  </text>
+                ) : null}
+                {showDayHeader ? (
+                  <text fg={logPalette.timeline}>{snapshot.presentation.unicode ? "│" : "|"}</text>
+                ) : null}
+                <box
+                  style={{
+                    height: responsiveLayout.rowHeight,
+                    width: "100%",
+                    flexDirection: "row",
+                    backgroundColor: selected ? theme.selectedHunk : theme.background,
+                  }}
+                  onMouseUp={() => {
+                    clearTransientNotice();
+                    const now = Date.now();
+                    const shouldOpen =
+                      lastClick.current.index === index && now - lastClick.current.at < 400;
+                    void controller.select(index, viewportBodyHeight).then(() => {
+                      if (shouldOpen) void openSelected();
+                    });
+                    lastClick.current = { index, at: now };
+                  }}
+                >
+                  {projected.graphWidth ? (
+                    <box
+                      style={{
+                        width: projected.graphWidth,
+                        height: responsiveLayout.rowHeight,
+                        flexDirection: "column",
+                      }}
+                    >
+                      <HistoryGraphLine text={projected.graph} colors={graphColors} />
+                      <HistoryGraphLine text={projected.continuation} colors={graphColors} />
+                      <HistoryGraphLine text={projected.convergence} colors={graphColors} />
+                    </box>
+                  ) : null}
                   <box
                     style={{
-                      width: projected.graphWidth,
+                      width: projected.leftWidth,
                       height: responsiveLayout.rowHeight,
                       flexDirection: "column",
                     }}
                   >
-                    <text fg={theme.muted}>{projected.graph}</text>
-                    {Array.from({ length: responsiveLayout.rowHeight - 1 }, (_, line) => (
-                      <text key={line} fg={theme.muted}>
-                        {projected.continuation}
-                      </text>
-                    ))}
+                    <text fg={theme.text}>{projected.title}</text>
+                    <text>
+                      {projected.author ? (
+                        <span fg={logPalette.author}>{projected.author}</span>
+                      ) : null}
+                      {projected.author && projected.relativeTime ? (
+                        <span fg={logPalette.separator}> · </span>
+                      ) : null}
+                      {projected.relativeTime ? (
+                        <span fg={logPalette.relativeTime}>{projected.relativeTime}</span>
+                      ) : null}
+                    </text>
+                    <text> </text>
                   </box>
-                ) : null}
-                <box
-                  style={{
-                    width: projected.leftWidth,
-                    height: responsiveLayout.rowHeight,
-                    flexDirection: "column",
-                  }}
-                >
-                  <text fg={theme.text}>{projected.title}</text>
-                  {responsiveLayout.showDescription ? (
-                    <text fg={theme.muted}>{projected.description}</text>
-                  ) : null}
-                  <text fg={theme.muted}>{projected.metadata}</text>
-                </box>
-                {projected.columnGap ? <box style={{ width: projected.columnGap }} /> : null}
-                <box
-                  style={{
-                    width: projected.rightWidth,
-                    height: responsiveLayout.rowHeight,
-                    flexDirection: "column",
-                    alignItems: "flex-end",
-                  }}
-                  onMouseUp={(event: TuiMouseEvent) => {
-                    event.stopPropagation();
-                    clearTransientNotice();
-                    const copyIconStart = terminal.width - 1 - measureTextWidth(projected.copyIcon);
-                    void controller.select(index, viewportHeight).then(() => {
-                      if (event.x >= copyIconStart) copySelected(row);
-                      else void openSelected();
-                    });
-                  }}
-                >
-                  <box style={{ flexDirection: "row", gap: 1 }}>
-                    <text fg={theme.accent}>{projected.displayId}</text>
-                    <text fg={theme.muted}>{projected.copyIcon}</text>
+                  {projected.columnGap ? <box style={{ width: projected.columnGap }} /> : null}
+                  <box
+                    style={{
+                      width: projected.rightWidth,
+                      height: responsiveLayout.rowHeight,
+                      flexDirection: "column",
+                      alignItems: "flex-end",
+                    }}
+                    onMouseUp={(event: TuiMouseEvent) => {
+                      event.stopPropagation();
+                      clearTransientNotice();
+                      const copyIconStart =
+                        1 +
+                        projected.graphWidth +
+                        projected.leftWidth +
+                        projected.columnGap +
+                        projected.rightWidth -
+                        measureTextWidth(projected.copyIcon);
+                      void controller.select(index, viewportBodyHeight).then(() => {
+                        if (event.x >= copyIconStart) copySelected(row);
+                        else void openSelected();
+                      });
+                    }}
+                  >
+                    <box style={{ flexDirection: "row", gap: 1 }}>
+                      <text fg={logPalette.commitId}>{projected.displayId}</text>
+                      <text fg={logPalette.copyAction}>{projected.copyIcon}</text>
+                    </box>
+                    {projected.secondary ? (
+                      <text fg={logPalette.decoration}>{projected.secondary}</text>
+                    ) : null}
                   </box>
-                  {projected.secondary ? <text fg={theme.muted}>{projected.secondary}</text> : null}
                 </box>
               </box>
             );
