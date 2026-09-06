@@ -198,6 +198,14 @@ afterEach(() => {
 });
 
 describe("loadAppBootstrap", () => {
+  test("refuses an already-cancelled embedded review load", async () => {
+    const abort = new AbortController();
+    abort.abort();
+    await expect(
+      loadAppBootstrap({ kind: "show", ref: "opaque", options: {} }, { signal: abort.signal }),
+    ).rejects.toThrow();
+  });
+
   test("synthesizes untracked file diffs an adapter reported by path", async () => {
     const dir = createTempDir("hunk-adapter-untracked-");
     writeFileSync(join(dir, "note.txt"), "hello\n");
@@ -1932,8 +1940,9 @@ describe("loadAppBootstrap source fetcher attachment", () => {
       mutableBun.spawn = originalSpawn;
     }
 
-    expect(syncCalls.some((call) => call.includes("rev-parse"))).toBe(true);
-    expect(syncCalls.some((call) => call.includes("diff"))).toBe(true);
+    expect(syncCalls).toEqual([]);
+    expect(asyncCalls.some((call) => call.includes("rev-parse"))).toBe(true);
+    expect(asyncCalls.some((call) => call.includes("diff"))).toBe(true);
     expect(asyncCalls).toContainEqual([gitExecutable, "show", ":value.txt"]);
   });
 

@@ -5,7 +5,6 @@ import { resolveConfiguredCliInput } from "../core/run/config";
 import { HunkUserError } from "../core/run/errors";
 import type { loadAppBootstrap } from "../core/changeset/loaders";
 import { looksLikePatchInput } from "../core/process/pager";
-import { terminalHandoffThemeMode } from "../core/process/terminalHandoff";
 import { sanitizeTerminalText } from "../lib/terminalText";
 import { detectTerminalThemeModeFromBackground } from "../core/theme/detection";
 import {
@@ -136,6 +135,14 @@ export interface StartupDeps {
   runExtensionCliCommandImpl?: typeof import("../extensions/cliCommandRuntime").runExtensionCliCommand;
   env?: NodeJS.ProcessEnv;
   bunVersion?: string;
+  /** Override process cwd for an embedded review bootstrap. */
+  cwd?: string;
+  /** Reuse the owning renderer's detected terminal mode. */
+  terminalThemeMode?: "dark" | "light";
+  /** Cancel provider-backed startup for an abandoned embedded surface. */
+  signal?: AbortSignal;
+  /** Borrow the owning history session's already-loaded extension authority. */
+  borrowedExtensionLoad?: import("../extensions/types").ExtensionLoadResult;
 }
 
 /** Carry the invocation's authoritative extension paths into a delegated review input. */
@@ -197,17 +204,20 @@ export async function prepareStartupPlan(
   const env = deps.env ?? process.env;
   const bunVersion = deps.bunVersion ?? Bun.version;
   const loadBaseVcsCatalog = createBundledVcsCatalogLoader();
-  const startupCwd = process.cwd();
+  const startupCwd = deps.cwd ?? process.cwd();
+  deps.signal?.throwIfAborted();
 
   let parsedCliInput = await parseCliImpl(argv);
   let controllingTerminal: ControllingTerminal | null = null;
-  let preloadedExtensions: import("../extensions/types").ExtensionLoadResult | undefined;
+  let preloadedExtensions: import("../extensions/types").ExtensionLoadResult | undefined =
+    deps.borrowedExtensionLoad;
+  const ownsPreloadedExtensions = !deps.borrowedExtensionLoad;
   let delegatedDiscoveryCatalog: VcsCatalog | undefined;
   let delegatedReview: ExtensionReviewDescriptor | undefined;
 
   /** Retire startup-owned extension state before returning a non-app plan. */
   const retirePreloadedExtensions = async () => {
-    if (!preloadedExtensions) return;
+    if (!preloadedExtensions || !ownsPreloadedExtensions) return;
     await (await import("../extensions/events")).retireExtensionLoadResult(preloadedExtensions);
     preloadedExtensions = undefined;
   };
@@ -544,9 +554,9 @@ export async function prepareStartupPlan(
     controllingTerminal = openControllingTerminalImpl();
   }
 
-  // A handoff child inherits the parent's detected mode so bootstrap never queries a terminal
-  // whose input and renderer are still exclusively owned by the history process.
-  let initialThemeMode: AppBootstrap["initialThemeMode"] = terminalHandoffThemeMode(env);
+  // Embedded reviews inherit their owner's detected mode so bootstrap never queries a terminal
+  // whose input and renderer are already exclusively owned.
+  let initialThemeMode: AppBootstrap["initialThemeMode"] = deps.terminalThemeMode;
   if (!initialThemeMode && cliInput.options.theme === "auto" && stdoutIsTTY) {
     const themeInput = controllingTerminal?.stdin ?? (stdinIsTTY ? process.stdin : null);
     if (themeInput) {
@@ -586,7 +596,9 @@ export async function prepareStartupPlan(
       env,
       baseVcsCatalog,
       discoveryCatalog: delegatedDiscoveryCatalog,
-      previousLoad: preloadedExtensions,
+      previousLoad: deps.borrowedExtensionLoad ? undefined : preloadedExtensions,
+      borrowedLoad: deps.borrowedExtensionLoad,
+      assertActive: () => deps.signal?.throwIfAborted(),
     },
     { resolveConfiguredCliInputImpl, loadStartupExtensionsImpl },
   );
@@ -594,6 +606,10 @@ export async function prepareStartupPlan(
   cliInput = configured.input;
   const extensionResult = resolvedExtensions.extensions;
   preloadedExtensions = extensionResult;
+  if (deps.signal?.aborted) {
+    await retirePreloadedExtensions();
+    deps.signal.throwIfAborted();
+  }
 
   let preparedSession: SessionBootstrapResult;
   try {
@@ -604,6 +620,7 @@ export async function prepareStartupPlan(
       initialThemeMode,
       loadAppBootstrapImpl,
       baseVcsCatalog,
+      signal: deps.signal,
     });
   } catch (error) {
     controllingTerminal?.close();

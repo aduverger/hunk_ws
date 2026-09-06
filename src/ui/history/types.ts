@@ -1,5 +1,6 @@
 import type { HistoryCommandInput } from "../../core/run/commandInputs";
 import type { VcsHistorySource } from "../../core/vcs/types";
+import type { ExtensionLoadResult } from "../../extensions/types";
 import type {
   ExtensionVcsHistoryCommit,
   ExtensionVcsHistoryReviewAction,
@@ -13,9 +14,13 @@ export interface HistoryRuntime {
   source: VcsHistorySource;
   providerId: string;
   providerName: string;
+  /** Invocation cwd used to resolve explicit extension paths for embedded reviews. */
+  startupCwd?: string;
   repoRoot: string;
   notices: readonly string[];
   customThemes: readonly NamedCustomThemeConfig[];
+  /** History-owned extension authority borrowed by embedded reviews. */
+  extensionSession?: ExtensionLoadResult;
   planReview(
     commit: ExtensionVcsHistoryCommit,
     options?: ExtensionVcsHistoryReviewOptions,

@@ -28,8 +28,11 @@ export interface HistoryBootstrap {
   source: VcsHistorySource;
   providerId: string;
   providerName: string;
+  startupCwd: string;
   repoRoot: string;
   extensions: ExtensionLoadResult;
+  /** History-owned extension authority borrowed by embedded reviews. */
+  extensionSession: ExtensionLoadResult;
   notices: readonly string[];
   customThemes: readonly NamedCustomThemeConfig[];
   planReview(
@@ -129,8 +132,10 @@ export async function loadHistoryBootstrap({
     source,
     providerId: sanitizeTerminalLine(adapter.id),
     providerName: sanitizeTerminalLine(adapter.name),
+    startupCwd: cwd,
     repoRoot,
     extensions: resolved.extensions,
+    extensionSession: resolved.extensions,
     customThemes: sessionThemes.themes,
     notices: [
       ...(mergeStartupNotices(resolved.configured.startupNotices, resolved.extensions) ?? []).map(
