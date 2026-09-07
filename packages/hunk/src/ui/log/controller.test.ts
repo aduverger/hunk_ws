@@ -128,6 +128,20 @@ describe("LogController", () => {
     await controller.close();
   });
 
+  test("moves by half of the visible commit rows", async () => {
+    const { runtime } = createRuntime(["one", "two", "three", "four", "five"]);
+    const controller = new LogController(runtime);
+    await controller.loadMore();
+    await controller.loadMore();
+    await controller.halfPage(1, 10);
+    expect(controller.getSnapshot().selected).toBe(1);
+    await controller.halfPage(1, 10);
+    expect(controller.getSnapshot().selected).toBe(2);
+    await controller.halfPage(-1, 10);
+    expect(controller.getSnapshot().selected).toBe(1);
+    await controller.close();
+  });
+
   test("preserves rapid navigation targets while bounded continuation is loading", async () => {
     const { runtime } = createRuntime(["one", "two", "three", "four"]);
     const controller = new LogController(runtime);
@@ -162,20 +176,84 @@ describe("LogController", () => {
     await controller.close();
   });
 
+  test("keeps visual selection active while plain movement extends and reverses a range", async () => {
+    const { runtime } = createRuntime(["one", "two", "three", "four"]);
+    const controller = new LogController(runtime);
+    await controller.loadMore();
+    await controller.move(1, 1);
+
+    controller.beginVisualSelection();
+    expect(controller.getSnapshot()).toMatchObject({
+      selected: 1,
+      selectionAnchor: 1,
+      visualSelectionActive: true,
+    });
+    await controller.move(2, 1, { extend: controller.getSnapshot().visualSelectionActive });
+    expect(controller.getSelection()).toMatchObject({ newestIndex: 1, oldestIndex: 3, count: 3 });
+    await controller.move(-2, 1, { extend: controller.getSnapshot().visualSelectionActive });
+    expect(controller.getSnapshot()).toMatchObject({
+      selected: 1,
+      selectionAnchor: 1,
+      visualSelectionActive: true,
+    });
+    await controller.move(-1, 1, { extend: controller.getSnapshot().visualSelectionActive });
+    expect(controller.getSelection()).toMatchObject({ newestIndex: 0, oldestIndex: 1, count: 2 });
+    expect(controller.clearSelection()).toBeTrue();
+    expect(controller.getSnapshot()).toMatchObject({
+      selected: 0,
+      selectionAnchor: null,
+      visualSelectionActive: false,
+    });
+    await controller.close();
+  });
+
   test("rejects ranges when traversal options can hide or interleave commits", async () => {
     for (const input of [{ grep: "matching" }, { all: true }]) {
       const { runtime } = createRuntime(["one", "two", "three"]);
       runtime.input = { ...runtime.input, ...input };
       const controller = new LogController(runtime);
       await controller.loadMore();
+      controller.beginVisualSelection();
       await controller.move(1, 1, { extend: true });
 
+      expect(controller.getSnapshot().visualSelectionActive).toBeFalse();
       expect(controller.getSelection()?.count).toBe(1);
       expect(controller.getSnapshot().notice).toBe(
         "Multi-commit selection is unavailable when history traversal can hide or interleave commits.",
       );
       await controller.close();
     }
+  });
+
+  test("Escape-style clearing wins over a deferred visual selection move", async () => {
+    const { runtime } = createRuntime(["one", "two", "three"]);
+    const originalRead = runtime.source.read.bind(runtime.source);
+    let readCount = 0;
+    let release!: () => void;
+    const deferred = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    runtime.source.read = async (options) => {
+      readCount += 1;
+      if (readCount === 2) await deferred;
+      return originalRead(options);
+    };
+    const controller = new LogController(runtime);
+    await controller.loadMore();
+    await controller.select(1, 1);
+    controller.beginVisualSelection();
+    const pendingMove = controller.move(1, 1, { extend: true });
+
+    expect(controller.clearSelection()).toBeTrue();
+    release();
+    await pendingMove;
+
+    expect(controller.getSnapshot()).toMatchObject({
+      selected: 1,
+      selectionAnchor: null,
+      visualSelectionActive: false,
+    });
+    await controller.close();
   });
 
   test("settles deferred navigation and prevents stale selection overwrite", async () => {
@@ -211,6 +289,152 @@ describe("LogController", () => {
     expect(controller.getSelection()?.newest.commit.revisionId).toBe("one");
     expect(controller.getSelection()?.oldest.commit.revisionId).toBe("three");
     expect(controller.getSelection()?.count).toBe(3);
+    await controller.close();
+  });
+
+  test("entering visual selection during refresh preserves the new mode", async () => {
+    const { runtime } = createRuntime(["one", "two", "three"]);
+    const reopenSource = runtime.reopenSource.bind(runtime);
+    let release!: () => void;
+    let markStarted!: () => void;
+    const deferred = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    runtime.reopenSource = async (signal) => {
+      markStarted();
+      await deferred;
+      return reopenSource(signal);
+    };
+    const controller = new LogController(runtime);
+    await controller.loadMore();
+    await controller.move(1, 2);
+
+    const refresh = controller.refresh();
+    await started;
+    controller.beginVisualSelection();
+    release();
+    await refresh;
+
+    expect(controller.getSnapshot()).toMatchObject({
+      selected: 1,
+      selectionAnchor: 1,
+      visualSelectionActive: true,
+    });
+    await controller.close();
+  });
+
+  test("entering visual selection while refreshed rows load preserves the new mode", async () => {
+    const { runtime } = createRuntime(["one", "two", "three"]);
+    const reopenSource = runtime.reopenSource.bind(runtime);
+    let release!: () => void;
+    let markStarted!: () => void;
+    const deferred = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    runtime.reopenSource = async (signal) => {
+      const replacement = await reopenSource(signal);
+      return {
+        async read(options) {
+          markStarted();
+          await deferred;
+          return replacement.read(options);
+        },
+        close: () => replacement.close(),
+      };
+    };
+    const controller = new LogController(runtime);
+    await controller.loadMore();
+    await controller.move(1, 2);
+
+    const refresh = controller.refresh();
+    await started;
+    expect(controller.getSnapshot().rows).toHaveLength(0);
+    controller.beginVisualSelection();
+    release();
+    await refresh;
+
+    expect(controller.getSnapshot()).toMatchObject({
+      selected: 1,
+      selectionAnchor: 1,
+      visualSelectionActive: true,
+    });
+    await controller.close();
+  });
+
+  test("visual selection entered during refresh clears when history becomes empty", async () => {
+    const { runtime } = createRuntime(["one"]);
+    let release!: () => void;
+    let markStarted!: () => void;
+    const deferred = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    runtime.reopenSource = async () => ({
+      async read() {
+        markStarted();
+        await deferred;
+        return { commits: [], done: true };
+      },
+      async close() {},
+    });
+    const controller = new LogController(runtime);
+    await controller.loadMore();
+
+    const refresh = controller.refresh();
+    await started;
+    controller.beginVisualSelection();
+    release();
+    await refresh;
+
+    expect(controller.getSnapshot()).toMatchObject({
+      rows: [],
+      selected: 0,
+      selectionAnchor: null,
+      visualSelectionActive: false,
+    });
+    await controller.close();
+  });
+
+  test("clearing visual selection during refresh prevents range restoration", async () => {
+    const { runtime } = createRuntime(["one", "two", "three"]);
+    const reopenSource = runtime.reopenSource.bind(runtime);
+    let release!: () => void;
+    let markStarted!: () => void;
+    const deferred = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    runtime.reopenSource = async (signal) => {
+      markStarted();
+      await deferred;
+      return reopenSource(signal);
+    };
+    const controller = new LogController(runtime);
+    await controller.loadMore();
+    controller.beginVisualSelection();
+    await controller.move(1, 2, { extend: true });
+
+    const refresh = controller.refresh();
+    await started;
+    expect(controller.clearSelection()).toBeTrue();
+    release();
+    await refresh;
+
+    expect(controller.getSnapshot()).toMatchObject({
+      selected: 1,
+      selectionAnchor: null,
+      visualSelectionActive: false,
+    });
     await controller.close();
   });
 
@@ -258,6 +482,38 @@ describe("LogController", () => {
     await Promise.all([refresh, close]);
     expect(reopenSignal?.aborted).toBe(true);
     expect(replacementCloseCount).toBe(1);
+  });
+
+  test("closing while replacement rows load settles the pending refresh", async () => {
+    const { runtime } = createRuntime(["one", "two"]);
+    const reopenSource = runtime.reopenSource.bind(runtime);
+    let release!: () => void;
+    let markStarted!: () => void;
+    const deferred = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    runtime.reopenSource = async (signal) => {
+      const replacement = await reopenSource(signal);
+      return {
+        async read(options) {
+          markStarted();
+          await deferred;
+          return replacement.read(options);
+        },
+        close: () => replacement.close(),
+      };
+    };
+    const controller = new LogController(runtime);
+    await controller.loadMore();
+
+    const refresh = controller.refresh();
+    await started;
+    const close = controller.close();
+    release();
+    await Promise.all([refresh, close]);
   });
 
   test("refreshes through the provider-owned cursor factory and closes once", async () => {
