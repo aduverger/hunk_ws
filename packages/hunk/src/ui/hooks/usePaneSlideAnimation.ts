@@ -13,12 +13,14 @@ import {
   interpolatePaneLayout,
   paneLayoutGeometryEqual,
   paneSlideAnimationDuration,
+  paneSlideFrameDue,
   paneVisibilityTransitionKey,
 } from "../lib/paneSlide";
 
 interface PaneSlideAnimationOptions {
   bodyHeight: number;
   bodyWidth: number;
+  enabled: boolean;
   paneLayout: ExtensionPaneLayoutPlan;
   paneLayoutSettled: boolean;
   resizing: boolean;
@@ -45,11 +47,12 @@ interface PaneSlidePresentation {
 export function usePaneSlideAnimation({
   bodyHeight,
   bodyWidth,
+  enabled,
   paneLayout,
   paneLayoutSettled,
   resizing,
 }: PaneSlideAnimationOptions): PaneSlidePresentation {
-  const duration = paneSlideAnimationDuration();
+  const duration = paneSlideAnimationDuration(enabled);
   const timeline = useTimeline({
     autoplay: false,
     duration: Math.max(1, duration),
@@ -58,6 +61,7 @@ export function usePaneSlideAnimation({
   const presentedLayoutRef = useRef(paneLayout);
   const semanticSnapshotRef = useRef<LayoutSnapshot | null>(null);
   const activeTransitionRef = useRef<ActiveTransition | null>(null);
+  const lastPresentedAtRef = useRef(Number.NEGATIVE_INFINITY);
   const timelineConfiguredRef = useRef(false);
 
   useLayoutEffect(() => {
@@ -72,6 +76,9 @@ export function usePaneSlideAnimation({
         onUpdate: (animation) => {
           const transition = activeTransitionRef.current;
           if (!transition) return;
+          const now = performance.now();
+          if (!paneSlideFrameDue(lastPresentedAtRef.current, now)) return;
+          lastPresentedAtRef.current = now;
           const nextLayout = interpolatePaneLayout(
             transition.from,
             transition.to,
@@ -140,6 +147,7 @@ export function usePaneSlideAnimation({
       to: paneLayout,
       paneKey: transitionKey,
     };
+    lastPresentedAtRef.current = Number.NEGATIVE_INFINITY;
     timeline.restart();
   }, [bodyHeight, bodyWidth, duration, paneLayout, paneLayoutSettled, resizing, timeline]);
 
