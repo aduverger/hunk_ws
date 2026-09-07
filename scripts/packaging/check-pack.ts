@@ -24,6 +24,8 @@ import {
 } from "hunkdiff/extension";
 import type {
   ExtensionChangeset,
+  ExtensionCanonicalLayoutMode,
+  ExtensionCanonicalResolvedLayout,
   ExtensionCommandControls,
   ExtensionCommandExecutionOptions,
   ExtensionFileLanguageMatcher,
@@ -34,10 +36,12 @@ import type {
   ExtensionKeyboardModeKeyResult,
   ExtensionLineHighlight,
   ExtensionLineHighlightTone,
+  ExtensionLayoutMode,
   ExtensionPaintTheme,
   ExtensionHorizontalPane,
   ExtensionPaneProps,
   ExtensionPaneSize,
+  ExtensionResolvedLayout,
   ExtensionReviewSelection,
   ExtensionSessionOptions,
   ExtensionVerticalPane,
@@ -51,6 +55,26 @@ import type {
 } from "hunkdiff/extension";
 
 export default function (hunk: HunkExtensionAPI) {
+  const canonicalMode: ExtensionCanonicalLayoutMode = "unified";
+  const canonicalLayout: ExtensionCanonicalResolvedLayout = "unified";
+  const legacyLayout: ExtensionLayoutMode = "stack";
+  const legacyResolvedLayout: ExtensionResolvedLayout = "stack";
+  const legacyLayoutLabels: Record<ExtensionLayoutMode, string> = {
+    auto: "auto",
+    split: "split",
+    stack: "stack",
+  };
+  const canonicalLayoutLabels: Record<ExtensionCanonicalLayoutMode, string> = {
+    auto: "auto",
+    split: "split",
+    unified: "unified",
+  };
+  void canonicalMode;
+  void canonicalLayout;
+  void legacyLayout;
+  void legacyResolvedLayout;
+  void legacyLayoutLabels;
+  void canonicalLayoutLabels;
   const sessionOptions: ExtensionSessionOptions = { viewPreferences: "transient" };
   hunk.configureSession(sessionOptions);
   const noSelection: ExtensionReviewSelection = {
@@ -332,6 +356,9 @@ export default function (hunk: HunkExtensionAPI) {
   });
   hunk.on("command_executed", ({ commandId }) => {
     hunk.log(\`terminal command \${commandId}\`);
+  });
+  hunk.on("layout_changed", ({ mode, layout, canonicalMode, canonicalLayout }) => {
+    hunk.log(\`layout \${mode}:\${layout} -> \${canonicalMode}:\${canonicalLayout}\`);
   });
   hunk.on("changeset_loaded", (event) => {
     hunk.log(\`loaded \${event.changeset.files.length} files\`);

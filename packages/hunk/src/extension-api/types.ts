@@ -21,7 +21,7 @@
  * Extensions can branch on `hunk.apiVersion` so a newer Hunk can keep loading
  * older extensions without guessing at their expectations.
  */
-export const HUNK_EXTENSION_API_VERSION = 22;
+export const HUNK_EXTENSION_API_VERSION = 23;
 export type HunkExtensionApiVersion = typeof HUNK_EXTENSION_API_VERSION;
 
 export type ExtensionNotifyType = "info" | "warning" | "error";
@@ -474,7 +474,7 @@ export type ExtensionLineHighlightTone = "match" | "current" | "info" | "warning
  * One marked character range inside one diff line.
  *
  * Addressed by source coordinates — `(side, line, range)` — rather than by
- * rendered rows, so a mark survives split vs stack layout, line wrapping,
+ * rendered rows, so a mark survives split vs unified layout, line wrapping,
  * horizontal scrolling, and collapsed-context expansion without the extension
  * ever learning Hunk's row model.
  */
@@ -2152,8 +2152,15 @@ export interface ExtensionEventContext extends ExtensionContext {
  */
 export type SessionReloadReason = "watch" | "daemon" | "extension" | "manual";
 
-/** Payload delivered with each lifecycle event, keyed by event name. */
-export type ExtensionLayoutMode = "auto" | "split" | "stack";
+/** @deprecated Use the canonical `unified` vocabulary in new integrations. */
+export type ExtensionLegacyLayout = "stack";
+/** Canonical layout mode vocabulary emitted to extensions. */
+export type ExtensionCanonicalLayoutMode = "auto" | "split" | "unified";
+/** Concrete canonical layout emitted to extensions. */
+export type ExtensionCanonicalResolvedLayout = Exclude<ExtensionCanonicalLayoutMode, "auto">;
+/** Pre-v23 layout vocabulary retained so existing extension source remains exhaustive. */
+export type ExtensionLayoutMode = "auto" | "split" | ExtensionLegacyLayout;
+/** Pre-v23 concrete layout vocabulary retained for source and event compatibility. */
 export type ExtensionResolvedLayout = Exclude<ExtensionLayoutMode, "auto">;
 
 /** A user-authored note as reported by note lifecycle events. */
@@ -2182,7 +2189,12 @@ export interface ExtensionEventPayloads {
   startup: { cwd: string };
   changeset_loaded: { changeset: ExtensionChangeset };
   /** A named built-in or extension command was dispatched in this terminal host. */
-  command_executed: { commandId: string };
+  command_executed: {
+    /** Stable command identity, including deprecated ids preserved for existing handlers. */
+    commandId: string;
+    /** Canonical replacement when `commandId` is a deprecated compatibility identity. */
+    canonicalCommandId?: string;
+  };
   selection_changed: { fileId: string | null; hunkIndex: number | null };
   /** The review stream settled on a different file. */
   file_viewed: { file: ExtensionDiffFile; hunkIndex: number | null };
@@ -2197,8 +2209,20 @@ export interface ExtensionEventPayloads {
   filter_changed: { filter: string };
   /** The user committed a different active theme. Selector previews do not emit this event. */
   theme_changed: { themeId: string };
-  /** The configured layout mode or responsive resolved layout changed. */
-  layout_changed: { mode: ExtensionLayoutMode; layout: ExtensionResolvedLayout };
+  /**
+   * The configured layout mode or responsive resolved layout changed.
+   *
+   * `mode` and `layout` preserve the pre-v23 vocabulary for existing handlers.
+   * New integrations should consume the canonical fields.
+   */
+  layout_changed: {
+    /** @deprecated Use `canonicalMode`. */
+    mode: ExtensionLayoutMode;
+    /** @deprecated Use `canonicalLayout`. */
+    layout: ExtensionResolvedLayout;
+    canonicalMode?: ExtensionCanonicalLayoutMode;
+    canonicalLayout?: ExtensionCanonicalResolvedLayout;
+  };
   /** A watch source observed a change and is waiting to check/reload it. */
   watch_reload_pending: Record<string, never>;
   /** A user saved a new inline review note. */

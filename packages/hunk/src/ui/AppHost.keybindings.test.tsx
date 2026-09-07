@@ -77,7 +77,7 @@ async function launchWithConfig(repo: string, configToml: string): Promise<AppBo
   const input = {
     kind: "vcs" as const,
     staged: false,
-    options: { mode: "stack" as const, promptSaveViewPreferences: false },
+    options: { mode: "unified" as const, promptSaveViewPreferences: false },
   };
   const vcsCatalog = getBundledVcsCatalog();
   const configured = resolveConfiguredCliInput(input, { cwd: repo, vcsCatalog });
@@ -267,6 +267,33 @@ describe("user keybindings", () => {
       });
       await flush(setup);
       expect(seen).toContain("hunk.review.stepDown");
+    });
+  });
+
+  test("preserves the deprecated layout command event id beside its canonical replacement", async () => {
+    const repo = createTestRepo("hunk-keybindings-layout-command-event-");
+    const bootstrap = await launchWithConfig(repo, "");
+    const extensions = createEmptyExtensionLoadResult(repo);
+    const seen: Array<{ commandId: string; canonicalCommandId?: string }> = [];
+    extensions.registry.eventHandlers.command_executed.push({
+      extensionId: "coach",
+      handler: (payload) => {
+        seen.push(payload);
+      },
+    });
+    bootstrap.extensions = extensions;
+
+    await withAppHost(bootstrap, async (setup) => {
+      await act(async () => {
+        await setup.mockInput.typeText("2");
+      });
+      await flush(setup);
+      expect(seen).toEqual([
+        {
+          commandId: "hunk.view.layoutStack",
+          canonicalCommandId: "hunk.view.layoutUnified",
+        },
+      ]);
     });
   });
 
