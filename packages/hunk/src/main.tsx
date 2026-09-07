@@ -4,7 +4,7 @@ import { formatCliError } from "./core/run/errors";
 import { pagePlainText } from "./core/process/pager";
 import { writeStdout } from "./core/process/stdout";
 import { prepareStartupPlan } from "./app/startup";
-import { sanitizeTerminalText } from "./lib/terminalText";
+import { sanitizeTerminalLine, sanitizeTerminalText } from "./lib/terminalText";
 import { serveSessionBrokerDaemon } from "./session/broker/brokerServer";
 import { runSessionCommand } from "./session/agent/commands";
 
@@ -120,6 +120,32 @@ async function main() {
         stderr: process.stderr,
       }),
     );
+    process.exit(0);
+  }
+
+  if (startupPlan.kind === "static-diff") {
+    const [{ renderStaticDiff }, { retireExtensionLoadResult }] = await Promise.all([
+      import("./ui/staticDiffPager"),
+      import("./extensions/events"),
+    ]);
+    try {
+      for (const notice of startupPlan.bootstrap.startupNotices ?? []) {
+        process.stderr.write(`hunk: warning: ${sanitizeTerminalLine(notice.message)}\n`);
+      }
+      writeStdout(
+        await renderStaticDiff(
+          startupPlan.bootstrap.changeset,
+          startupPlan.bootstrap.input.options,
+          {
+            customThemes: startupPlan.bootstrap.customThemes,
+            color: false,
+            preserveFullLines: true,
+          },
+        ),
+      );
+    } finally {
+      await retireExtensionLoadResult(startupPlan.bootstrap.extensions);
+    }
     process.exit(0);
   }
 
