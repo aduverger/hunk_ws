@@ -11,6 +11,7 @@ const REVIEW_DESCRIPTOR_FIELD_LIMITS = Object.freeze({
   base: 512,
   head: 512,
   revision: 512,
+  authoredAt: 128,
 });
 
 /** Measure a public descriptor string in transport bytes rather than UTF-16 code units. */
@@ -92,7 +93,7 @@ export function validateExtensionReviewDescriptor(value: unknown): ExtensionRevi
     kind === "change-request"
       ? ["id", "repository", "author", "base", "head", "state", "draft"]
       : kind === "commit"
-        ? ["revision", "author"]
+        ? ["revision", "author", "authoredAt"]
         : ["base", "head"];
   const allowed = new Set([...common, ...kindFields]);
   const ownKeys = Reflect.ownKeys(value);
@@ -130,6 +131,10 @@ export function validateExtensionReviewDescriptor(value: unknown): ExtensionRevi
       ...(draft === undefined ? {} : { draft }),
     };
   } else if (kind === "commit") {
+    const authoredAt = validateDescriptorString(candidate, "authoredAt", false);
+    if (authoredAt !== undefined && Number.isNaN(Date.parse(authoredAt))) {
+      throw new Error("delegate review authoredAt must be a valid timestamp");
+    }
     descriptor = {
       kind,
       provider,
@@ -137,6 +142,7 @@ export function validateExtensionReviewDescriptor(value: unknown): ExtensionRevi
       ...(url === undefined ? {} : { url }),
       revision: validateDescriptorString(candidate, "revision", true)!,
       ...copyOptionalDescriptorFields(candidate, ["author"]),
+      ...(authoredAt === undefined ? {} : { authoredAt }),
     };
   } else {
     descriptor = {

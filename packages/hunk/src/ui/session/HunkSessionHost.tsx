@@ -10,6 +10,7 @@ import {
 } from "../../app/session/reviewRuntime";
 import type { StartupNotice } from "../../core/process/startupNotice";
 import type { AppBootstrap } from "../../core/bootstrap";
+import { parseExtensionReviewDescriptor } from "../../core/reviewDescriptor";
 import type { ExtensionSession } from "../../extensions/session";
 import type { ExtensionLoadResult } from "../../extensions/types";
 import { AppHost } from "../AppHost";
@@ -18,6 +19,7 @@ import type { ViewPreferenceQuitScheduler } from "../hooks/useViewPreferenceQuit
 import { interactiveLogUsesColor } from "../log/colorPolicy";
 import { LogApp, type LogAppOutcome } from "../log/LogApp";
 import type { LogController } from "../log/controller";
+import { resolveHistoryAuthorLabel } from "../log/formatting";
 
 export interface HistorySurfaceRoute {
   kind: "history";
@@ -48,6 +50,22 @@ export interface HunkSessionHostDeps {
   prepareReview?: typeof prepareEmbeddedHistoryReview;
   createReviewRuntime?: typeof createReviewSessionRuntime;
   viewPreferenceQuitScheduler?: ViewPreferenceQuitScheduler;
+}
+
+/** Describe the selected history commit with bounded metadata shared by every review surface. */
+function historyCommitReviewDescriptor(
+  runtime: HistoryRuntime,
+  outcome: Extract<LogAppOutcome, { kind: "open-review" }>,
+) {
+  const review = parseExtensionReviewDescriptor({
+    kind: "commit",
+    provider: runtime.providerName,
+    title: outcome.commit.subject,
+    revision: outcome.commit.revisionId,
+    author: resolveHistoryAuthorLabel(outcome.commit),
+    authoredAt: outcome.commit.authoredAt,
+  });
+  return review?.kind === "commit" ? review : undefined;
 }
 
 /**
@@ -198,6 +216,8 @@ export function HunkSessionHost({
         themeMode: outcome.themeMode,
       };
       plan = await prepareReview(request, { signal });
+      const commitReview = historyCommitReviewDescriptor(historyRoute.runtime, outcome);
+      if (commitReview) plan.bootstrap.review = commitReview;
       if (!plan.bootstrap.extensions) {
         throw new Error("Embedded review startup did not provide extension authority.");
       }

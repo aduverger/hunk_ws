@@ -162,13 +162,18 @@ describe("interactive hunk log", () => {
         timeout: 15_000,
       });
       expect(review).toContain("history.ts");
+      expect(review).toMatch(/Second history commit.*[0-9a-f]{8,}…\s+⧉/);
+      expect(review).toMatch(/history · (?:in .*|.* ago)/);
+      expect(review).not.toContain("history · Git");
       expect(session.getRawOutput().slice(transitionOutputStart)).not.toContain("\x1b[?1049l");
 
       const returnOutputStart = session.getRawOutput().length;
       await session.press("q");
-      const returned = await session.waitForText(/Second history commit/, {
-        timeout: 15_000,
-      });
+      const returned = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("Second history commit") && text.includes("Enter open"),
+        15_000,
+      );
       expect(returned).toContain("Enter open");
       expect(session.getRawOutput().slice(returnOutputStart)).not.toContain("\x1b[?1049l");
 
