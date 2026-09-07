@@ -1,17 +1,24 @@
 import type { KeyEvent, MouseEvent as TuiMouseEvent } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { basename } from "node:path";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ExtensionVcsHistoryCommit } from "../../extension-api/types";
 import { sanitizeTerminalLine } from "../../lib/terminalText";
+import { resolveExtensionSessionOptions } from "../../extensions/apply";
 import { HelpDialog } from "../components/chrome/HelpDialog";
 import { MenuBar } from "../components/chrome/MenuBar";
 import { MenuDropdown } from "../components/chrome/MenuDropdown";
 import type { AppMenus, MenuEntry } from "../components/chrome/menu";
 import { ThemeSelectorDialog } from "../components/chrome/ThemeSelectorDialog";
+import { ViewPreferenceQuitDialog } from "../components/chrome/ViewPreferenceQuitDialog";
 import { useMenuController } from "../hooks/useMenuController";
 import { useThemeSelectorController } from "../hooks/useThemeSelectorController";
+import {
+  useViewPreferenceQuitController,
+  type ViewPreferenceQuitScheduler,
+} from "../hooks/useViewPreferenceQuitController";
 import { fitText, measureTextWidth } from "../lib/text";
+import { handleViewPreferenceQuitPromptKey } from "../lib/viewPreferenceQuitKeys";
 import type { HistoryRuntime } from "../history/types";
 import type { LogController } from "./controller";
 import { LOG_HELP_SECTIONS } from "./logHelp";
@@ -43,6 +50,7 @@ function HistoryGraphLine({ text, colors }: { text: string; colors: readonly str
 
 export type LogAppOutcome =
   | { kind: "quit"; exitCode?: number }
+  | { kind: "cancel-open-review" }
   | {
       kind: "open-review";
       commit: ExtensionVcsHistoryCommit;
@@ -57,11 +65,13 @@ export function LogApp({
   runtime,
   onOutcome,
   useColor,
+  quitScheduler,
 }: {
   controller: LogController;
   runtime: HistoryRuntime;
   onOutcome: (outcome: LogAppOutcome) => void | Promise<void>;
   useColor: boolean;
+  quitScheduler?: ViewPreferenceQuitScheduler;
 }) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const terminal = useTerminalDimensions();
@@ -76,6 +86,8 @@ export function LogApp({
   // open two child reviews. Quit remains available while the host settles pending work.
   const reviewPending = useRef(false);
   const reviewQuitEnabled = useRef(false);
+  const quitRequestCaptured = useRef(false);
+  const pendingExitCode = useRef<number | undefined>(undefined);
   const themeController = useThemeSelectorController({
     customThemes: runtime.customThemes,
     initialTheme: snapshot.themeId,
@@ -96,6 +108,30 @@ export function LogApp({
   const selectedRow = snapshot.rows[snapshot.selected];
   const responsiveLayout = resolveLogResponsiveLayout(terminal.width, terminal.height);
   const viewportBodyHeight = responsiveLayout.bodyHeight;
+  const currentViewPreferences = useMemo(
+    () => ({ ...runtime.initialViewPreferences, theme: themeController.themeId }),
+    [runtime.initialViewPreferences, themeController.themeId],
+  );
+  const viewPreferenceQuit = useViewPreferenceQuitController({
+    currentPreferences: currentViewPreferences,
+    configPath: runtime.viewPreferencesConfigPath,
+    pagerMode: false,
+    promptSaveViewPreferences: runtime.promptSaveViewPreferences,
+    transientViewPreferences: resolveExtensionSessionOptions(
+      runtime.extensionSession.current.registry,
+    ).transientViewPreferences,
+    onQuit: () => {
+      const exitCode = pendingExitCode.current;
+      pendingExitCode.current = undefined;
+      quitRequestCaptured.current = false;
+      void onOutcome({ kind: "quit", ...(exitCode === undefined ? {} : { exitCode }) });
+    },
+    showNotice: setTransientNotice,
+    showError: setTransientNotice,
+    closeHelp: () => setShowHelp(false),
+    homeDirectory: process.env.HOME,
+    quitScheduler,
+  });
 
   const copySelected = (row = controller.getSelectedRow()) => {
     const currentRow = row;
@@ -144,6 +180,37 @@ export function LogApp({
   }, [transientNotice]);
 
   const clearTransientNotice = () => setTransientNotice("");
+  /** Stop pending review preparation before beginning the history-owned quit decision. */
+  const requestLogQuit = (exitCode?: number) => {
+    if (!quitRequestCaptured.current) {
+      quitRequestCaptured.current = true;
+      pendingExitCode.current = exitCode;
+    }
+    if (reviewPending.current && reviewQuitEnabled.current) {
+      reviewQuitEnabled.current = false;
+      void Promise.resolve(onOutcome({ kind: "cancel-open-review" })).then(
+        () => {
+          reviewPending.current = false;
+          setOpeningCommit(null);
+        },
+        (error) => {
+          reviewPending.current = false;
+          setOpeningCommit(null);
+          controller.setNotice(error instanceof Error ? error.message : String(error));
+        },
+      );
+    }
+    viewPreferenceQuit.requestQuit();
+  };
+  const closeLogSaveConfigPrompt = () => {
+    quitRequestCaptured.current = false;
+    pendingExitCode.current = undefined;
+    viewPreferenceQuit.closeSaveConfigPrompt();
+  };
+  const logViewPreferenceQuit = {
+    ...viewPreferenceQuit,
+    closeSaveConfigPrompt: closeLogSaveConfigPrompt,
+  };
   const executeCommand = (id: LogCommandId, exitCode?: number) => {
     clearTransientNotice();
     if (!isLogCommandEnabled(id, controller.getSnapshot())) return;
@@ -158,7 +225,7 @@ export function LogApp({
         void controller.refresh();
         break;
       case "quit":
-        onOutcome({ kind: "quit", ...(exitCode === undefined ? {} : { exitCode }) });
+        requestLogQuit(exitCode);
         break;
       case "theme":
         themeController.openThemeSelector();
@@ -318,6 +385,11 @@ export function LogApp({
     };
     const name = key.name;
     const sequence = key.sequence ?? "";
+    if (viewPreferenceQuit.saveConfigPromptOpen) {
+      handleViewPreferenceQuitPromptKey(key, logViewPreferenceQuit);
+      consume();
+      return;
+    }
     if (reviewPending.current) {
       if (!reviewQuitEnabled.current) {
         consume();
@@ -691,6 +763,14 @@ export function LogApp({
           terminalWidth={terminal.width}
           theme={chromeTheme}
           onClose={() => setShowHelp(false)}
+        />
+      ) : null}
+      {viewPreferenceQuit.saveConfigPromptOpen ? (
+        <ViewPreferenceQuitDialog
+          controller={logViewPreferenceQuit}
+          terminalHeight={terminal.height}
+          terminalWidth={terminal.width}
+          theme={chromeTheme}
         />
       ) : null}
     </box>
