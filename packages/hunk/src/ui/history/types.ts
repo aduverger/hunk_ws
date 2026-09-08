@@ -1,5 +1,6 @@
 import type { HistoryCommandInput } from "../../core/run/commandInputs";
 import type { PersistedViewPreferences, UserKeyBinding } from "../../core/run/config";
+import type { InteractiveSessionInitialization } from "../../core/session/initialization";
 import type { VcsHistorySource } from "../../core/vcs/types";
 import type { ExtensionSession } from "../../extensions/session";
 import type {
@@ -43,4 +44,9 @@ export interface HistoryRuntime {
   /** Replace the current provider cursor for an explicit interactive refresh. */
   reopenSource(signal?: AbortSignal): Promise<VcsHistorySource>;
   close(): Promise<void>;
+}
+
+/** Add launch inputs required only while history participates in an interactive routed session. */
+export interface InteractiveHistoryRuntime extends HistoryRuntime {
+  initialization: InteractiveSessionInitialization;
 }

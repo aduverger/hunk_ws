@@ -5,6 +5,10 @@ import {
   type UserKeyBinding,
 } from "../core/run/config";
 import { collectSessionCustomThemes } from "../core/theme/customThemes";
+import {
+  createInteractiveSessionInitialization,
+  type InteractiveSessionInitialization,
+} from "../core/session/initialization";
 import type {
   ExtensionVcsHistoryCommit,
   ExtensionVcsHistoryRangeReviewAction,
@@ -41,7 +45,9 @@ export interface HistoryBootstrap {
   /** Command-owned extension authority borrowed by embedded reviews. */
   extensionSession: ExtensionSession;
   notices: readonly string[];
+  /** Surface-neutral catalog used by static history rendering. */
   customThemes: readonly NamedCustomThemeConfig[];
+  initialization: InteractiveSessionInitialization;
   /** User command overrides resolved by the active interactive surface. */
   keybindings: Readonly<Record<string, UserKeyBinding>>;
   /** Launch baseline retained so the owning history surface can persist theme changes on quit. */
@@ -156,6 +162,12 @@ export async function loadHistoryBootstrap({
     repoRoot,
     extensionSession,
     customThemes: sessionThemes.themes,
+    initialization: createInteractiveSessionInitialization({
+      theme: {
+        initialTheme: resolved.configured.input.options.theme,
+        customThemes: sessionThemes.themes,
+      },
+    }),
     keybindings: resolved.configured.keybindings,
     initialViewPreferences: persistedViewPreferencesFromOptions(resolved.configured.input.options),
     viewPreferencesConfigPath: resolved.configured.viewPreferencesConfigPath,

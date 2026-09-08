@@ -11,12 +11,13 @@ import {
 } from "../../app/session/reviewRuntime";
 import type { StartupNotice } from "../../core/process/startupNotice";
 import type { AppBootstrap } from "../../core/bootstrap";
+import type { InteractiveSessionInitialization } from "../../core/session/initialization";
 import type { ExtensionVcsHistoryReviewAction } from "../../extension-api/types";
 import { parseExtensionReviewDescriptor } from "../../core/reviewDescriptor";
 import type { ExtensionSession } from "../../extensions/session";
 import type { ExtensionLoadResult } from "../../extensions/types";
 import { AppHost } from "../AppHost";
-import type { HistoryRuntime } from "../history/types";
+import type { InteractiveHistoryRuntime } from "../history/types";
 import type { ViewPreferenceQuitScheduler } from "../hooks/useViewPreferenceQuitController";
 import { interactiveLogUsesColor } from "../log/colorPolicy";
 import { LogApp, type LogAppOutcome } from "../log/LogApp";
@@ -27,7 +28,7 @@ import { ThemeController } from "../theme/controller";
 export interface HistorySurfaceRoute {
   kind: "history";
   controller: LogController;
-  runtime: HistoryRuntime;
+  runtime: InteractiveHistoryRuntime;
 }
 
 export interface StandaloneReviewSurfaceRoute {
@@ -71,7 +72,7 @@ function truncateReviewText(value: string, maxBytes: number) {
 
 /** Describe a history selection with bounded metadata shared by every review surface. */
 function historyReviewDescriptor(
-  runtime: HistoryRuntime,
+  runtime: InteractiveHistoryRuntime,
   outcome: Extract<LogAppOutcome, { kind: "open-review" }>,
   action: ExtensionVcsHistoryReviewAction,
 ) {
@@ -124,12 +125,14 @@ function historyReviewDescriptor(
  */
 export function HunkSessionHost({
   initialRoute,
+  initialization,
   externalQuitSignal,
   onQuit,
   startupNoticeResolver,
   deps = {},
 }: {
   initialRoute: HunkSurfaceRoute;
+  initialization: InteractiveSessionInitialization;
   externalQuitSignal: AbortSignal;
   onQuit: (exitCode?: number) => void;
   startupNoticeResolver?: () => Promise<StartupNotice | null>;
@@ -141,18 +144,8 @@ export function HunkSessionHost({
   const [themeController] = useState(
     () =>
       new ThemeController({
-        initialTheme:
-          initialRoute.kind === "history"
-            ? initialRoute.runtime.input.theme
-            : initialRoute.bootstrap.initialTheme,
-        initialThemeMode:
-          initialRoute.kind === "review"
-            ? (initialRoute.bootstrap.initialThemeMode ?? renderer.themeMode)
-            : renderer.themeMode,
-        customThemes:
-          initialRoute.kind === "history"
-            ? initialRoute.runtime.customThemes
-            : initialRoute.bootstrap.customThemes,
+        ...initialization.theme,
+        initialThemeMode: initialization.theme.initialThemeMode ?? renderer.themeMode,
       }),
   );
   const [route, setRoute] = useState<ActiveSurfaceRoute>(() =>
@@ -313,6 +306,7 @@ export function HunkSessionHost({
         throw new Error("An embedded review cannot replace the owning extension session.");
       }
       const reviewRuntime = createReviewRuntime(plan.bootstrap, startupCwd);
+      themeController.replaceCustomThemes(plan.initialization.theme.customThemes);
       const reviewRoute: ActiveReviewSurfaceRoute = {
         kind: "review",
         instanceId: nextInstanceRef.current++,

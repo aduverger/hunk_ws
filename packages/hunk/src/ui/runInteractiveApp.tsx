@@ -3,6 +3,7 @@ import type { AppBootstrap } from "../core/bootstrap";
 import { resolveStartupUpdateNotice } from "../core/process/updateNotice";
 import { createReviewSessionRuntime } from "../app/session/reviewRuntime";
 import { createSessionReloadBounds } from "../app/session/reloadBounds";
+import type { InteractiveSessionInitialization } from "../core/session/initialization";
 import { createExtensionSession } from "../extensions/session";
 import type { ExtensionLoadResult } from "../extensions/types";
 import { HunkSessionHost, type StandaloneReviewSurfaceRoute } from "./session/HunkSessionHost";
@@ -11,6 +12,7 @@ import { runHunkSession } from "./session/runHunkSession";
 export interface InteractiveAppInput {
   bootstrap: AppBootstrap<ExtensionLoadResult>;
   controllingTerminal: ControllingTerminal | null;
+  initialization: InteractiveSessionInitialization;
 }
 
 export interface InteractiveAppDeps {
@@ -26,7 +28,7 @@ export const APP_SHUTDOWN_SIGNALS: NodeJS.Signals[] =
 
 /** Load and run the OpenTUI review app after startup has selected an interactive plan. */
 export async function runInteractiveApp(
-  { bootstrap, controllingTerminal }: InteractiveAppInput,
+  { bootstrap, controllingTerminal, initialization }: InteractiveAppInput,
   deps: InteractiveAppDeps = {},
 ): Promise<void> {
   const createReviewRuntime = deps.createReviewRuntime ?? createReviewSessionRuntime;
@@ -85,6 +87,7 @@ export async function runInteractiveApp(
       render: ({ externalQuitSignal, finish }) => (
         <HunkSessionHost
           initialRoute={initialRoute}
+          initialization={initialization}
           externalQuitSignal={externalQuitSignal}
           onQuit={finish}
           startupNoticeResolver={resolveStartupUpdateNotice}
