@@ -12,6 +12,7 @@ import {
   parseGitNumstat,
   resolveGitColorMovedOptionsAsync,
   resolveGitCommitRefAsync,
+  resolveGitComparisonEndpointsAsync,
   resolveGitDiffEndpoints,
   resolveGitDiffEndpointsAsync,
   resolveGitMetadata,
@@ -23,8 +24,14 @@ import {
   type GitBackedInput,
   type GitDiffEndpoints,
 } from "./commands";
-import { openGitHistory, planGitHistoryRangeReview } from "./history";
+import {
+  countGitReviewCommits,
+  loadGitReviewCommits,
+  openGitHistory,
+  planGitHistoryRangeReview,
+} from "./history";
 import { gitEndpointSourceSpec, readGitFileSource } from "./source";
+import { commitReviewInfo, comparisonReviewInfo } from "@hunk/vcs/review-info";
 import {
   HUNK_VCS_DETECTION_BASELINE_PRIORITY,
   type ExtensionVcsAdapter,
@@ -32,6 +39,7 @@ import {
   type ExtensionVcsDirectoryTreeWatchTarget,
   type ExtensionVcsExtraFile,
   type ExtensionVcsFileSourceReader,
+  type ExtensionVcsShowInput,
   type ExtensionVcsWatchPlan,
   type HunkExtensionAPI,
 } from "hunkdiff/extension";
@@ -118,6 +126,10 @@ interface GitSourceCapability {
   sourceCacheKey: string;
 }
 
+interface GitRevisionSourceCapability extends GitSourceCapability {
+  revisionId: string;
+}
+
 /** Hash index entries without blocking an embedded renderer. */
 async function gitIndexCacheKeyAsync(
   input: GitBackedInput,
@@ -153,19 +165,48 @@ async function createGitRevisionSourceCapabilityAsync(
   repoRoot: string,
   gitExecutable: string,
   signal?: AbortSignal,
-): Promise<GitSourceCapability> {
+): Promise<GitRevisionSourceCapability> {
   const newRef = await resolveGitCommitRefAsync(input, ref, {
     cwd: repoRoot,
     gitExecutable,
     signal,
   });
-  return createGitSourceCapabilityAsync(
-    input,
+  return {
+    ...(await createGitSourceCapabilityAsync(
+      input,
+      repoRoot,
+      { old: { kind: "git-ref", ref: `${newRef}^` }, new: { kind: "git-ref", ref: newRef } },
+      gitExecutable,
+      signal,
+    )),
+    revisionId: newRef,
+  };
+}
+
+/** Describe a direct commit-to-commit Git diff without labeling live state as a comparison. */
+async function createGitComparisonReview(
+  input: ExtensionVcsDiffInput,
+  cwd: string,
+  repoRoot: string,
+  gitExecutable: string,
+  signal?: AbortSignal,
+) {
+  const endpoints = await resolveGitComparisonEndpointsAsync(input, {
+    cwd,
     repoRoot,
-    { old: { kind: "git-ref", ref: `${newRef}^` }, new: { kind: "git-ref", ref: newRef } },
     gitExecutable,
     signal,
-  );
+  });
+  if (!endpoints) return undefined;
+  const revision = `${endpoints.base}..${endpoints.head}`;
+  const [commits, commitCount] = await Promise.all([
+    loadGitReviewCommits(revision, { cwd: repoRoot, gitExecutable, signal }),
+    countGitReviewCommits(revision, { cwd: repoRoot, gitExecutable, signal }),
+  ]);
+  return {
+    endpoints,
+    review: comparisonReviewInfo("Git", endpoints.base, endpoints.head, commits, commitCount),
+  };
 }
 
 /** Build exact source capability data while asynchronously hashing a possible index. */
@@ -341,6 +382,23 @@ export function createGitVcsAdapter({
           const repoRoot = await resolveGitRepoRootAsync(input, { cwd, gitExecutable, signal });
           const repoName = basename(repoRoot);
           const range = describeGitDiffTitleRange(input);
+          const comparison = await createGitComparisonReview(
+            input,
+            cwd,
+            repoRoot,
+            gitExecutable,
+            signal,
+          );
+          const patchInput: ExtensionVcsDiffInput = comparison
+            ? {
+                ...input,
+                range: undefined,
+                rangeEndpoints: {
+                  from: comparison.endpoints.base,
+                  to: comparison.endpoints.head,
+                },
+              }
+            : input;
           const title = input.staged
             ? `${repoName} staged changes`
             : range
@@ -350,7 +408,7 @@ export function createGitVcsAdapter({
           // excluded from the diff instead of generating output nobody reads.
           const numstat = await runGitTextAsync({
             input,
-            args: buildGitDiffNumstatArgs(input),
+            args: buildGitDiffNumstatArgs(patchInput),
             cwd,
             gitExecutable,
             signal,
@@ -360,13 +418,18 @@ export function createGitVcsAdapter({
             gitExecutable,
             signal,
           });
-          const sourceCapability = await createGitDiffSourceCapabilityAsync(
-            input,
-            repoRoot,
-            cwd,
-            gitExecutable,
-            signal,
-          );
+          const sourceCapability = comparison
+            ? await createGitSourceCapabilityAsync(
+                input,
+                repoRoot,
+                {
+                  old: { kind: "git-ref", ref: comparison.endpoints.base },
+                  new: { kind: "git-ref", ref: comparison.endpoints.head },
+                },
+                gitExecutable,
+                signal,
+              )
+            : await createGitDiffSourceCapabilityAsync(input, repoRoot, cwd, gitExecutable, signal);
           const untrackedPaths = await listGitUntrackedFilesAsync(input, {
             cwd,
             repoRoot,
@@ -384,7 +447,7 @@ export function createGitVcsAdapter({
             patchText: await runGitTextAsync({
               input,
               args: buildGitDiffArgs(
-                input,
+                patchInput,
                 largeTrackedFiles.map((file) => file.path),
                 colorMoved,
               ),
@@ -392,6 +455,7 @@ export function createGitVcsAdapter({
               gitExecutable,
               signal,
             }),
+            review: comparison?.review,
             ...sourceCapability,
             extraFiles: largeTrackedFiles.map(
               (file): ExtensionVcsExtraFile => ({
@@ -438,13 +502,25 @@ export function createGitVcsAdapter({
         async load(input, { cwd, signal }) {
           const repoRoot = await resolveGitRepoRootAsync(input, { cwd, gitExecutable, signal });
           const repoName = basename(repoRoot);
-          const sourceCapability = await createGitRevisionSourceCapabilityAsync(
+          const { revisionId, ...sourceCapability } = await createGitRevisionSourceCapabilityAsync(
             input,
             input.ref ?? "HEAD",
             repoRoot,
             gitExecutable,
             signal,
           );
+          const commit = (
+            await loadGitReviewCommits(
+              revisionId,
+              {
+                cwd: repoRoot,
+                gitExecutable,
+                signal,
+              },
+              1,
+            )
+          )[0];
+          const patchInput: ExtensionVcsShowInput = { ...input, ref: revisionId };
 
           return {
             repoRoot,
@@ -453,13 +529,14 @@ export function createGitVcsAdapter({
             patchText: await runGitTextAsync({
               input,
               args: buildGitShowArgs(
-                input,
+                patchInput,
                 await resolveGitColorMovedOptionsAsync(input, { cwd, gitExecutable, signal }),
               ),
               cwd,
               gitExecutable,
               signal,
             }),
+            ...(commit ? { review: commitReviewInfo("Git", commit) } : {}),
             ...sourceCapability,
           };
         },
@@ -480,13 +557,14 @@ export function createGitVcsAdapter({
         async load(input, { cwd, signal }) {
           const repoRoot = await resolveGitRepoRootAsync(input, { cwd, gitExecutable, signal });
           const repoName = basename(repoRoot);
-          const sourceCapability = await createGitRevisionSourceCapabilityAsync(
-            input,
-            input.ref ?? "stash@{0}",
-            repoRoot,
-            gitExecutable,
-            signal,
-          );
+          const { revisionId: _revisionId, ...sourceCapability } =
+            await createGitRevisionSourceCapabilityAsync(
+              input,
+              input.ref ?? "stash@{0}",
+              repoRoot,
+              gitExecutable,
+              signal,
+            );
 
           return {
             repoRoot,
