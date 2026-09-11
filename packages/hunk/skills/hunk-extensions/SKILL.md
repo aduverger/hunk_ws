@@ -113,7 +113,7 @@ bad or duplicate id is skipped with a startup notice.
 | Reload after an external agent changes reviewed inputs   | `ctx.review.requestReload()` in an event     |
 | Read user-supplied settings                              | `hunk.config` (`[extension.<id>]` table)     |
 | Snapshot stable files and every saved review note        | `ctx.review.snapshot()` in a command         |
-| Branch on the API generation (currently `26`)            | `hunk.apiVersion`                            |
+| Branch on the API generation (currently `27`)            | `hunk.apiVersion`                            |
 
 Registration is only valid while the factory runs — Hunk seals the API object
 afterwards.
@@ -164,7 +164,8 @@ transform — gets `ctx.cwd` and `ctx.notify(message, type?)`. A file view's
 - **Command handlers** get `ctx.panes`, `ctx.fileViews` (select/toggle/isActive/
   refresh/enterMode/exitMode), `ctx.highlights` (refresh prepared line marks,
   whole or `{ fileId }`-scoped), `ctx.selection` (a snapshot of file, hunk index,
-  and nullable current `{ side, line }` source address), `ctx.navigation` (live,
+  nullable current `{ side, line }` source address, and `files`, the visible files
+  in review order), `ctx.navigation` (live,
   guarded `selectFile`/`selectHunk`/`revealLine`, the
   last landing one exact `(side, line)` near the viewport top), `ctx.commands`
   (`isEnabled`/`execute` for public semantic `hunk.*` commands),
@@ -304,7 +305,8 @@ Practical checks, in order of cost:
    loads immediately with no trust prompt, so it is the iteration path. Ask them
    what the footer notices and toasts said.
 5. **Triage with `--no-extensions`** to confirm a symptom belongs to an extension
-   (bundled VCS backends and the built-in files pane stay loaded either way).
+   (bundled VCS backends, the built-in files pane, and the `/` content search stay loaded
+   either way).
 
 ## If it does not load
 
@@ -327,11 +329,13 @@ Practical checks, in order of cost:
 
 Only when the work is in the `hunk` repo rather than in a user extension:
 
-- Shipped VCS backends and the built-in files pane are **bundled extensions** in
-  `packages/hunk/src/extensions/default/`, registering through the same public API. That
-  dogfooding is deliberate — if the public contract cannot express something,
+- Shipped VCS backends, the built-in files pane, and the `/` content search are **bundled
+  extensions** in `packages/hunk/src/extensions/default/`, registering through the same public
+  API. That dogfooding is deliberate — if the public contract cannot express something,
   that is a real gap, not a reason for a private path. `default/vcs/` loads from
-  VCS adapter resolution and must stay renderer-free.
+  VCS adapter resolution and must stay renderer-free. Bundled UI factories run once per
+  process with no config; `ui/lib/sessionRegistrations.ts` composes their commands and line
+  highlighters ahead of user extensions.
 - `packages/hunk/src/extension-api/types.ts` must stay **import-free**; declaration emission
   publishes whatever it reaches, and `scripts/packaging/check-pack.ts` fails the pack
   otherwise. Shapes shared with internal code are declared there and re-exported

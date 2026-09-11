@@ -192,12 +192,15 @@ run without installing anything.
 ## Bundled extensions
 
 Every VCS backend Hunk ships — **Git, Jujutsu, and Sapling** — is an extension,
-and so is the **built-in file-navigation pane**. Provider implementations live in the private
+and so are the **built-in file-navigation pane**, the commit and change-request info panes, and
+the **`/` content search** (`hunk.search.find` / `next` / `previous`, with its match marks and
+status-row report). Provider implementations live in the private
 `packages/hunk-{git,jj,sapling}` workspaces and are statically imported by
 `packages/hunk/src/extensions/default/vcs/index.ts`. Bundled UI registrations live under
 `packages/hunk/src/extensions/default/ui/`. All register through the same
-`hunk.registerVcsAdapter` and `hunk.registerPane` contract documented here; there is no private
-registration path.
+`hunk.registerVcsAdapter`, `hunk.registerPane`, `hunk.registerCommand`, and
+`hunk.registerLineHighlighter` contract documented here, and their commands, highlighters, and
+panes are composed ahead of yours; there is no private registration path.
 
 Git exercises exact file sources, skipped-too-large placeholders, untracked files, watch plans,
 and structured failures through the public adapter contract. Its package and boundary tests keep
@@ -217,7 +220,9 @@ being Hunk's own code:
 A bundled VCS factory failure becomes a load issue rather than crashing the session. Bundled UI
 panes are required host code, so failure to register the expected panes aborts startup. The ids
 `git`, `jj`, and `sl` are reserved as a result — see `registerVcsAdapter` below — and so is `hunk`,
-the id the bundled files pane and every built-in command are named under.
+the id the bundled files pane, the bundled search, and every built-in command are named under.
+Because bundled factories run once per process with no config, a bundled command derives its
+session state from its context (`ctx.selection.files`) rather than closing over a review.
 
 ## Trust
 
@@ -302,8 +307,9 @@ and retires the replaced instance at that explicit ownership boundary.
 
 ### `hunk.apiVersion`
 
-The API generation this Hunk speaks (currently `26`). Branch on it if you want
-one file to support several Hunk versions. Version 26 adds the status line (`ctx.statusLine`
+The API generation this Hunk speaks (currently `27`). Branch on it if you want
+one file to support several Hunk versions. Version 27 adds `ctx.selection.files`, the visible
+files in review order; version 26 adds the status line (`ctx.statusLine`
 items and `ctx.prompts.line()` inline prompts); version 25 adds Promise-returning watch
 signatures and watch cancellation; version 24 adds review metadata to VCS patch results and
 short display revisions to commit descriptors; version 23 adds canonical unified-layout fields
@@ -1750,9 +1756,14 @@ is — or when the file has no hunks to select. `selection.currentLine` is the
 one-based `{ side, line }` source address carrying the current-line marker, or
 `null` when the marker is off or the review has not settled on a rendered line.
 It belongs to this file and hunk, uses Hunk's canonical new-side address for a
-context row, and can be passed directly to `navigation.revealLine`. The values
-are captured when the command fires: a handler that awaits still sees the
-selection it was run from, not wherever the user navigated to meanwhile.
+context row, and can be passed directly to `navigation.revealLine`.
+`selection.files` is every visible file in review order — the same frozen
+views a pane's `files` prop carries — so a command that works across the whole
+review (a content search, a bulk action) reads its corpus here instead of
+shadow-tracking `changeset_loaded`; `selection.file` is one of its entries or
+`null`. The values are captured when the command fires: a handler that awaits
+still sees the selection it was run from, not wherever the user navigated to
+meanwhile.
 
 `ctx.commands` invokes Hunk's documented semantic commands through the exact same live command
 table used by the keyboard, menus, and help:
