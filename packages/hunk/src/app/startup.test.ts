@@ -280,7 +280,7 @@ describe("startup planning", () => {
     });
   });
 
-  test("rejects a disabled extension command before bootstrap resolution", async () => {
+  test("resolves bundled commands when user extensions are disabled", async () => {
     let resolved = false;
 
     await expect(
@@ -294,11 +294,50 @@ describe("startup planning", () => {
         }),
         resolveExtensionCliBootstrapImpl: async () => {
           resolved = true;
-          throw new Error("must not resolve");
+          throw new Error("bootstrap reached");
         },
       }),
-    ).rejects.toThrow("Unknown command: tools");
-    expect(resolved).toBe(false);
+    ).rejects.toThrow("bootstrap reached");
+    expect(resolved).toBe(true);
+  });
+
+  test("reports a disabled bundled command with a one-run recovery", async () => {
+    const invocation = {
+      kind: "extension-cli" as const,
+      commandName: "gh",
+      args: ["pr", "123"],
+      extensionPaths: [],
+      extensionsEnabled: true,
+    };
+    const extensions = createEmptyExtensionLoadResult();
+
+    const plan = prepareStartupPlan(["bun", "hunk", "gh", "pr", "123"], {
+      parseCliImpl: async () => invocation,
+      resolveExtensionCliBootstrapImpl: async ({ baseVcsCatalog }) => ({
+        configured: {
+          extensions: {
+            enabled: true,
+            userDisabled: ["hunk.gh"],
+            disabled: ["hunk.gh"],
+            paths: [],
+            repoPaths: [],
+            extensionConfigs: {},
+          },
+        },
+        extensions,
+        commands: resolveExtensionCliCommands(extensions.registry),
+        collisionIssues: [],
+        discoveryCatalog: baseVcsCatalog,
+      }),
+    });
+
+    await expect(plan).rejects.toMatchObject({
+      message: 'Extension "hunk.gh" is disabled.',
+      suggestions: [
+        "Enable it for this run by adding `--enable-extension hunk.gh` before `gh`.",
+        "Enable it permanently by removing hunk.gh from [extensions].disabled.",
+      ],
+    });
   });
 
   test("returns help output without entering app startup", async () => {

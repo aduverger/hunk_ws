@@ -17,9 +17,6 @@ const REVIEW_SNAPSHOT_EXPORT_EXTENSION = resolve(
 const VIM_NAVIGATION_EXTENSION = resolve(
   fileURLToPath(new URL("../../examples/extensions/vim-navigation", import.meta.url)),
 );
-const GITHUB_PR_EXTENSION_ENTRY = resolve(
-  fileURLToPath(new URL("../../examples/extensions/github-pr/index.ts", import.meta.url)),
-);
 
 /** An external-event workflow that changes a reviewed file and requests a host reload. */
 const REVIEW_RELOAD_EXTENSION_SOURCE = `
@@ -72,36 +69,44 @@ const TRANSFORM_EXTENSION_SOURCE = `export default function (hunk) {
 }
 `;
 
-/** The real GitHub PR example with fixed network responses for an end-to-end pane proof. */
-const DELEGATED_REVIEW_EXTENSION_SOURCE = `import { createGitHubPrExtension } from ${JSON.stringify(GITHUB_PR_EXTENSION_ENTRY)};
-const metadata = {
-  title: "Delegated pane proof",
-  html_url: "https://github.com/modem-dev/hunk/pull/123",
-  user: { login: "octocat" },
-  state: "open",
-  draft: false,
-  merged: false,
-  base: { ref: "main" },
-  head: { ref: "feature/pane" },
-};
-const patch = [
-  "diff --git a/probe.txt b/probe.txt",
-  "--- a/probe.txt",
-  "+++ b/probe.txt",
-  "@@ -1 +1 @@",
-  "-before",
-  "+after",
-  "",
-].join("\\n");
-export default createGitHubPrExtension({
-  env: {},
-  fetchImpl: async (_url, init) => {
-    const accept = new Headers(init?.headers).get("accept");
-    if (accept === "application/vnd.github+json") return Response.json(metadata);
-    if (accept === "application/vnd.github.v3.diff") return new Response(patch);
-    throw new Error("Unexpected Accept header: " + accept);
-  },
-});
+/** A delegated patch command with fixed metadata for an end-to-end pane proof. */
+const DELEGATED_REVIEW_EXTENSION_SOURCE = `import { rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+let patchPath;
+export default function (hunk) {
+  hunk.registerCliCommand({ name: "delegated-review", summary: "Open a delegated review" }, (_args, ctx) => {
+    patchPath = join(ctx.cwd, "delegated-review.diff");
+    writeFileSync(patchPath, [
+      "diff --git a/probe.txt b/probe.txt",
+      "--- a/probe.txt",
+      "+++ b/probe.txt",
+      "@@ -1 +1 @@",
+      "-before",
+      "+after",
+      "",
+    ].join("\\n"));
+    return {
+      kind: "delegate",
+      argv: ["patch", patchPath],
+      review: {
+        kind: "change-request",
+        provider: "GitHub",
+        title: "Delegated pane proof",
+        url: "https://github.com/modem-dev/hunk/pull/123",
+        id: "#123",
+        repository: "modem-dev/hunk",
+        author: "octocat",
+        base: "main",
+        head: "feature/pane",
+        state: "open",
+        draft: false,
+      },
+    };
+  });
+  hunk.on("shutdown", () => {
+    if (patchPath) rmSync(patchPath, { force: true });
+  });
+}
 `;
 
 /** A repo-local extension that only speaks through ctx.notify on startup. */
@@ -387,10 +392,7 @@ describe("PTY extensions", () => {
       args: [
         "--extension",
         join(fixture.dir, ".hunk", "extensions", "fixture.ts"),
-        "gh",
-        "123",
-        "--repo",
-        "modem-dev/hunk",
+        "delegated-review",
       ],
       cwd: fixture.dir,
       cols: 140,

@@ -167,6 +167,7 @@ function applyDelegatedExtensionFlags(
       ...input,
       extensionsEnabled: invocation.extensionsEnabled,
       extensionPaths: [...invocation.extensionPaths],
+      extensionSelectionOverrides: [...(invocation.extensionSelectionOverrides ?? [])],
     };
   }
   if (!("options" in input)) return input;
@@ -177,6 +178,7 @@ function applyDelegatedExtensionFlags(
       extensions: invocation.extensionsEnabled,
       extensionPaths:
         invocation.extensionPaths.length > 0 ? [...invocation.extensionPaths] : undefined,
+      extensionSelectionOverrides: [...(invocation.extensionSelectionOverrides ?? [])],
     },
   } as ParsedCliInput;
 }
@@ -249,9 +251,6 @@ export async function prepareStartupPlan(
 
   if (parsedCliInput.kind === "extension-cli") {
     const invocation = parsedCliInput;
-    if (!invocation.extensionsEnabled) {
-      throw new Error(`Unknown command: ${invocation.commandName}`);
-    }
     const baseVcsCatalog = await loadBaseVcsCatalog();
     const resolveExtensionCliBootstrapImpl =
       deps.resolveExtensionCliBootstrapImpl ??
@@ -270,6 +269,27 @@ export async function prepareStartupPlan(
     try {
       const registered = resolved.commands.commands.get(invocation.commandName);
       if (!registered) {
+        const bundledDefinition = (
+          await import("../extensions/default/core")
+        ).findBundledCoreExtensionByCommand(invocation.commandName);
+        if (bundledDefinition) {
+          const decision = (
+            await import("../core/run/extensionSelection")
+          ).resolveExtensionSelection({
+            id: bundledDefinition.selectionId,
+            kind: "bundled",
+            userDisabled: resolved.configured.extensions.userDisabled,
+            repoDisabled: resolved.configured.extensions.repoDisabled,
+            cliOverrides: invocation.extensionSelectionOverrides,
+          });
+          if (!decision.enabled) {
+            throw new HunkUserError(`Extension "${bundledDefinition.selectionId}" is disabled.`, [
+              `Enable it for this run by adding \`--enable-extension ${bundledDefinition.selectionId}\` before \`${invocation.commandName}\`.`,
+              `Enable it permanently by removing ${bundledDefinition.selectionId} from [extensions].disabled.`,
+            ]);
+          }
+        }
+
         const suggestions: string[] = [];
         // The registry is already loaded, so name what the loaded extensions do offer rather
         // than reporting only the token that failed.

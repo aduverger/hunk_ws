@@ -165,6 +165,8 @@ export function AppHost({
   // than becoming an explicit choice.
   const launchExtensionsEnabled = initialBootstrap.input.options.extensions;
   const launchExtensionPaths = initialBootstrap.input.options.extensionPaths;
+  const launchExtensionSelectionOverrides =
+    initialBootstrap.input.options.extensionSelectionOverrides;
   const [sessionFileBounds] = useState(() =>
     createSessionReloadBounds(initialBootstrap, { cwd: initialBootstrap.reloadContext.cwd }),
   );
@@ -266,6 +268,7 @@ export function AppHost({
           fast: launchFast,
           extensions: launchExtensionsEnabled,
           extensionPaths: launchExtensionPaths,
+          extensionSelectionOverrides: launchExtensionSelectionOverrides,
         },
       });
       const { cwd } = validateSessionReloadWithinBounds(sessionFileBounds, runtimeInput, {
@@ -471,6 +474,7 @@ export function AppHost({
       launchFast,
       launchExtensionsEnabled,
       launchExtensionPaths,
+      launchExtensionSelectionOverrides,
       producer,
       sessionFileBounds,
     ],

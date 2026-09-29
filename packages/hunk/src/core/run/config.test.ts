@@ -1294,6 +1294,32 @@ describe("extension configuration", () => {
     expect(resolved.extensions.repoPaths).toEqual(["./tools/policy.ts"]);
   });
 
+  test("unions normalized user and repository extension deny-lists", () => {
+    const home = createTempDir("hunk-config-home-");
+    const repo = createTempDir("hunk-config-repo-");
+    createRepo(repo);
+
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "hunk", "config.toml"),
+      ["[extensions]", 'disabled = [" hunk.gh ", "shared", "", "hunk.gh"]'].join("\n"),
+    );
+    mkdirSync(join(repo, ".hunk"), { recursive: true });
+    writeFileSync(
+      join(repo, ".hunk", "config.toml"),
+      ["[extensions]", 'disabled = ["shared", "repo-tool"]'].join("\n"),
+    );
+
+    const resolved = resolveConfiguredCliInput(createPatchPagerInput(), {
+      cwd: repo,
+      env: { HOME: home },
+    });
+
+    expect(resolved.extensions.userDisabled).toEqual(["hunk.gh", "shared"]);
+    expect(resolved.extensions.repoDisabled).toEqual(["shared", "repo-tool"]);
+    expect(resolved.extensions.disabled).toEqual(["hunk.gh", "shared", "repo-tool"]);
+  });
+
   test("reads [keybindings] from the user layer only", () => {
     const home = createTempDir("hunk-config-home-");
     const repo = createTempDir("hunk-config-repo-");

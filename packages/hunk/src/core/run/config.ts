@@ -36,6 +36,7 @@ import type {
   CustomSyntaxScopesConfig,
   NamedCustomThemeConfig,
 } from "../../extension-api/types";
+import { normalizeExtensionSelectionIds } from "./extensionSelection";
 import {
   isLayoutModeInput,
   normalizeLayoutModeInput,
@@ -57,6 +58,12 @@ export interface ExtensionsConfig {
    * installed, not to drop VCS support.
    */
   enabled: boolean;
+  /** Exact extension identities disabled by the user config layer. */
+  userDisabled?: readonly string[];
+  /** Exact extension identities disabled by the repository config layer. */
+  repoDisabled?: readonly string[];
+  /** Effective config deny-list, retained for inspection and management UX. */
+  disabled?: readonly string[];
   /** Explicit entry paths from the user config layer. */
   paths: string[];
   /** Explicit entry paths contributed by the repo config layer; trust-gated like `.hunk/extensions`. */
@@ -574,6 +581,14 @@ export const CONFIG_REFERENCE_EXTENSIONS = {
       description:
         "Extension entry points loaded at startup. Paths a repository config contributes are trust-gated before they run.",
     },
+    {
+      key: "extensions.disabled",
+      type: "array of strings",
+      accepted: "exact extension identities",
+      defaultValue: "`[]`",
+      description:
+        "Disable selectable bundled or user extensions before their factories or modules execute. User and repository lists combine as a union.",
+    },
   ] as const satisfies readonly ConfigReferenceSectionKey[],
 } as const;
 
@@ -835,6 +850,7 @@ function buildConfigStartupNotices(
 interface ExtensionsLayer {
   enabled?: boolean;
   paths: string[];
+  disabled: string[];
   extensionConfigs: Record<string, Record<string, unknown>>;
 }
 
@@ -878,6 +894,9 @@ function readExtensionsLayer(source: Record<string, unknown>): ExtensionsLayer {
   return {
     enabled: isRecord(extensionsSource) ? normalizeBoolean(extensionsSource.enabled) : undefined,
     paths: isRecord(extensionsSource) ? normalizeStringArray(extensionsSource.paths) : [],
+    disabled: isRecord(extensionsSource)
+      ? normalizeExtensionSelectionIds(normalizeStringArray(extensionsSource.disabled))
+      : [],
     extensionConfigs,
   };
 }
@@ -989,8 +1008,12 @@ function resolveExtensionsConfig(
   repoLayer: ExtensionsLayer,
   extensionsEnabled: boolean | undefined,
 ): ExtensionsConfig {
+  const disabled = normalizeExtensionSelectionIds([...userLayer.disabled, ...repoLayer.disabled]);
   return {
     enabled: extensionsEnabled === false ? false : (repoLayer.enabled ?? userLayer.enabled ?? true),
+    ...(userLayer.disabled.length > 0 ? { userDisabled: userLayer.disabled } : {}),
+    ...(repoLayer.disabled.length > 0 ? { repoDisabled: repoLayer.disabled } : {}),
+    ...(disabled.length > 0 ? { disabled } : {}),
     paths: userLayer.paths,
     repoPaths: repoLayer.paths,
     extensionConfigs: mergeExtensionConfigs(userLayer.extensionConfigs, repoLayer.extensionConfigs),
@@ -1097,6 +1120,8 @@ function mergeOptions(base: CommonOptions, overrides: CommonOptions): CommonOpti
     colorMoved: overrides.colorMoved ?? base.colorMoved,
     extensions: overrides.extensions ?? base.extensions,
     extensionPaths: overrides.extensionPaths ?? base.extensionPaths,
+    extensionSelectionOverrides:
+      overrides.extensionSelectionOverrides ?? base.extensionSelectionOverrides,
   };
 }
 
@@ -1272,10 +1297,10 @@ export function resolveExtensionBootstrapConfig({
   const sources = readConfigSources(cwd, env, vcsCatalog);
   const userLayer = sources.userConfig
     ? readExtensionsLayer(sources.userConfig)
-    : { paths: [], extensionConfigs: {} };
+    : { paths: [], disabled: [], extensionConfigs: {} };
   const repoLayer = sources.repoConfig
     ? readExtensionsLayer(sources.repoConfig)
-    : { paths: [], extensionConfigs: {} };
+    : { paths: [], disabled: [], extensionConfigs: {} };
   const repoNotice = createRepoExtensionConfigNotice(repoLayer.extensionConfigs);
 
   return {
@@ -1303,8 +1328,8 @@ export function resolveConfiguredCliInput(
   let resolvedCustomThemes: NamedCustomThemeConfig[] = [];
   let usesLegacyCustomSyntax = false;
   const themeNotices = new Map<string, StartupNotice>();
-  let userExtensionsLayer: ExtensionsLayer = { paths: [], extensionConfigs: {} };
-  let repoExtensionsLayer: ExtensionsLayer = { paths: [], extensionConfigs: {} };
+  let userExtensionsLayer: ExtensionsLayer = { paths: [], disabled: [], extensionConfigs: {} };
+  let repoExtensionsLayer: ExtensionsLayer = { paths: [], disabled: [], extensionConfigs: {} };
   // Keybindings are read from the user layer only; see `HunkConfigResolution`.
   let keybindingsLayer: KeybindingsLayer = { bindings: {}, unusableIds: [] };
 
