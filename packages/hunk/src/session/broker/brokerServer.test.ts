@@ -106,6 +106,7 @@ async function authenticatedFetch(
   port: number,
   path: string,
   init: SessionBrokerSignedRequestInit = {},
+  options: { targetSpecific?: boolean } = {},
 ) {
   const credentials = await loadOrCreateHunkSessionBrokerCredentials();
   const caller = new SessionBrokerCallerClient({
@@ -120,7 +121,7 @@ async function authenticatedFetch(
       ? ((JSON.parse(init.body) as { action?: string }).action ?? "")
       : "";
   return caller.request(path, init, {
-    targetSpecific: path === "/session-api" && action !== "list",
+    targetSpecific: options.targetSpecific ?? (path === "/session-api" && action !== "list"),
   });
 }
 
@@ -935,6 +936,82 @@ describe("Hunk session daemon server", () => {
       });
     } finally {
       SessionBrokerState.prototype.dispatchCommand = original;
+      server.stop(true);
+    }
+  });
+
+  test("reports why a repo selector matched no session instead of a redacted failure", async () => {
+    const port = await reserveLoopbackPort();
+    process.env.HUNK_MCP_HOST = "127.0.0.1";
+    process.env.HUNK_MCP_PORT = String(port);
+
+    const original = SessionBrokerState.prototype.dispatchCommand;
+    const dispatched: string[] = [];
+    SessionBrokerState.prototype.dispatchCommand = (({ command }: { command: string }) => {
+      dispatched.push(command);
+      return Promise.reject(new Error("A selector miss must not dispatch."));
+    }) as SessionBrokerState["dispatchCommand"];
+
+    const server = await serveSessionBrokerDaemon();
+    let socket: WebSocket | undefined;
+
+    try {
+      // The live window is showing /repo; the caller is in a different checkout.
+      socket = await openRegisteredSession(port);
+      for (const request of [
+        { action: "get", selector: { repoRoot: "/elsewhere" } },
+        {
+          action: "reload",
+          selector: { repoRoot: "/elsewhere" },
+          nextInput: { kind: "vcs", staged: false, options: {} },
+        },
+      ]) {
+        const response = await authenticatedFetch(port, "/session-api", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        });
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toEqual({
+          error: "No active session matches repoRoot /elsewhere.",
+        });
+      }
+      expect(dispatched).toEqual([]);
+    } finally {
+      SessionBrokerState.prototype.dispatchCommand = original;
+      socket?.close();
+      server.stop(true);
+    }
+  });
+
+  test("keeps malformed session API bodies redacted", async () => {
+    const port = await reserveLoopbackPort();
+    process.env.HUNK_MCP_HOST = "127.0.0.1";
+    process.env.HUNK_MCP_PORT = String(port);
+
+    const server = await serveSessionBrokerDaemon();
+
+    try {
+      const response = await authenticatedFetch(
+        port,
+        "/session-api",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "reload",
+            selector: { repoRoot: "/repo" },
+            nextInput: { kind: "vcs", staged: false, options: { notAnOption: true } },
+          }),
+        },
+        // An unparseable body has no trustworthy target, so the daemon signs it untargeted.
+        { targetSpecific: false },
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: "protocol-validation-failed" });
+    } finally {
       server.stop(true);
     }
   });
