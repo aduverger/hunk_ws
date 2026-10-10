@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPtyHarness, dragMouse, lineIndexOf } from "./harness";
@@ -42,6 +42,14 @@ setDefaultTimeout(30_000);
 afterEach(() => {
   harness.cleanup();
 });
+
+/**
+ * The key Hunk records a repo's trust under: its canonical path. A macOS temp dir reads as
+ * /var/folders/… and resolves to /private/var/folders/….
+ */
+function trustKey(repoDir: string) {
+  return realpathSync.native(repoDir);
+}
 
 /** Read the persisted repo-trust decisions from one isolated config home. */
 function readTrustState(configHome: string): Record<string, string> {
@@ -472,7 +480,7 @@ describe("PTY extensions", () => {
       expect(reloaded).not.toContain("beta.ts");
       expect(reloaded).toContain("alpha.ts");
 
-      expect(readTrustState(configHome)[fixture.dir]).toBe("trusted");
+      expect(readTrustState(configHome)[trustKey(fixture.dir)]).toBe("trusted");
     } finally {
       session.close();
     }
@@ -531,7 +539,7 @@ describe("PTY extensions", () => {
       expect(dismissed).toContain("beta.ts");
       expect(dismissed).not.toContain("REPO EXTENSION ACTIVE");
 
-      expect(readTrustState(configHome)[fixture.dir]).toBeUndefined();
+      expect(readTrustState(configHome)[trustKey(fixture.dir)]).toBeUndefined();
     } finally {
       session.close();
     }
@@ -563,7 +571,7 @@ describe("PTY extensions", () => {
       expect(denied).toContain("beta.ts");
       expect(denied).not.toContain("REPO EXTENSION ACTIVE");
 
-      expect(readTrustState(configHome)[fixture.dir]).toBe("denied");
+      expect(readTrustState(configHome)[trustKey(fixture.dir)]).toBe("denied");
     } finally {
       session.close();
     }

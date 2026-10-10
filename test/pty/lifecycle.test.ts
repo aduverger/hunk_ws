@@ -171,6 +171,22 @@ async function waitForPtyOutput(fd: number, pattern: RegExp, timeoutMs = 20_000)
   throw new Error(`Timed out waiting for ${pattern} on the PTY. Saw:\n${text}`);
 }
 
+/**
+ * Keep reading the PTY until it closes. A PTY buffers little output, so once the test stops
+ * reading, Hunk's teardown writes fill it and block, and Hunk never exits.
+ */
+function drainPty(fd: number) {
+  const buffer = Buffer.alloc(64 * 1024);
+  const next = () => {
+    read(fd, buffer, 0, buffer.length, null, (error, bytesRead) => {
+      if (!error && bytesRead > 0) {
+        next();
+      }
+    });
+  };
+  next();
+}
+
 describe("PTY lifecycle", () => {
   test.skipIf(process.platform === "win32")(
     "restores a directly launched renderer when SIGTSTP is discarded",
@@ -292,6 +308,7 @@ describe("PTY lifecycle", () => {
 
       try {
         await waitForPtyOutput(master, /this is a very long wrapped line/);
+        drainPty(master);
         process.kill(child.pid!, signal);
 
         await expect(waitForChildExit(child)).resolves.toEqual({ code: 0, signal: null });
