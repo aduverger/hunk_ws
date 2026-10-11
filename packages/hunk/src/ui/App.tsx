@@ -274,6 +274,9 @@ export function App({
   const [showHelp, setShowHelp] = useState(false);
   const [showAgentSkill, setShowAgentSkill] = useState(false);
   const [storedFocusArea, setFocusArea] = useState<StoredFocusArea>("files");
+  // Bumped when printable input is held for a draft editor that has not mounted
+  // yet, so the flush retries after every commit that could have mounted it.
+  const [draftInputRevision, setDraftInputRevision] = useState(0);
   const { text: sessionNoticeText, show: showSessionNotice } = useTimedNotice(4_000);
   // Keep an incompatible-daemon notice until the broker reconnects; timed notices must not clear it.
   const [daemonNoticeText, setDaemonNoticeText] = useState<string | null>(null);
@@ -1232,11 +1235,14 @@ export function App({
     blurDraftNote,
     cancelDraftNote,
     focusDraftNote,
+    isDraftFocusPending,
     onActiveAddNoteAffordanceChange,
+    queueDraftInput,
     saveDraftNote,
     startUserNote,
     startUserNoteEdit,
     startUserNoteReply,
+    takePendingDraftInput,
     updateDraftNote,
   } = useUserNoteComposer({
     draftNote: review.draftNote,
@@ -1255,6 +1261,43 @@ export function App({
     },
     publishEvent: publishNoteEvent,
   });
+
+  /**
+   * Deliver printable input held while the draft editor was still mounting.
+   *
+   * Nothing happens until the note editor owns the keyboard: the held input
+   * belongs at the caret, so it is inserted there and the editor's own
+   * content-change path keeps the semantic draft and its listeners in step.
+   */
+  const flushPendingDraftInput = useCallback(() => {
+    if (focusArea !== "note") return;
+    const editor = renderer.currentFocusedEditor;
+    if (!editor) return;
+    const pendingInput = takePendingDraftInput();
+    if (pendingInput.length > 0) {
+      editor.editBuffer.insertText(pendingInput);
+    }
+  }, [focusArea, renderer, takePendingDraftInput]);
+
+  /** Hand the keyboard to the mounted draft editor after delivering held input. */
+  const focusMountedDraftNote = useCallback(() => {
+    flushPendingDraftInput();
+    focusDraftNote();
+  }, [flushPendingDraftInput, focusDraftNote]);
+
+  /** Hold one printable character for the mounting editor, retrying after its commit. */
+  const queuePendingDraftInput = useCallback(
+    (text: string) => {
+      queueDraftInput(text);
+      setDraftInputRevision((revision) => revision + 1);
+    },
+    [queueDraftInput],
+  );
+
+  useEffect(() => {
+    if (draftInputRevision === 0) return;
+    flushPendingDraftInput();
+  }, [draftInputRevision, flushPendingDraftInput]);
 
   const reviewSnapshot = review.store.getSnapshot();
   const activeNoteId = selectActiveStoredReviewNote(reviewSnapshot)?.note.id;
@@ -1421,6 +1464,9 @@ export function App({
     exitFileViewMode,
     sendFileViewModeKey,
     isKeyboardModeActive,
+    isDraftFocusPending,
+    queueDraftInput: queuePendingDraftInput,
+    flushDraftInput: flushPendingDraftInput,
     exitKeyboardMode,
     sendKeyboardModeKey,
     focusArea,
@@ -1682,7 +1728,7 @@ export function App({
             onUpdateDraftNote={updateDraftNote}
             onBlurDraftNote={blurDraftNote}
             onCancelDraftNote={cancelDraftNote}
-            onFocusDraftNote={focusDraftNote}
+            onFocusDraftNote={focusMountedDraftNote}
             onScrollCodeHorizontally={(delta) => {
               scrollCodeHorizontally(delta * FAST_CODE_HORIZONTAL_SCROLL_COLUMNS);
             }}
