@@ -168,6 +168,15 @@ export const EXTENSION_CATALOG: readonly ExtensionListing[] = [
     apiVersion: 6,
   },
   {
+    repo: "meldron/hunk-mark-read",
+    name: "hunk-mark-read",
+    summary:
+      "Marks files as read, dims what you've reviewed, and jumps to the next unread file, with marks kept between runs.",
+    categories: ["Pane", "Command", "Line highlighter"],
+    version: "0.1.0",
+    apiVersion: 28,
+  },
+  {
     repo: "mikeclarke/hunk-tutor",
     name: "hunk-tutor",
     summary: "An interactive tour of Hunk, taught inside a practice review.",
