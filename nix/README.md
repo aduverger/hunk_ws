@@ -110,6 +110,8 @@ You can also build the named package explicitly:
 nix build .#hunk
 ```
 
+Keep the Bun compile entrypoints in `nix/package.nix` in sync with `scripts/build/build-bin.ts`, including the syntax-highlighting worker.
+
 ## Maintainer dependency updates
 
 When JavaScript or Bun dependencies change, regenerate the Nix dependency lockfile and commit it with the dependency change:

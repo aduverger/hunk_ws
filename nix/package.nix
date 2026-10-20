@@ -74,6 +74,7 @@ in
       "$bun_compiler" build --compile \
         --no-compile-autoload-bunfig \
         "./packages/hunk/src/main.tsx" \
+        "./packages/hunk/src/highlightWorkerEntry.ts" \
         --outfile "hunk-bin"
       runHook postBuild
     '';
