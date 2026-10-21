@@ -110,7 +110,7 @@ You can also build the named package explicitly:
 nix build .#hunk
 ```
 
-Keep the Bun compile entrypoints in `nix/package.nix` in sync with `scripts/build/build-bin.ts`, including the syntax-highlighting worker.
+The Bun compile entrypoints in `nix/package.nix` must match `COMPILE_ENTRYPOINTS` in `scripts/build/build-bin.ts`; `scripts/quality/nix-package.test.ts` fails when they drift.
 
 ## Maintainer dependency updates
 

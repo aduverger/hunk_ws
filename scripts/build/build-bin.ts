@@ -5,6 +5,17 @@ import path from "node:path";
 import { HUNK_PACKAGE_ROOT, HUNK_SOURCE_ROOT, REPO_ROOT } from "./package-paths";
 
 /**
+ * Source files Bun compiles into the single-file executable, relative to `packages/hunk/src`.
+ *
+ * The first entry is the program; the rest are additional entrypoints Bun embeds so the compiled
+ * binary can resolve them at runtime. `highlightWorkerClient.ts` spawns the syntax worker from
+ * `highlightWorkerEntry.js`, so a build that omits it silently falls back to no highlighting.
+ * `nix/package.nix` runs its own `bun build --compile`; `build-bin.test.ts` checks it lists every
+ * entry here.
+ */
+export const COMPILE_ENTRYPOINTS = ["main.tsx", "highlightWorkerEntry.ts"] as const;
+
+/**
  * Resolves the Bun compile target for one host, or null to keep Bun's own host default.
  *
  * x64 hosts compile against Bun's baseline runtime. Bun's default x64 runtime is built for
@@ -66,8 +77,7 @@ if (import.meta.main) {
       "--compile",
       "--no-compile-autoload-bunfig",
       ...(target ? [`--target=${target}`] : []),
-      path.join(HUNK_SOURCE_ROOT, "main.tsx"),
-      path.join(HUNK_SOURCE_ROOT, "highlightWorkerEntry.ts"),
+      ...COMPILE_ENTRYPOINTS.map((entrypoint) => path.join(HUNK_SOURCE_ROOT, entrypoint)),
       "--outfile",
       outfile,
     ],

@@ -1,6 +1,22 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import path from "node:path";
-import { bunCompilerCacheEnvironment, compileTargetForHost } from "./build-bin";
+import {
+  bunCompilerCacheEnvironment,
+  COMPILE_ENTRYPOINTS,
+  compileTargetForHost,
+} from "./build-bin";
+import { HUNK_SOURCE_ROOT } from "./package-paths";
+
+describe("COMPILE_ENTRYPOINTS", () => {
+  test("starts with the program and names source files that exist", () => {
+    expect(COMPILE_ENTRYPOINTS[0]).toBe("main.tsx");
+
+    for (const entrypoint of COMPILE_ENTRYPOINTS) {
+      expect(existsSync(path.join(HUNK_SOURCE_ROOT, entrypoint))).toBe(true);
+    }
+  });
+});
 
 describe("bunCompilerCacheEnvironment", () => {
   test("keeps downloaded compile targets separate across Bun upgrades", () => {
