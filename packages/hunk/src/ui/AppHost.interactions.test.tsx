@@ -1811,6 +1811,86 @@ describe("App interactions", () => {
     }
   });
 
+  test("live agent reply keeps an open reply draft accepting input", async () => {
+    const dir = mkdtempSync(join(process.cwd(), ".hunk-session-live-reply-"));
+    const left = join(dir, "before.ts");
+    const right = join(dir, "after.ts");
+    writeFileSync(left, "export const answer = 41;\n");
+    writeFileSync(right, "export const answer = 42;\n");
+
+    const bootstrap = await loadAppBootstrap({
+      kind: "diff",
+      left,
+      right,
+      options: { mode: "unified" },
+    });
+    const { dispatchCommand, hostClient } = createMockHostClient();
+    const setup = await testRender(<AppHost bootstrap={bootstrap} hostClient={hostClient} />, {
+      width: 160,
+      height: 30,
+    });
+
+    try {
+      await flush(setup);
+
+      let rootId = "";
+      await act(async () => {
+        const result = (await dispatchCommand({
+          type: "command",
+          requestId: "comment-root",
+          command: "comment",
+          input: {
+            sessionId: "session-1",
+            filePath: "after.ts",
+            side: "new",
+            line: 1,
+            summary: "ROOT1196",
+            reveal: true,
+          },
+        })) as { commentId: string };
+        rootId = result.commentId;
+      });
+      const rootFrame = await waitForFrame(setup, (frame) => frame.includes("ROOT1196"));
+      const rootLines = rootFrame.split("\n");
+      const rootY = rootLines.findIndex((line) => line.includes("ROOT1196"));
+
+      await act(async () => {
+        await setup.mockMouse.click(rootLines[rootY]!.indexOf("ROOT1196"), rootY);
+      });
+      await flush(setup);
+      await act(async () => {
+        await setup.mockInput.typeText("R");
+      });
+      await flush(setup);
+      await act(async () => {
+        await setup.mockInput.typeText("DRAFT");
+      });
+      await waitForFrame(setup, (frame) => frame.includes("DRAFT"));
+
+      // The live reply lands ahead of the open draft in the same thread.
+      await act(async () => {
+        await dispatchCommand({
+          type: "command",
+          requestId: "comment-reply",
+          command: "comment",
+          input: { sessionId: "session-1", replyTo: rootId, summary: "LIVE1196", reveal: false },
+        });
+      });
+      await waitForFrame(setup, (frame) => frame.includes("LIVE1196"));
+
+      await act(async () => {
+        await setup.mockInput.typeText("AFTER");
+      });
+      const frame = await waitForFrame(setup, (current) => current.includes("DRAFTAFTER"));
+      expect(frame).toContain("DRAFTAFTER");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
   test("session reload cannot opt a normal launch into experimental STML", async () => {
     const dir = mkdtempSync(join(process.cwd(), ".hunk-session-experimental-reload-"));
     const left = join(dir, "before.ts");
