@@ -347,6 +347,7 @@ export function HunkSessionHost({
 
   const completeQuit = useCallback(() => {
     if (quitRequestedRef.current) return;
+    shutdownPendingRef.current = true;
     quitRequestedRef.current = true;
     const current = routeRef.current;
     const history =
@@ -363,13 +364,16 @@ export function HunkSessionHost({
             ? current.returnRoute
             : undefined));
     void (async () => {
+      await preparation.cancel(
+        new Error("Hunk surface preparation was cancelled during shutdown."),
+      );
       if (history?.returnRoute)
         await closeStatusHistory(history.controller, history.returnRoute.controller);
       await status?.controller.close();
       await closeWorkspace();
       onQuit(pendingExitCodeRef.current);
     })().catch(() => onQuit(pendingExitCodeRef.current ?? 1));
-  }, [onQuit, closeStatusHistory, closeWorkspace]);
+  }, [onQuit, closeStatusHistory, closeWorkspace, preparation]);
 
   const requestQuit = useCallback(
     (exitCode?: number) => {
@@ -770,7 +774,7 @@ export function HunkSessionHost({
         } else if (plan.kind === "history-interactive") {
           preparedOwner = plan.bootstrap.extensionSession;
           preparedHistory = new LogController(plan.bootstrap);
-          await preparedHistory.loadMore();
+          await preparedHistory.loadMore({ throwOnError: true });
           next = { kind: "history", runtime: plan.bootstrap, controller: preparedHistory };
         } else throw new Error("This input cannot open an interactive repository review.");
       }

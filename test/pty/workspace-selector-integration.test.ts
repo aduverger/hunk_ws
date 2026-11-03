@@ -404,3 +404,107 @@ export default function (hunk) {
     }
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "retains history and selection after a sibling's first read fails and retries its repaired ref",
+  async () => {
+    const root = createTestWorkspace();
+    runTestGit(join(root, "a-api"), "update-ref", "refs/remotes/origin/main", "HEAD");
+    const session = await harness.launchHunk({
+      args: ["log", "origin/main", "--no-extensions", "--theme", "github-dark-default"],
+      cwd: root,
+      cols: 140,
+      rows: 24,
+    });
+    try {
+      await session.waitForText("api changed", { timeout: 15_000 });
+      await session.press("down");
+      const failed = await selectTestRepository(session, "a-api", 2, "Could not open");
+      expect(failed).toContain("origin/main");
+      expect(failed).toContain("api changed");
+      const selected = await harness.pressAndWaitForText(session, "enter", "api before", {
+        timeout: 10_000,
+      });
+      expect(selected).not.toContain("api after");
+      await harness.pressAndWaitForText(session, "q", "Git history");
+
+      runTestGit(join(root, "c-broken"), "update-ref", "refs/remotes/origin/main", "HEAD");
+      await selectTestRepository(session, "a-api", 2, "broken changed");
+    } finally {
+      session.close();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "keeps the terminal mounted until pending repository startup is retired on quit",
+  async () => {
+    const root = createTestWorkspace();
+    const extension = join(root, "quit-startup.ts");
+    const gate = join(root, "release-quit-startup");
+    const repoConfig = join(root, "b-web", ".hunk");
+    mkdirSync(repoConfig);
+    writeFileSync(
+      join(repoConfig, "config.toml"),
+      `[extension.quit-startup]\ngate = ${JSON.stringify(gate)}\n`,
+    );
+    writeFileSync(
+      extension,
+      `import { existsSync, writeFileSync } from "node:fs";
+export default async function (hunk) {
+  const gate = hunk.config.gate;
+  if (typeof gate !== "string") return;
+  hunk.on("shutdown", () => writeFileSync(gate + ".retired", "retired"));
+  writeFileSync(gate + ".started", "started");
+  const deadline = Date.now() + 15_000;
+  while (!existsSync(gate)) {
+    if (Date.now() >= deadline) throw new Error("Test quit gate was not released.");
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+`,
+    );
+    const session = await harness.launchHunk({
+      args: [
+        "diff",
+        "origin/main...HEAD",
+        "--sidebar",
+        "--extension",
+        extension,
+        "--theme",
+        "github-dark-default",
+      ],
+      cwd: root,
+      cols: 140,
+      rows: 24,
+    });
+    let terminalOutput = "";
+    const unsubscribe = session.subscribe((chunk) => {
+      terminalOutput += chunk;
+    });
+    const leaveAlternateScreen = /\x1b\[\?(?:47|1047|1049)l/;
+    try {
+      await session.waitForText("api after", { timeout: 15_000 });
+      await harness.clickAndWaitForText(session, "▾ a-api", "Repository");
+      await session.press("down");
+      session.sendKey("enter");
+      await harness.waitForSnapshot(
+        session,
+        (text) => existsSync(`${gate}.started`) && text.includes("Loading repository"),
+      );
+      terminalOutput = "";
+      await session.press("q");
+      expect(terminalOutput).not.toMatch(leaveAlternateScreen);
+      expect(existsSync(`${gate}.retired`)).toBe(false);
+
+      writeFileSync(gate, "released");
+      expect(await session.waitForExit(5_000)).toBe(true);
+      expect(existsSync(`${gate}.retired`)).toBe(true);
+      expect(terminalOutput).toMatch(leaveAlternateScreen);
+    } finally {
+      writeFileSync(gate, "released");
+      unsubscribe();
+      session.close();
+    }
+  },
+);

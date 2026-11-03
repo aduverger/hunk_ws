@@ -248,6 +248,16 @@ Focused validation after simplification: the session-host, reload, and workspace
 suites passed (67 tests), and all five real-Git workspace selector PTY tests passed.
 Test curation and workspace-wide session implementation remain separate work.
 
+## Review correction decisions
+
+1. Graceful review quit keeps the terminal mounted until the existing preparation
+   transaction settles and retires provisional resources. Reuse its cancellation
+   and drain path; do not add a factory timeout or forced-termination policy.
+2. Workspace history preparation opts into controller read-error propagation.
+   Ordinary interactive paging still reports notices, and empty history remains a
+   successful load. Preserve provider errors rather than prevalidating Git refs or
+   interpreting display notices as error state.
+
 ## Selector validation
 
 - `bun run test`: 5,196 passed, 40 skipped in the final full run. Earlier runs hit
