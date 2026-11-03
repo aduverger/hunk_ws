@@ -231,6 +231,23 @@ Choices for the terminal slice, ordered least-confident first:
    leave the old review and notes usable. Retire retained repository extension
    owners and history cursors when the window closes, not on every switch.
 
+## Simplification decisions
+
+No product defaults changed. These implementation choices are ordered least-confident first:
+
+1. Keep the selected repository in the existing active route and cache only inactive
+   routes. Retaining another active entry served no restoration path and could hold
+   stale bootstrap or history-route references.
+2. Use a stable workspace cleanup callback that reads the retained-owner refs directly,
+   rather than storing the latest cleanup callback in another ref. Keep owner and
+   history deduplication, shutdown ordering, and failed-load cleanup unchanged.
+3. Bind the review-preferences callback once instead of spreading two mutually exclusive
+   prop objects. Preserve per-repository capture and native caller preference retention.
+
+Focused validation after simplification: the session-host, reload, and workspace-write
+suites passed (67 tests), and all five real-Git workspace selector PTY tests passed.
+Test curation and workspace-wide session implementation remain separate work.
+
 ## Selector validation
 
 - `bun run test`: 5,196 passed, 40 skipped in the final full run. Earlier runs hit

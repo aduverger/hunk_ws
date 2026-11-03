@@ -12,7 +12,7 @@ import {
   updateSessionRegistration,
 } from "./registration";
 
-/** Publish replacement content atomically before its matching review store mounts. */
+/** Publish replacement content with retired state detached until its matching store attaches. */
 export function publishReviewReplacement(
   bootstrap: AppBootstrap,
   producer: ReviewProducer,

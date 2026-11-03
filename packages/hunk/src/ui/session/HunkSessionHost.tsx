@@ -243,7 +243,7 @@ export function HunkSessionHost({
   const workspaceRuntimeRef = useRef(
     workspace && initialRoute.kind === "review" ? initialRoute.runtime : undefined,
   );
-  const workspaceRoutesRef = useRef(new Map<string, ActiveSurfaceRoute>());
+  const inactiveWorkspaceRoutesRef = useRef(new Map<string, ActiveSurfaceRoute>());
   const [selectedRepositoryPath, setSelectedRepositoryPath] = useState(
     workspace?.repositories[0]?.path ?? "",
   );
@@ -302,11 +302,11 @@ export function HunkSessionHost({
   );
 
   /** Retire loaded repository owners and history cursors when the workspace window closes. */
-  const closeWorkspace = async () => {
+  const closeWorkspace = useCallback(async () => {
     if (!workspace) return;
     const sessions = new Set<ExtensionSession>();
     const histories = new Set<LogController>();
-    for (const retained of [...workspaceRoutesRef.current.values(), routeRef.current]) {
+    for (const retained of [...inactiveWorkspaceRoutesRef.current.values(), routeRef.current]) {
       if (retained.kind === "review") {
         sessions.add(retained.extensionSession);
         if (retained.returnRoute?.kind === "history") {
@@ -327,9 +327,7 @@ export function HunkSessionHost({
     } finally {
       workspaceRuntimeRef.current?.stop();
     }
-  };
-  const closeWorkspaceRef = useRef(closeWorkspace);
-  closeWorkspaceRef.current = closeWorkspace;
+  }, [workspace]);
 
   const historyClosuresRef = useRef(new WeakMap<LogController, Promise<void>>());
   /** Drain each status-owned history once across return, shutdown, preparation and unmount. */
@@ -368,10 +366,10 @@ export function HunkSessionHost({
       if (history?.returnRoute)
         await closeStatusHistory(history.controller, history.returnRoute.controller);
       await status?.controller.close();
-      await closeWorkspaceRef.current();
+      await closeWorkspace();
       onQuit(pendingExitCodeRef.current);
     })().catch(() => onQuit(pendingExitCodeRef.current ?? 1));
-  }, [onQuit, closeStatusHistory]);
+  }, [onQuit, closeStatusHistory, closeWorkspace]);
 
   const requestQuit = useCallback(
     (exitCode?: number) => {
@@ -713,9 +711,9 @@ export function HunkSessionHost({
       if (history?.returnRoute)
         void closeStatusHistory(history.controller, history.returnRoute.controller);
       for (const runtime of failedReviewStopsRef.current) stopReviewRuntime(runtime);
-      void closeWorkspaceRef.current().catch(() => undefined);
+      void closeWorkspace().catch(() => undefined);
     },
-    [stopReviewRuntime, closeStatusHistory, preparation],
+    [stopReviewRuntime, closeStatusHistory, preparation, closeWorkspace],
   );
 
   /** Load or restore one repository, leaving the current review usable when preparation fails. */
@@ -741,7 +739,7 @@ export function HunkSessionHost({
       if (previous.kind === "review") resume = await departureRef.current?.();
       signal.throwIfAborted();
       assertWorkspaceRepository(workspace, path);
-      let next = workspaceRoutesRef.current.get(path);
+      let next = inactiveWorkspaceRoutesRef.current.get(path);
       if (!next) {
         const plan = await prepareStartupPlan(["bun", "hunk"], {
           cwd: path,
@@ -798,8 +796,8 @@ export function HunkSessionHost({
         themeController.replaceCustomThemes(next.runtime.customThemes);
         applyExtensionRegistrations(next.runtime.extensionSession.current, getBundledVcsCatalog());
       }
-      workspaceRoutesRef.current.set(selectedRepositoryPathRef.current, previous);
-      workspaceRoutesRef.current.set(path, next);
+      inactiveWorkspaceRoutesRef.current.set(selectedRepositoryPathRef.current, previous);
+      inactiveWorkspaceRoutesRef.current.delete(path);
       selectedRepositoryPathRef.current = path;
       routeRef.current = next;
       setSelectedRepositoryPath(path);
@@ -875,17 +873,14 @@ export function HunkSessionHost({
                 }
               : undefined
           }
-          {...(workspace
-            ? {
-                onViewPreferencesChange: (preferences: PersistedViewPreferences) => {
-                  route.viewPreferences = preferences;
+          onViewPreferencesChange={
+            workspace || route.quitBehavior === "return-to-caller"
+              ? (preferences) => {
+                  if (workspace) route.viewPreferences = preferences;
                   retainSessionViewPreferences(preferences);
-                },
-              }
-            : {})}
-          {...(!workspace && route.quitBehavior === "return-to-caller"
-            ? { onViewPreferencesChange: retainSessionViewPreferences }
-            : {})}
+                }
+              : undefined
+          }
           {...(route.mountMode === "dynamic" ? { onFirstFrameReady: () => undefined } : {})}
           returnToSurface={route.returnRoute?.kind}
           initialFilePath={route.initialFilePath}
