@@ -167,6 +167,9 @@ test.skipIf(process.platform === "win32")(
         (text) => !text.includes("▾ a-api"),
       );
       await harness.pressAndWaitForText(session, ["shift", "w"], "▾ a-api");
+      await harness.clickAndWaitForText(session, /Navigate/, "Repository…");
+      await harness.clickAndWaitForText(session, "Repository…", "1. a-api");
+      await session.press("escape");
       await harness.pressAndWaitForText(session, ["shift", "r"], "Repository");
       await session.press("down");
       await harness.pressAndWaitForText(session, "enter", "web after");
@@ -198,7 +201,13 @@ test.skipIf(process.platform === "win32")(
     try {
       await session.waitForText("api changed", { timeout: 15_000 });
       await session.press("down");
-      await selectTestRepository(session, "a-api", 1, "web changed");
+      await session.press("f10");
+      await session.press("right");
+      await harness.pressAndWaitForText(session, "right", "Choose repository…");
+      await session.press("up");
+      await harness.pressAndWaitForText(session, "enter", "1. a-api");
+      await session.press("down");
+      await harness.pressAndWaitForText(session, "enter", "web changed");
       await harness.pressAndWaitForText(session, "enter", "web after", { timeout: 10_000 });
       await harness.pressAndWaitForText(session, "q", "Git history");
       await selectTestRepository(session, "b-web", 0, "api changed");

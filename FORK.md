@@ -9,8 +9,8 @@ Noninteractive output also uses that first repository, not a combined diff.
 
 A repository selector above the native Files tree switches reviews on demand and
 retains independent notes and review state. Use `--sidebar` when native automatic
-pane visibility hides the tree; View offers repository selection and a selector
-visibility toggle. History uses a selector below its menu and retains each repository's
+pane visibility hides the tree; Navigate offers repository selection, and View
+provides the selector visibility toggle. History uses a selector below its menu and retains each repository's
 graph selection. A failed switch keeps the previous review visible.
 
 Workspace-aware session operations are not implemented yet: existing session commands

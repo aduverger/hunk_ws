@@ -206,7 +206,7 @@ Choices for the terminal slice, ordered least-confident first:
 
 1. Keep native Files-pane visibility rules, including `--no-sidebar` and automatic
    hiding. The selector appears above the tree when that pane is visible; use
-   `--sidebar` to force it open. Repository selection remains available in View.
+   `--sidebar` to force it open. Repository selection remains available in Navigate.
    If asking were free, ask whether workspace launches should override automatic
    pane visibility; explicit launch options are not overridden here.
 2. Ignore another selection while a switch is preparing instead of queueing it or
@@ -230,6 +230,14 @@ Choices for the terminal slice, ordered least-confident first:
    block new writes/reloads during preparation. Failed loads release that gate and
    leave the old review and notes usable. Retire retained repository extension
    owners and history cursors when the window closes, not on every switch.
+
+## Repository navigation menu decisions
+
+1. Place repository selection last in Navigate, separated from the existing actions,
+   on both review and history surfaces. If asking were free, ask whether it should
+   appear first instead; the existing navigation order stays unchanged.
+2. Keep the selector visibility toggle in View and preserve both public command ids
+   and their keybindings. Menu placement does not rename commands or change switching.
 
 ## Simplification decisions
 

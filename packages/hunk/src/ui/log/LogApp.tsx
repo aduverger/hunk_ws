@@ -406,7 +406,6 @@ export function LogApp({
       commandItem("hunk.view.openThemeSelector"),
       ...(workspace
         ? [
-            commandItem("hunk.view.selectRepository"),
             commandItem("hunk.view.toggleRepositorySelector", {
               checked: workspace.selectorVisible,
             }),
@@ -438,6 +437,9 @@ export function LogApp({
       commandItem("hunk.history.search"),
       commandItem("hunk.history.nextMatch"),
       commandItem("hunk.history.previousMatch"),
+      ...(workspace
+        ? [{ kind: "separator" as const }, commandItem("hunk.view.selectRepository")]
+        : []),
     ],
     commit: [
       commandItem("hunk.history.openSelection"),
