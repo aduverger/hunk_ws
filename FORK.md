@@ -19,5 +19,25 @@ Keep native Hunk behavior and its development workflow; see [README.md](README.m
 [CONTRIBUTING.md](CONTRIBUTING.md), and [AGENTS.md](AGENTS.md). Maintain workspace
 changes separately from upstream imports so future merges remain reviewable.
 
+## Upstream updates
+
+The fork retains original upstream ancestry through a one-time merge connecting the
+already-imported upstream snapshot to this repository's published history. That
+repair preserves the existing source tree instead of replaying or replacing commits.
+Land the repair with a merge commit or fast-forward, not a squash or rebase that
+would discard its upstream parent.
+
+For subsequent updates, use normal merges:
+
+```bash
+git fetch upstream main
+git merge upstream/main
+```
+
+Resolve conflicts in fork-modified files normally. Do not use the `ours` merge
+strategy for updates: it was only appropriate for connecting the snapshot already
+present here and would discard new upstream changes. Do not rebase the imported
+upstream history onto this repository's independent initial commit.
+
 Local development does not require replacing the installed Hunk executable. Do
 not publish packages or releases under upstream's identity as part of fork setup.
