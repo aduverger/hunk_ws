@@ -33,6 +33,8 @@ import { mergeStartupNotices } from "../extensions/startup";
 import { createExtensionSession, type ExtensionSession } from "../extensions/session";
 import type { ExtensionLoadResult } from "../extensions/types";
 import { resolveConfiguredExtensions } from "./extensionBootstrap";
+import { discoverWorkspace } from "./workspace";
+import { retireExtensionLoadResult } from "../extensions/events";
 import { createHistoryCursorLifecycle } from "./historyCursorLifecycle";
 
 /** Fully owned resources required by static or interactive history output. */
@@ -102,7 +104,6 @@ export async function loadHistoryBootstrap({
     baseVcsCatalog,
     previousLoad,
   });
-  const extensionSession = createExtensionSession(resolved.extensions, cwd);
   const extensionAdapters = resolveExtensionVcsAdapters(
     resolved.extensions.registry,
     baseVcsCatalog,
@@ -112,6 +113,19 @@ export async function loadHistoryBootstrap({
     resolved.extensions.registry.themes,
   );
   const catalog = extendVcsCatalog(baseVcsCatalog, extensionAdapters.adapters);
+  const workspace = discoverWorkspace(cwd, input, catalog);
+  if (workspace) {
+    await retireExtensionLoadResult(resolved.extensions);
+    const bootstrap = await loadHistoryBootstrap({
+      input,
+      cwd: workspace.repositories[0]!.path,
+      env,
+      baseVcsCatalog,
+    });
+    bootstrap.initialization.workspace = workspace;
+    return bootstrap;
+  }
+  const extensionSession = createExtensionSession(resolved.extensions, cwd);
   const explicitVcsId = input.vcs ?? resolved.configured.explicitVcsId;
   const detection = detectVcs(cwd, catalog);
   const settledVcs = resolveSessionVcsId(explicitVcsId, cwd, catalog);

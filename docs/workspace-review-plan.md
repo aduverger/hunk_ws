@@ -7,7 +7,9 @@ repository selector and one mounted native review UI. Preserve Hunk's existing G
 review, history, extension, and session behavior instead of introducing a second
 VCS implementation.
 
-This document describes agreed behavior, not currently available functionality.
+This document describes the complete agreed behavior. Workspace discovery and
+native launch routing are implemented. The selector, retained per-repository
+review contexts, and workspace session operations remain to be implemented.
 
 ## Agreed behavior
 
@@ -167,24 +169,32 @@ comment operations.
 Defaults below were not individually specified by the user, ordered least-confident
 first. Keep this section current as implementation reveals additional choices.
 
-1. Initial selection: choose the first eligible repository alphabetically. If asking
+1. Noninteractive output: `diff`, `show`, and `log` use the same first repository as
+   initial interactive launch. If asking were free, ask whether a separate combined
+   static-output command is useful; it is not added here.
+2. Initial selection: choose the first eligible repository alphabetically. If asking
    were free, ask whether a preferred or remembered repository is needed. Do not add
    preference persistence without an actual requirement.
-2. Workspace reload failure: fail the request, without promising rollback of reviews
+3. Workspace reload failure: fail the request, without promising rollback of reviews
    already reloaded. If asking were free, ask whether all-or-nothing rollback matters;
    it is not part of the approved behavior and should not add transaction machinery.
-3. Refresh: preserve native snapshot and refresh semantics for loaded reviews; loading
+4. Refresh: preserve native snapshot and refresh semantics for loaded reviews; loading
    an unopened repository computes its first review at that time. If asking were
    free, ask whether a workspace-wide Git snapshot is needed. Do not create one.
-4. Discovery safety: recognize Git worktrees and skip directory symlinks, rather than
+5. Detection: let the complete extension-aware VCS catalog recognize the launch
+   directory before scanning children. Retire the provisional workspace-root
+   extensions before bootstrapping the selected child with its own configuration
+   and trust checks; do not borrow another repository's extension authority.
+6. Discovery safety: recognize Git worktrees and skip directory symlinks, rather than
    silently reading or changing repositories outside the launch workspace.
-5. Fork setup: preserve the existing `hunk_ws` initial commit and `origin`, add Hunk as
+7. Fork setup: preserve the existing `hunk_ws` initial commit and `origin`, add Hunk as
    `upstream`, and import upstream history on a local feature branch. Do not push,
    publish releases, replace the installed executable, or change global config.
 
 ## Next step
 
-Implement the application-owned workspace context and native launch routing first,
-then wire the selector and session protocol against that same context. Keep the
-single-repository regression path covered throughout. The broad feature is not
-complete until CLI, terminal, and agent/session behavior satisfy the acceptance list.
+Extend the launch-owned workspace initialization into retained per-repository review
+contexts, then wire the native Files-pane selector and session protocol against
+that same owner. Keep the single-repository regression path covered throughout.
+The broad feature is not complete until CLI, terminal, and agent/session behavior
+satisfy the acceptance list.

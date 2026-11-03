@@ -1,6 +1,18 @@
 import type { TerminalThemeMode } from "../theme/detection";
 import type { NamedCustomThemeConfig } from "../../extension-api/types";
 import type { PersistedViewPreferences } from "../run/config";
+import type {
+  HistoryCommandInput,
+  VcsDiffCommandInput,
+  VcsShowCommandInput,
+} from "../run/commandInputs";
+
+/** Retain the launch directory and original command while one child repository is displayed. */
+export interface WorkspaceInitialization {
+  root: string;
+  repositories: readonly { name: string; path: string }[];
+  input: VcsDiffCommandInput | VcsShowCommandInput | HistoryCommandInput;
+}
 
 /** Theme inputs finalized during startup and retained for every surface in one session. */
 export interface SessionThemeInitialization {
@@ -17,6 +29,7 @@ export interface InteractiveSessionInitialization {
   theme: SessionThemeInitialization;
   /** Resolved launch preferences that routed review surfaces may update in memory. */
   viewPreferences: PersistedViewPreferences;
+  workspace?: WorkspaceInitialization;
 }
 
 /** Package finalized cross-surface inputs into one interactive-session launch record. */

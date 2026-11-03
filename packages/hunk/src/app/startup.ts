@@ -707,6 +707,34 @@ export async function prepareStartupPlan(
     deps.signal.throwIfAborted();
   }
 
+  if (
+    !deps.borrowedExtensionLoad &&
+    (runtimeCliInput.kind === "vcs" || runtimeCliInput.kind === "show")
+  ) {
+    const [{ discoverWorkspace }, { resolveExtensionVcsAdapters }, { extendVcsCatalog }] =
+      await Promise.all([
+        import("./workspace"),
+        import("../extensions/apply"),
+        import("../core/vcs"),
+      ]);
+    const catalog = extendVcsCatalog(
+      baseVcsCatalog,
+      resolveExtensionVcsAdapters(extensionResult.registry, baseVcsCatalog).adapters,
+    );
+    const workspace = discoverWorkspace(startupCwd, runtimeCliInput, catalog);
+    if (workspace) {
+      controllingTerminal?.close();
+      await retirePreloadedExtensions();
+      const plan = await prepareStartupPlan(argv, {
+        ...deps,
+        cwd: workspace.repositories[0]!.path,
+        parseCliImpl: async () => runtimeCliInput,
+      });
+      if (plan.kind === "app") plan.initialization.workspace = workspace;
+      return plan;
+    }
+  }
+
   let preparedSession: SessionBootstrapResult;
   try {
     preparedSession = await loadConfiguredSessionBootstrap({
@@ -714,6 +742,7 @@ export async function prepareStartupPlan(
       cwd: startupCwd,
       extensions: extensionResult,
       initialThemeMode,
+      loadAtCwd: deps.cwd !== undefined,
       loadAppBootstrapImpl,
       baseVcsCatalog,
       signal: deps.signal,

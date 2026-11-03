@@ -1,7 +1,15 @@
 # hunk_ws
 
 This repository maintains a Hunk fork for reviewing independent Git repositories
-from a workspace directory. The workspace feature is planned, not implemented.
+from a workspace directory. Workspace launch for `diff`, `show`, and `log` is
+implemented: outside an existing repository, Hunk selects the first immediate
+child Git repository alphabetically and uses its native command handling.
+Ordinary folders and directory symlinks are ignored; Git worktrees are supported.
+Noninteractive output also uses that first repository, not a combined diff.
+
+The repository selector, repository-specific retained review state, and workspace
+session operations are not implemented yet. The full behavior and acceptance
+criteria are recorded in the implementation plan below.
 
 - `origin`: https://github.com/aduverger/hunk_ws.git
 - `upstream`: https://github.com/modem-dev/hunk.git
