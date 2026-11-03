@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -179,9 +180,12 @@ describe("workspace invocation file identity", () => {
       createTestRepo(repo, "api");
       const extensionPath = join(root, "review.ts");
       const childMarker = join(root, "child-extension-executed");
+      const startupMarker = join(root, "extension-startup-directory");
       writeFileSync(
         extensionPath,
-        `export default (hunk) => {
+        `import { writeFileSync } from "node:fs";
+    export default (hunk) => {
+      hunk.on("startup", (_event, ctx) => writeFileSync(${JSON.stringify(startupMarker)}, ctx.cwd));
       hunk.transformChangeset((changeset) => ({ ...changeset, title: "Launch extension retained" }));
     };`,
       );
@@ -201,11 +205,7 @@ describe("workspace invocation file identity", () => {
       const plan = await prepareTestWorkspace(root, command);
       expect(existsSync(childMarker)).toBe(false);
       if (plan.kind === "history-static") {
-        expect(
-          plan.bootstrap.extensionSession.current.loaded.some(
-            (entry) => entry.sourcePath === extensionPath,
-          ),
-        ).toBe(true);
+        expect(readFileSync(startupMarker, "utf8")).toBe(repo);
       } else if (plan.kind === "static-diff") {
         expect(plan.bootstrap.changeset.title).toBe("Launch extension retained");
       } else {
@@ -251,6 +251,29 @@ describe("workspace invocation file identity", () => {
 });
 
 describe("native workspace launch", () => {
+  test("uses the selected child's watch override and still rejects explicit noninteractive watch", async () => {
+    const root = createTestWorkspace();
+    const repo = join(root, "api");
+    createTestRepo(repo, "api");
+    const userConfig = join(root, "test-home", "config", "hunk");
+    mkdirSync(userConfig, { recursive: true });
+    writeFileSync(join(userConfig, "config.toml"), "watch = true\n");
+    mkdirSync(join(repo, ".hunk"));
+    writeFileSync(join(repo, ".hunk", "config.toml"), "watch = false\n");
+
+    const plan = await prepareTestWorkspace(root);
+    if (plan.kind !== "static-diff") throw new Error("Expected static review");
+    expect(plan.bootstrap.input.options.watch).toBe(false);
+    expect(plan.bootstrap.changeset.sourceLabel).toBe(repo);
+
+    await expect(
+      prepareTestWorkspace(root, {
+        ...input,
+        options: { ...input.options, watch: true },
+      }),
+    ).rejects.toThrow("`--watch` requires an interactive output terminal.");
+  });
+
   test("loads only the first repo through native diff and retains workspace launch facts", async () => {
     const root = createTestWorkspace();
     createTestRepo(join(root, "b-api"), "api");

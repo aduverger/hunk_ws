@@ -628,49 +628,6 @@ export async function prepareStartupPlan(
   // Reassigned once below if an extension VCS backend claims this checkout.
   let cliInput = configured.input;
 
-  if (cliInput.options.watch) {
-    await whileStartupOwnsExtensions(() => {
-      if (!stdoutIsTTY) {
-        throw new HunkUserError("`--watch` requires an interactive output terminal.", [
-          "Remove `--watch` when redirecting or piping Hunk's output.",
-        ]);
-      }
-      assertReliableWatchRuntime(bunVersion);
-      if (!canReloadInput(cliInput)) {
-        throw new HunkUserError(
-          "`--watch` requires a file- or Git-backed input that Hunk can reopen.",
-          [
-            "Use a patch file path instead of stdin, and avoid `--agent-context -` for watched sessions.",
-          ],
-        );
-      }
-    });
-  }
-
-  // Any app session launched with piped stdin still needs a real terminal input stream for
-  // keyboard, mouse, and terminal query responses. Auto-theme happened to open this path during
-  // probing; make it unconditional so concrete themes behave the same way.
-  if (!controllingTerminal && !stdinIsTTY && stdoutIsTTY) {
-    controllingTerminal = openControllingTerminalImpl();
-  }
-
-  // Embedded reviews inherit their owner's detected mode so bootstrap never queries a terminal
-  // whose input and renderer are already exclusively owned.
-  let initialThemeMode: AppBootstrap["initialThemeMode"] = deps.terminalThemeMode;
-  if (!initialThemeMode && themeFollowsTerminal(cliInput.options.theme) && stdoutIsTTY) {
-    const themeInput = controllingTerminal?.stdin ?? (stdinIsTTY ? process.stdin : null);
-    if (themeInput) {
-      const terminalColors = await whileStartupOwnsExtensions(() =>
-        detectTerminalColorsImpl({
-          input: themeInput,
-          output: stdout,
-        }),
-      );
-      setDetectedTerminalColors(terminalColors ?? undefined);
-      initialThemeMode = themeModeForTerminalColors(terminalColors);
-    }
-  }
-
   // Extensions load before the changeset so later stages can hand their VCS adapters and
   // changeset transforms to the loading pipeline. External adapters may settle a root the
   // bundled catalog could not; the shared resolver then appends newly discovered repo
@@ -732,6 +689,49 @@ export async function prepareStartupPlan(
       });
       if (plan.kind === "app") plan.initialization.workspace = workspace;
       return plan;
+    }
+  }
+
+  if (cliInput.options.watch) {
+    await whileStartupOwnsExtensions(() => {
+      if (!stdoutIsTTY) {
+        throw new HunkUserError("`--watch` requires an interactive output terminal.", [
+          "Remove `--watch` when redirecting or piping Hunk's output.",
+        ]);
+      }
+      assertReliableWatchRuntime(bunVersion);
+      if (!canReloadInput(cliInput)) {
+        throw new HunkUserError(
+          "`--watch` requires a file- or Git-backed input that Hunk can reopen.",
+          [
+            "Use a patch file path instead of stdin, and avoid `--agent-context -` for watched sessions.",
+          ],
+        );
+      }
+    });
+  }
+
+  // Any app session launched with piped stdin still needs a real terminal input stream for
+  // keyboard, mouse, and terminal query responses. Auto-theme happened to open this path during
+  // probing; make it unconditional so concrete themes behave the same way.
+  if (!controllingTerminal && !stdinIsTTY && stdoutIsTTY) {
+    controllingTerminal = openControllingTerminalImpl();
+  }
+
+  // Embedded reviews inherit their owner's detected mode so bootstrap never queries a terminal
+  // whose input and renderer are already exclusively owned.
+  let initialThemeMode: AppBootstrap["initialThemeMode"] = deps.terminalThemeMode;
+  if (!initialThemeMode && themeFollowsTerminal(cliInput.options.theme) && stdoutIsTTY) {
+    const themeInput = controllingTerminal?.stdin ?? (stdinIsTTY ? process.stdin : null);
+    if (themeInput) {
+      const terminalColors = await whileStartupOwnsExtensions(() =>
+        detectTerminalColorsImpl({
+          input: themeInput,
+          output: stdout,
+        }),
+      );
+      setDetectedTerminalColors(terminalColors ?? undefined);
+      initialThemeMode = themeModeForTerminalColors(terminalColors);
     }
   }
 
