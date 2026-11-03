@@ -42,7 +42,7 @@ function createTestWorkspace() {
   return root;
 }
 
-/** Populate fixture history without depending on the developer's Git identity or signing settings. */
+/** Run fixture Git commands without depending on the developer's identity or signing settings. */
 function runTestGit(cwd: string, ...args: string[]) {
   const result = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], {
     cwd,
@@ -60,6 +60,7 @@ function runTestGit(cwd: string, ...args: string[]) {
     },
   });
   if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+  return result.stdout.toString();
 }
 
 /** Choose a repository with the native select dialog's keyboard interaction. */
@@ -565,6 +566,75 @@ test.skipIf(process.platform === "win32")(
       await harness.pressAndWaitForText(session, "enter", "web after");
       await expectTestPreferences("Unified", true);
     } finally {
+      session.close();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "ignores revision and menu opens during a failed history switch and keeps the graph usable",
+  async () => {
+    const root = createTestWorkspace();
+    const api = join(root, "a-api");
+    runTestGit(api, "update-ref", "refs/remotes/origin/main", "HEAD");
+    const revision = runTestGit(api, "rev-parse", "--short=8", "HEAD").trim();
+    const extension = join(root, "history-open-gate.ts");
+    const gate = join(root, "release-history-open");
+    const config = join(root, "c-broken", ".hunk");
+    mkdirSync(config);
+    writeFileSync(
+      join(config, "config.toml"),
+      `[extension.history-open-gate]\ngate = ${JSON.stringify(gate)}\n`,
+    );
+    writeFileSync(
+      extension,
+      `import { existsSync, writeFileSync } from "node:fs";
+export default async function (hunk) {
+  const gate = hunk.config.gate;
+  if (typeof gate !== "string") return;
+  writeFileSync(gate + ".started", "started");
+  const deadline = Date.now() + 15_000;
+  while (!existsSync(gate)) {
+    if (Date.now() >= deadline) throw new Error("Test history gate was not released.");
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+`,
+    );
+    const session = await harness.launchHunk({
+      args: ["log", "origin/main", "--extension", extension, "--theme", "github-dark-default"],
+      cwd: root,
+      cols: 140,
+      rows: 24,
+    });
+    try {
+      await session.waitForText("api changed", { timeout: 15_000 });
+      await harness.clickAndWaitForText(session, "▾ a-api", "Repository");
+      await session.press("down");
+      await session.press("down");
+      session.sendKey("enter");
+      await harness.waitForSnapshot(
+        session,
+        (text) => existsSync(`${gate}.started`) && text.includes("Loading repository"),
+      );
+
+      await session.click(revision);
+      const graph = await session.text({ immediate: true });
+      expect(graph).not.toContain("Preparing review");
+      expect(graph).toContain("api changed");
+      await harness.clickAndWaitForText(session, /File/, "Open selection");
+      await harness.clickAndWaitForSnapshot(
+        session,
+        "Open selection",
+        (text) => !text.includes("Open selection") && text.includes("api changed"),
+      );
+
+      writeFileSync(gate, "released");
+      const failed = await session.waitForText("Could not open", { timeout: 10_000 });
+      expect(failed).toContain("api changed");
+      await harness.pressAndWaitForText(session, "enter", "api after", { timeout: 10_000 });
+    } finally {
+      writeFileSync(gate, "released");
       session.close();
     }
   },

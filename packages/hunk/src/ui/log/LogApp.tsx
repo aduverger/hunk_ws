@@ -190,7 +190,7 @@ export function LogApp({
     }
   };
   const openSelected = async (parentRevisionId?: string, pending = false) => {
-    if (reviewPending.current && !pending) return;
+    if (workspace?.switching || (reviewPending.current && !pending)) return;
     reviewPending.current = true;
     reviewQuitEnabled.current = false;
     await controller.settleNavigation();
@@ -266,7 +266,7 @@ export function LogApp({
     closeSaveConfigPrompt: closeLogSaveConfigPrompt,
   };
   const requestOpenSelected = async () => {
-    if (reviewPending.current) return;
+    if (workspace?.switching || reviewPending.current) return;
     reviewPending.current = true;
     reviewQuitEnabled.current = false;
     await controller.settleNavigation();

@@ -261,6 +261,9 @@ Test curation and workspace-wide session implementation remain separate work.
    review publishes choices, derive them from that repository's resolved launch
    preferences. Use the same resolver for history chrome and commit preparation;
    keep the theme window-wide and native single-repository retention unchanged.
+4. Ignore competing history opens at both shared opening entry points while a
+   repository switch prepares. Do not enter a loading state for a request the host
+   will refuse; leave unrelated pointer selection and copy behavior unchanged.
 
 ## Selector validation
 
