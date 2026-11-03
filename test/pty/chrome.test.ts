@@ -1,0 +1,447 @@
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { availableThemes } from "../../packages/hunk/src/ui/themes";
+import { createPtyHarness, lineIndexOf, rowCellBackgrounds, sleep } from "./harness";
+
+const harness = createPtyHarness();
+
+/** Give PTY-backed startup and redraws enough headroom for slower CI machines. */
+setDefaultTimeout(20_000);
+
+afterEach(() => {
+  harness.cleanup();
+});
+
+describe("PTY chrome", () => {
+  test("top menu mouse navigation can open themes, toggle agent notes, and open help", async () => {
+    const fixture = harness.createAgentFilePair();
+    const session = await harness.launchHunk({
+      args: [
+        "diff",
+        "--theme",
+        "github-dark-default",
+        "--files",
+        fixture.before,
+        fixture.after,
+        "--mode",
+        "split",
+        "--agent-context",
+        fixture.agentContext,
+        "--agent-notes",
+      ],
+      cols: 140,
+      rows: 20,
+    });
+
+    try {
+      const initial = await session.waitForText(/Adds bonus export\./, { timeout: 15_000 });
+      expect(initial).toContain("Highlights the follow-up addition for review.");
+
+      const viewMenu = await harness.clickAndWaitForText(session, /View/, /Themes…/, {
+        timeout: 5_000,
+      });
+      expect(viewMenu).toContain("Themes…");
+
+      const themeSelector = await harness.clickAndWaitForText(
+        session,
+        /Themes…/,
+        /github-light-default/,
+        { timeout: 5_000 },
+      );
+      expect(themeSelector).toContain("Theme selector");
+
+      await session.click(/github-light-default/);
+      const themeSelected = await harness.waitForSnapshot(
+        session,
+        (text) =>
+          text.includes("Adds bonus export.") &&
+          text.includes("Theme: github-light-default") &&
+          !text.includes("Theme selector"),
+        5_000,
+      );
+      expect(themeSelected).toContain("Adds bonus export.");
+
+      const agentMenu = await harness.clickAndWaitForText(session, /Agent/, /Next annotated file/, {
+        first: true,
+        timeout: 5_000,
+      });
+      expect(agentMenu).toContain("Agent notes");
+
+      await session.click(/Agent notes/);
+      await harness.waitForSnapshot(
+        session,
+        (text) => !text.includes("Adds bonus export.") && !text.includes("Agent notes"),
+        5_000,
+      );
+
+      await harness.clickAndWaitForText(session, /Agent/, /Agent notes/, {
+        first: true,
+        timeout: 5_000,
+      });
+      await harness.clickAndWaitForText(session, /Agent notes/, /Adds bonus export\./, {
+        timeout: 5_000,
+      });
+
+      await harness.clickAndWaitForText(session, /Help/, /Controls help/, { timeout: 5_000 });
+      const helpDialog = await harness.clickAndWaitForText(session, /Controls help/, /Navigation/, {
+        timeout: 5_000,
+      });
+
+      // The key column is rendered from the commands' resolved chords.
+      expect(helpDialog).toContain("g / Home");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("rapid theme preview key repeats keep the selector responsive", async () => {
+    const initialThemeId = "github-dark-default";
+    const themes = availableThemes();
+    const fixture = harness.createRapidThemePreviewTestRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--theme", initialThemeId],
+      cwd: fixture.dir,
+      cols: 120,
+      rows: 24,
+    });
+
+    try {
+      await session.waitForText(/View\s+Navigate\s+Agent\s+Help/, { timeout: 15_000 });
+      await harness.pressAndWaitForText(session, "t", /Theme selector/, { timeout: 5_000 });
+
+      // OS key repeat arrives as a rapid stream while React/OpenTUI drains each preview render.
+      for (let index = 0; index < 100; index += 1) {
+        session.writeRaw("j");
+        await sleep(30);
+      }
+      await session.waitIdle({ timeout: 800 });
+      const selector = await session.text({ immediate: true });
+
+      expect(selector).not.toContain("Maximum update depth exceeded");
+      expect(selector).toContain("Theme selector");
+      const selectedIndex = themes.findIndex((theme) => selector.includes(`›  ${theme.id}`));
+      expect(selectedIndex).toBeGreaterThanOrEqual(0);
+      expect(themes[selectedIndex]?.id).not.toBe(initialThemeId);
+    } finally {
+      session.close();
+    }
+  });
+
+  test("quit prompt shows the config diff and saves preferences on mouse click", async () => {
+    // Own both config scopes so the test can assert what the save action wrote without an
+    // ambient repository `.hunk/config.toml` changing the starting preferences.
+    const configHome = mkdtempSync(join(tmpdir(), "hunk-tuistory-save-view-"));
+    const fixture = harness.createMultiHunkFilePair();
+    const session = await harness.launchHunk({
+      args: ["diff", "--files", fixture.before, fixture.after],
+      cwd: fixture.dir,
+      cols: 120,
+      rows: 24,
+      env: { XDG_CONFIG_HOME: configHome },
+    });
+
+    try {
+      await session.waitForText(/line60/, { timeout: 15_000 });
+
+      await harness.pressAndWaitForText(session, "t", /Theme selector/, { timeout: 5_000 });
+      await harness.pressAndWaitForText(session, "down", /›\s+github-dark-dimmed/, {
+        timeout: 5_000,
+      });
+      await harness.pressAndWaitForSnapshot(
+        session,
+        "enter",
+        (text) => !text.includes("Theme selector"),
+        5_000,
+      );
+
+      const prompt = await harness.pressAndWaitForText(session, "q", /Save view preferences\?/, {
+        timeout: 5_000,
+      });
+      expect(prompt).toContain('- theme = "github-dark-default"');
+      expect(prompt).toContain('+ theme = "github-dark-dimmed"');
+      expect(prompt).toContain("enter/s save");
+
+      await session.click(/enter\/s save/);
+
+      // The save handler writes the config and quits shortly after; poll the
+      // file instead of the (soon dead) PTY session.
+      const configPath = join(configHome, "hunk", "config.toml");
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline && !existsSync(configPath)) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+
+      expect(readFileSync(configPath, "utf8")).toContain('theme = "github-dark-dimmed"');
+    } finally {
+      session.close();
+      rmSync(configHome, { recursive: true, force: true });
+    }
+  });
+
+  test("filter focus narrows the visible review stream in the live app", async () => {
+    const fixture = harness.createTwoFileRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "split"],
+      cwd: fixture.dir,
+      cols: 220,
+      rows: 24,
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      expect(initial).toContain("add = true");
+      expect(initial).toContain("betaValue");
+
+      await harness.pressAndWaitForSnapshot(session, "tab", (text) =>
+        text.includes("filter: type to filter files"),
+      );
+      await session.type("beta");
+      const filtered = await harness.waitForSnapshot(
+        session,
+        (text) =>
+          text.includes("betaValue") && !text.includes("alpha.ts") && !text.includes("add = true"),
+        5_000,
+      );
+
+      expect(filtered.toLowerCase()).toContain("filter");
+      expect(filtered).toContain("beta");
+      expect(filtered).toContain("betaValue");
+      expect(filtered).not.toContain("add = true");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("text coalesced with Tab fills the filter instead of running shortcuts", async () => {
+    const fixture = harness.createTwoFileRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "split"],
+      cwd: fixture.dir,
+      cols: 220,
+      rows: 24,
+    });
+
+    try {
+      await session.waitForText(/View\s+Navigate\s+Agent\s+Help/, { timeout: 15_000 });
+      await harness.ensureKeyboardIsLive(session);
+
+      // One chunk, as a paste or a slow remote terminal delivers it; `t` is the theme shortcut.
+      session.writeRaw("\tbeta");
+      const filtered = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("filter: beta") && !text.includes("alpha.ts"),
+        5_000,
+      );
+
+      expect(filtered).toContain("betaValue");
+      expect(filtered).not.toContain("Theme selector");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("a remapped slash focuses the filter and narrows the visible review stream", async () => {
+    // `/` ships on content search; the documented one-liner hands it back to the filter.
+    const configHome = harness.createIsolatedConfigHome();
+    mkdirSync(join(configHome, "hunk"), { recursive: true });
+    writeFileSync(
+      join(configHome, "hunk", "config.toml"),
+      '[keybindings]\n"hunk.review.focusFilter" = "/"\n',
+    );
+    const fixture = harness.createSidebarJumpRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "split"],
+      cwd: fixture.dir,
+      cols: 220,
+      rows: 12,
+      env: { XDG_CONFIG_HOME: configHome },
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      expect(initial).toContain("alphaOnly = true");
+      expect(initial).toContain("betaValue = 2");
+
+      await session.type("/");
+      await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("filter: type to filter files"),
+        5_000,
+      );
+
+      await session.type("delta");
+      const filtered = await harness.waitForSnapshot(
+        session,
+        (text) =>
+          text.includes("filter: delta") &&
+          text.includes("deltaOnly = true") &&
+          !text.includes("alphaOnly = true"),
+        5_000,
+      );
+
+      expect(filtered.toLowerCase()).toContain("filter");
+      expect(filtered).toContain("delta");
+      expect(filtered).toContain("deltaOnly = true");
+      expect(filtered).not.toContain("alphaOnly = true");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("keyboard help can open with ? in a real PTY", async () => {
+    const fixture = harness.createTwoFileRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "split"],
+      cwd: fixture.dir,
+      cols: 220,
+      rows: 24,
+    });
+
+    try {
+      await session.waitForText(/View\s+Navigate\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      const help = await harness.pressAndWaitForSnapshot(
+        session,
+        "?",
+        (text) =>
+          (text.includes("Keyboard help") || text.includes("Controls help")) &&
+          text.includes("move through lines and notes"),
+        5_000,
+      );
+
+      expect(help.includes("Keyboard help") || help.includes("Controls help")).toBe(true);
+      expect(help).toContain("move through lines and notes");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("mouse menu navigation can switch the diff layout", async () => {
+    const fixture = harness.createTwoFileRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "split"],
+      cwd: fixture.dir,
+      cols: 220,
+      rows: 24,
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      expect(initial).toMatch(/▌.*▌/);
+
+      await session.click(/View/);
+      const menu = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("Unified view") && text.includes("Split view"),
+        5_000,
+      );
+
+      expect(menu).toContain("Unified view");
+      expect(menu).toContain("Split view");
+
+      await session.click(/Unified view/);
+      const unified = await harness.waitForSnapshot(
+        session,
+        (text) => !/▌.*▌/.test(text) && text.includes("1   -  export const alpha = 1;"),
+        5_000,
+      );
+
+      expect(unified).not.toMatch(/▌.*▌/);
+      expect(unified).toContain("1   -  export const alpha = 1;");
+      expect(unified).toContain("1   -  export const beta = 1;");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("keyboard menu navigation can switch layouts in a real PTY", async () => {
+    const fixture = harness.createTwoFileRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "split"],
+      cwd: fixture.dir,
+      cols: 220,
+      rows: 24,
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      expect(initial).toMatch(/▌.*▌/);
+
+      const fileMenu = await harness.pressAndWaitForSnapshot(
+        session,
+        "f10",
+        (text) => text.includes("Toggle files/filter focus") && text.includes("Quit"),
+        5_000,
+      );
+
+      expect(fileMenu).toContain("Reload");
+
+      const viewMenu = await harness.pressAndWaitForSnapshot(
+        session,
+        "right",
+        (text) => text.includes("Split view") && text.includes("Unified view"),
+        5_000,
+      );
+
+      expect(viewMenu).toContain("Auto layout");
+
+      const unified = await harness.pressAndWaitForSnapshot(
+        session,
+        "enter",
+        (text) => !/▌.*▌/.test(text) && text.includes("1   -  export const alpha = 1;"),
+        5_000,
+      );
+
+      expect(unified).not.toMatch(/▌.*▌/);
+      expect(unified).toContain("1   -  export const alpha = 1;");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("the menu bar leaves the same one-column gutter the body panes leave", async () => {
+    const fixture = harness.createTwoFileRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff"],
+      cwd: fixture.dir,
+      cols: 100,
+      rows: 20,
+    });
+
+    try {
+      const initial = await session.waitForText(/View\s+Navigate\s+Agent\s+Help/, {
+        timeout: 15_000,
+      });
+
+      const menuRow = rowCellBackgrounds(session, 0);
+      const bodyRow = rowCellBackgrounds(session, lineIndexOf(initial, "export const alpha"));
+      const lastColumn = menuRow.length - 1;
+
+      // Outer gutters match the body, so the app keeps one continuous margin.
+      expect(menuRow[0]).toBe(bodyRow[0]);
+      expect(menuRow[lastColumn]).toBe(bodyRow[bodyRow.length - 1]);
+
+      // The menu bar's own chrome band still fills everything between them.
+      expect(menuRow[1]).not.toBe(menuRow[0]);
+      expect(menuRow[lastColumn - 1]).not.toBe(menuRow[lastColumn]);
+    } finally {
+      session.close();
+    }
+  });
+});

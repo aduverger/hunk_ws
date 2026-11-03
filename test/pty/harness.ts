@@ -1,0 +1,1464 @@
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { Key, Session } from "tuistory";
+
+const integrationDir = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(integrationDir, "../..");
+const sourceEntrypoint = join(repoRoot, "packages/hunk/src/main.tsx");
+// Hunk renders atomically and tests wait on concrete UI predicates, so the safer 200ms default is unnecessary.
+const tuistoryIdleDelayMs = 60;
+
+function resolveBunExecutable() {
+  const envCandidate = process.env.BUN_BIN ?? process.env.BUN;
+  if (envCandidate) {
+    return envCandidate;
+  }
+
+  if (process.versions.bun && process.execPath) {
+    return process.execPath;
+  }
+
+  const lookupCommand = process.platform === "win32" ? "where" : "which";
+  const lookup = spawnSync(lookupCommand, ["bun"], {
+    encoding: "utf8",
+    env: process.env,
+  });
+  if (lookup.status === 0) {
+    const resolvedPath = lookup.stdout
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .find(Boolean);
+    if (resolvedPath) {
+      return resolvedPath;
+    }
+  }
+
+  return "bun";
+}
+
+const bunExecutable = resolveBunExecutable();
+const explicitHunkExecutable = process.env.HUNK_TEST_EXECUTABLE
+  ? resolve(repoRoot, process.env.HUNK_TEST_EXECUTABLE)
+  : undefined;
+
+async function loadTuistory() {
+  if (!process.versions.bun) {
+    throw new Error(
+      "Tuistory integration tests must run with Bun so tuistory can use its Bun PTY backend. Run `bun run test:integration`.",
+    );
+  }
+
+  return import("tuistory");
+}
+
+interface ChangedFileSpec {
+  path: string;
+  before: string;
+  after: string;
+}
+
+export function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Send a bounded burst that models repeated delivery from one held key. */
+export function pressKeyRepeat(session: Pick<Session, "press">, key: Key, count: number) {
+  return session.press(Array.from({ length: count }, () => key));
+}
+
+/**
+ * Count how many rows one keypress moved the stream by following the text that
+ * sat on a fixed screen row.
+ *
+ * Positive means the content moved up (scrolled down); zero means the anchor
+ * row did not move at all. `press` already performs Tuistory's bounded idle
+ * wait, so another wait would only repeat the same readiness contract.
+ */
+export async function measureKeyScroll(session: Session, key: Key, anchorRow: number) {
+  const before = (await session.text({ immediate: true })).split("\n");
+  const anchor = before[anchorRow]?.trim() ?? "";
+  if (anchor.length === 0) {
+    throw new Error(`measureKeyScroll: anchor row ${anchorRow} is empty.`);
+  }
+
+  await session.press(key);
+
+  const after = (await session.text({ immediate: true })).split("\n");
+  const movedTo = after.findIndex((line) => line.trim() === anchor);
+  if (movedTo < 0) {
+    throw new Error(
+      `measureKeyScroll: anchor ${JSON.stringify(anchor)} left the screen after pressing ${String(key)}.`,
+    );
+  }
+
+  return anchorRow - movedTo;
+}
+
+/** Count how many rows one mouse-wheel event moves the review stream. */
+export async function measureMouseWheelScroll(
+  session: Session,
+  direction: "down" | "up",
+  anchorRow: number,
+) {
+  const before = (await session.text({ immediate: true })).split("\n");
+  const anchor = before[anchorRow]?.trim() ?? "";
+  if (anchor.length === 0) {
+    throw new Error(`measureMouseWheelScroll: anchor row ${anchorRow} is empty.`);
+  }
+
+  if (direction === "down") {
+    await session.scrollDown(1);
+  } else {
+    await session.scrollUp(1);
+  }
+
+  const after = (await session.text({ immediate: true })).split("\n");
+  const movedTo = after.findIndex((line) => line.trim() === anchor);
+  if (movedTo < 0) {
+    throw new Error(
+      `measureMouseWheelScroll: anchor ${JSON.stringify(anchor)} left the screen after scrolling ${direction}.`,
+    );
+  }
+
+  return anchorRow - movedTo;
+}
+
+/** Send an SGR mouse motion event without imposing a readiness policy on its caller. */
+function sendMouseMove(session: Session, x: number, y: number) {
+  session.writeRaw(`\x1b[<35;${x + 1};${y + 1}M`);
+}
+
+/** Send an SGR mouse motion event at zero-based terminal coordinates. */
+export async function moveMouse(session: Session, x: number, y: number) {
+  sendMouseMove(session, x, y);
+  await session.waitIdle();
+}
+
+/** Reveal the hover-only add-note badge across fixture-specific row offsets. */
+export async function revealAddNoteAffordance(session: Session, x: number, yCandidates: number[]) {
+  for (const y of yCandidates) {
+    sendMouseMove(session, x, y);
+    try {
+      return await session.waitForText(/\[\+\]/, { timeout: 1_000 });
+    } catch {
+      // Keep trying nearby rows; hunk header visibility changes the diff row offset.
+    }
+  }
+
+  throw new Error(`Failed to reveal add-note affordance at x=${x}.`);
+}
+
+/** Drag with the left mouse button using zero-based terminal coordinates. */
+export async function dragMouse(
+  session: Session,
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+) {
+  session.writeRaw(`\x1b[<0;${startX + 1};${startY + 1}M`);
+  await sleep(10);
+  const steps = 5;
+  for (let step = 1; step <= steps; step += 1) {
+    const x = Math.round(startX + ((endX - startX) * step) / steps);
+    const y = Math.round(startY + ((endY - startY) * step) / steps);
+    session.writeRaw(`\x1b[<32;${x + 1};${y + 1}M`);
+    await sleep(10);
+  }
+  session.writeRaw(`\x1b[<0;${endX + 1};${endY + 1}m`);
+  await session.waitIdle();
+}
+
+/** Find the rightmost visible column for text in a terminal snapshot. */
+export function rightmostColumnOf(text: string, needle: string) {
+  return Math.max(
+    ...text
+      .split("\n")
+      .map((line) => line.lastIndexOf(needle))
+      .filter((column) => column >= 0),
+    -1,
+  );
+}
+
+/**
+ * Expand one rendered row into its per-cell background colors.
+ *
+ * Chrome rows and body rows only line up visually when their gutter cells paint
+ * the same background, which plain text snapshots cannot show.
+ */
+export function rowCellBackgrounds(session: Session, row: number) {
+  const line = session.getTerminalData().lines[row];
+  if (!line) {
+    throw new Error(`rowCellBackgrounds: row ${row} is not on screen.`);
+  }
+
+  return line.spans.flatMap((span) => [...span.text].map(() => span.bg));
+}
+
+/** Locate a visible terminal row containing text so mouse tests can target rendered content. */
+export function lineIndexOf(text: string, needle: string) {
+  return text.split("\n").findIndex((line) => line.includes(needle));
+}
+
+/** Match text rendered on the terminal row targeted by a raw mouse event. */
+function terminalRowIncludes(session: Session, row: number, needle: string) {
+  const line = session.getTerminalData().lines[row];
+  return (
+    line?.spans
+      .map((span) => span.text)
+      .join("")
+      .includes(needle) === true
+  );
+}
+
+/** Move near a rendered row until the hover-only add-note control appears. */
+export async function revealAddNoteNear(session: Session, row: number) {
+  for (const y of [row, row - 1, row + 1]) {
+    if (y < 0) {
+      continue;
+    }
+
+    for (const x of [8, 20, 60]) {
+      const rendered = session.waitForData({ timeout: 200 });
+      sendMouseMove(session, x, y);
+      try {
+        await rendered;
+        await session.waitIdle({ timeout: 200 });
+        if (terminalRowIncludes(session, y, "[+]")) {
+          return;
+        }
+      } catch {
+        // Try nearby cells; PTY snapshots and wrapped rows can differ by a column or row.
+      }
+    }
+  }
+
+  throw new Error("Could not reveal add-note affordance near target row.");
+}
+
+/** Reveal the add-note control without falling back to adjacent rows. */
+export async function revealAddNoteOnRow(session: Session, row: number) {
+  for (const x of [8, 20, 60]) {
+    const rendered = session.waitForData({ timeout: 200 });
+    sendMouseMove(session, x, row);
+    try {
+      await rendered;
+      await session.waitIdle({ timeout: 200 });
+      if (terminalRowIncludes(session, row, "[+]")) {
+        return;
+      }
+    } catch {
+      // Try nearby columns on the same rendered row, but do not mask row-target regressions.
+    }
+  }
+
+  throw new Error("Could not reveal add-note affordance on target row.");
+}
+
+function writeText(path: string, content: string) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content);
+}
+
+/** Quote shell arguments so PTY helpers can safely launch piped commands through Bash. */
+function shellQuote(value: string) {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/** Build numbered export lines so PTY fixtures can assert on stable visible content. */
+function createNumberedExportLines(start: number, count: number, valueOffset = 0) {
+  return Array.from({ length: count }, (_, index) => {
+    const lineNumber = start + index;
+    return `export const line${String(lineNumber).padStart(2, "0")} = ${lineNumber + valueOffset};`;
+  }).join("\n");
+}
+
+function runGit(args: string[], cwd: string, allowExitCodeOne = false) {
+  const proc = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: process.env,
+  });
+
+  const expected = allowExitCodeOne ? [0, 1] : [0];
+  if (!expected.includes(proc.status ?? -1)) {
+    throw new Error(proc.stderr.trim() || `git ${args.join(" ")} failed with exit ${proc.status}`);
+  }
+
+  return proc.stdout;
+}
+
+/**
+ * Start one PTY session. With a responder, subscribe before the child writes anything so startup
+ * terminal queries are answered, then wait for the first frame; otherwise use tuistory's launcher.
+ */
+async function startTestTerminalSession(
+  tuistory: Awaited<ReturnType<typeof loadTuistory>>,
+  launchOptions: ConstructorParameters<Awaited<ReturnType<typeof loadTuistory>>["Session"]>[0],
+  testTerminalResponder?: (data: string, session: Session) => void,
+) {
+  if (!testTerminalResponder) {
+    return tuistory.launchTerminal(launchOptions);
+  }
+
+  const session = new tuistory.Session(launchOptions);
+  session.subscribe((data) => testTerminalResponder(data, session));
+  await session.waitForData({ timeout: 5_000 });
+  await session.waitIdle();
+  return session;
+}
+
+/** Build a fresh PTY test helper that tracks its own temp directories for one integration test file. */
+export function createPtyHarness() {
+  const tempDirs: string[] = [];
+
+  function makeTempDir(prefix: string) {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    tempDirs.push(dir);
+    return dir;
+  }
+
+  // Isolate every launch from the developer's ambient user config/state so PTY snapshots assert
+  // against built-in defaults instead of whatever the user's Hunk files happen to set.
+  let isolatedConfigHome: string | undefined;
+  function configHome() {
+    isolatedConfigHome ??= makeTempDir("hunk-tuistory-config-");
+    return isolatedConfigHome;
+  }
+
+  /** Isolate config and state while preserving explicit per-launch overrides. */
+  function launchEnvironment(optionsEnv?: Record<string, string | undefined>) {
+    const isolatedConfig = optionsEnv?.XDG_CONFIG_HOME ?? configHome();
+    const isolatedState = optionsEnv?.XDG_STATE_HOME ?? isolatedConfig;
+
+    return {
+      ...process.env,
+      XDG_CONFIG_HOME: isolatedConfig,
+      XDG_STATE_HOME: isolatedState,
+      HUNK_MCP_DISABLE: "1",
+      HUNK_DISABLE_UPDATE_NOTICE: "1",
+      ...optionsEnv,
+    };
+  }
+
+  function cleanup() {
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop();
+      if (dir) {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }
+
+  function createLongWrapFilePair() {
+    const dir = makeTempDir("hunk-tuistory-wrap-");
+    const before = join(dir, "before.ts");
+    const after = join(dir, "after.ts");
+
+    writeText(before, "export const message = 'short';\n");
+    writeText(
+      after,
+      "export const message = 'this is a very long wrapped line for tuistory integration coverage';\n",
+    );
+
+    return { dir, before, after };
+  }
+
+  function createWideCharacterFilePair() {
+    const dir = makeTempDir("hunk-tuistory-wide-");
+    const before = join(dir, "before.ts");
+    const after = join(dir, "after.ts");
+
+    writeText(before, "export const wide = '日本語';\nexport const plain = 'before';\n");
+    writeText(after, "export const wide = '한국어';\nexport const plain = 'after';\n");
+
+    return { dir, before, after };
+  }
+
+  function createTabbedFilePair() {
+    const dir = makeTempDir("hunk-tuistory-tabs-");
+    const before = join(dir, "before.txt");
+    const after = join(dir, "after.txt");
+
+    writeText(before, "a\tbefore\n");
+    writeText(after, "a\tafter\n");
+
+    return { dir, before, after };
+  }
+
+  function createDeletionOnlyFilePair() {
+    const dir = makeTempDir("hunk-tuistory-deletion-");
+    const before = join(dir, "before.ts");
+    const after = join(dir, "after.ts");
+
+    writeText(before, "export const keep = true;\nexport const removeMe = true;\n");
+    writeText(after, "export const keep = true;\n");
+
+    return { dir, before, after };
+  }
+
+  function createAgentFilePair() {
+    const dir = makeTempDir("hunk-tuistory-agent-");
+    const before = join(dir, "before.ts");
+    const after = join(dir, "after.ts");
+    const agentContext = join(dir, "agent.json");
+
+    writeText(before, "export const answer = 41;\n");
+    writeText(after, "export const answer = 42;\nexport const added = true;\n");
+    writeText(
+      agentContext,
+      JSON.stringify({
+        version: 1,
+        files: [
+          {
+            path: "after.ts",
+            annotations: [
+              {
+                newRange: [2, 2],
+                summary: "Adds bonus export.",
+                rationale: "Highlights the follow-up addition for review.",
+                markup: '<badge color="success">STML ACTIVE</badge>',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    return { dir, before, after, agentContext };
+  }
+
+  /**
+   * Two hunks with a collapsed gap between them, annotated on a line inside that gap.
+   *
+   * The annotated lines are unchanged context the patch omits, so no rendered row carries
+   * them: the note has to hang from the hunk owning the gap rather than from the file's
+   * first row.
+   */
+  function createGapAnnotatedAgentFilePair() {
+    const dir = makeTempDir("hunk-tuistory-gap-note-");
+    const before = join(dir, "before.ts");
+    const after = join(dir, "after.ts");
+    const agentContext = join(dir, "agent.json");
+
+    const beforeLines = Array.from(
+      { length: 12 },
+      (_, index) => `export const line${index + 1} = ${index + 1};`,
+    );
+    const afterLines = [...beforeLines];
+    afterLines[1] = "export const line2 = 200;";
+    afterLines[10] = "export const line11 = 1100;";
+
+    writeText(before, `${beforeLines.join("\n")}\n`);
+    writeText(after, `${afterLines.join("\n")}\n`);
+    writeText(
+      agentContext,
+      JSON.stringify({
+        version: 1,
+        files: [
+          {
+            path: "after.ts",
+            annotations: [
+              {
+                newRange: [6, 7],
+                summary: "GAP NOTE",
+                rationale: "Anchored to lines the patch collapsed away.",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    return { dir, before, after, agentContext };
+  }
+
+  function createAgentNavigationRepoFixture() {
+    const alphaBeforeLines = createNumberedExportLines(1, 80).split("\n");
+    const alphaAfterLines = [...alphaBeforeLines];
+    alphaAfterLines[0] = "export const line01 = 1001;";
+    alphaAfterLines[59] = "export const line60 = 6000;";
+
+    const betaBeforeLines = createNumberedExportLines(81, 20).split("\n");
+    const betaAfterLines = [...betaBeforeLines];
+    betaAfterLines[0] = "export const line81 = 8100;";
+
+    const gammaBeforeLines = createNumberedExportLines(101, 80).split("\n");
+    const gammaAfterLines = [...gammaBeforeLines];
+    gammaAfterLines[0] = "export const line101 = 10100;";
+    gammaAfterLines[59] = "export const line160 = 16000;";
+
+    const fixture = createGitRepoFixture([
+      {
+        path: "alpha.ts",
+        before: `${alphaBeforeLines.join("\n")}\n`,
+        after: `${alphaAfterLines.join("\n")}\n`,
+      },
+      {
+        path: "beta.ts",
+        before: `${betaBeforeLines.join("\n")}\n`,
+        after: `${betaAfterLines.join("\n")}\n`,
+      },
+      {
+        path: "gamma.ts",
+        before: `${gammaBeforeLines.join("\n")}\n`,
+        after: `${gammaAfterLines.join("\n")}\n`,
+      },
+    ]);
+    const agentContext = join(fixture.dir, "agent-context.json");
+
+    writeText(
+      agentContext,
+      JSON.stringify({
+        version: 1,
+        summary: "Agent navigation notes",
+        files: [
+          {
+            path: "alpha.ts",
+            annotations: [
+              {
+                newRange: [60, 60],
+                summary: "Alpha note for navigation.",
+                rationale: "Used to prove comment navigation can leave an earlier note.",
+              },
+            ],
+          },
+          {
+            path: "gamma.ts",
+            annotations: [
+              {
+                newRange: [60, 60],
+                summary: "Gamma note for navigation.",
+                rationale: "Used to prove comment navigation resumes after an unannotated hunk.",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    return { ...fixture, agentContext };
+  }
+
+  function createMultiHunkFilePair() {
+    const dir = makeTempDir("hunk-tuistory-hunks-");
+    const before = join(dir, "before.ts");
+    const after = join(dir, "after.ts");
+
+    const beforeLines = Array.from(
+      { length: 80 },
+      (_, index) => `export const line${index + 1} = ${index + 1};`,
+    );
+    const afterLines = [...beforeLines];
+    afterLines[0] = "export const line1 = 100;";
+    afterLines[59] = "export const line60 = 6000;";
+    afterLines[60] = "export const line61 = 6100;";
+    afterLines[61] = "export const line62 = 6200;";
+    afterLines[62] = "export const line63 = 6300;";
+    afterLines[63] = "export const line64 = 6400;";
+    afterLines[64] = "export const line65 = 6500;";
+
+    writeText(before, `${beforeLines.join("\n")}\n`);
+    writeText(after, `${afterLines.join("\n")}\n`);
+
+    return { dir, before, after };
+  }
+
+  function createExpandableContextFilePair() {
+    const dir = makeTempDir("hunk-tuistory-expand-");
+    const before = join(dir, "before.ts");
+    const after = join(dir, "after.ts");
+
+    const beforeLines = Array.from({ length: 30 }, (_, index) =>
+      index === 0
+        ? "export const hiddenLine01 = 1;"
+        : `export const line${String(index + 1).padStart(2, "0")} = ${index + 1};`,
+    );
+    const afterLines = [...beforeLines];
+    afterLines[4] = "export const line05 = 500;";
+
+    writeText(before, `${beforeLines.join("\n")}\n`);
+    writeText(after, `${afterLines.join("\n")}\n`);
+
+    return { dir, before, after };
+  }
+
+  function createScrollableFilePair() {
+    const dir = makeTempDir("hunk-tuistory-scroll-");
+    const before = join(dir, "before.ts");
+    const after = join(dir, "after.ts");
+
+    const beforeText =
+      Array.from(
+        { length: 18 },
+        (_, index) => `export const line${String(index + 1).padStart(2, "0")} = ${index + 1};`,
+      ).join("\n") + "\n";
+    const afterText =
+      Array.from(
+        { length: 18 },
+        (_, index) => `export const line${String(index + 1).padStart(2, "0")} = ${index + 101};`,
+      ).join("\n") + "\n";
+
+    writeText(before, beforeText);
+    writeText(after, afterText);
+
+    return { dir, before, after };
+  }
+
+  /** Build direct files outside a repository for atomic-save watch coverage. */
+  function createWatchFilePair() {
+    const dir = makeTempDir("hunk-tuistory-watch-files-");
+    const before = join(dir, "before.ts");
+    const after = join(dir, "after.ts");
+
+    writeText(before, "export const watchedValue = 'before';\n");
+    writeText(after, "export const watchedValue = 'initial change';\n");
+
+    return { dir, before, after };
+  }
+
+  /** Build a linked worktree with an existing tracked change ready for watch-mode startup. */
+  function createLinkedWorktreeWatchFixture() {
+    const mainDir = makeTempDir("hunk-tuistory-watch-main-");
+    const worktreeParent = makeTempDir("hunk-tuistory-watch-linked-");
+    const worktreeDir = join(worktreeParent, "worktree");
+    const relativeFile = "watched.ts";
+
+    runGit(["init"], mainDir);
+    runGit(["config", "user.name", "Pi"], mainDir);
+    runGit(["config", "user.email", "pi@example.com"], mainDir);
+    writeText(join(mainDir, relativeFile), "export const linkedValue = 'committed';\n");
+    runGit(["add", relativeFile], mainDir);
+    runGit(["commit", "-m", "initial"], mainDir);
+    runGit(["worktree", "add", "--detach", worktreeDir, "HEAD"], mainDir);
+
+    const trackedFile = join(worktreeDir, relativeFile);
+    writeText(trackedFile, "export const linkedValue = 'initial change';\n");
+    return { mainDir, worktreeDir, trackedFile };
+  }
+
+  /**
+   * Build a private config home so one test can assert on persisted Hunk state
+   * without seeing decisions another test in the same file recorded.
+   */
+  function createIsolatedConfigHome() {
+    return makeTempDir("hunk-tuistory-state-");
+  }
+
+  /**
+   * Build a repo whose committed `.hunk/extensions` entry starts untrusted.
+   *
+   * The entry file is committed rather than left untracked so the review under
+   * test shows only the two changed source files, keeping snapshot assertions
+   * about the extension's effect unambiguous.
+   */
+  function createRepoExtensionFixture(
+    source: string,
+    entryName = "fixture.ts",
+    changedFiles: ChangedFileSpec[] = [
+      {
+        path: "alpha.ts",
+        before: "export const alpha = 1;\n",
+        after: "export const alphaValue = 2;\n",
+      },
+      {
+        path: "beta.ts",
+        before: "export const beta = 1;\n",
+        after: "export const betaValue = 2;\n",
+      },
+    ],
+  ) {
+    const dir = makeTempDir("hunk-tuistory-extension-");
+
+    runGit(["init"], dir);
+    runGit(["config", "user.name", "Pi"], dir);
+    runGit(["config", "user.email", "pi@example.com"], dir);
+    for (const file of changedFiles) {
+      writeText(join(dir, file.path), file.before);
+    }
+    writeText(join(dir, ".hunk", "extensions", entryName), source);
+    runGit(["add", "."], dir);
+    runGit(["commit", "-m", "initial"], dir);
+
+    for (const file of changedFiles) {
+      writeText(join(dir, file.path), file.after);
+    }
+
+    return { dir };
+  }
+
+  function createGitRepoFixture(files: ChangedFileSpec[]) {
+    const dir = makeTempDir("hunk-tuistory-repo-");
+
+    runGit(["init"], dir);
+    runGit(["config", "user.name", "Pi"], dir);
+    runGit(["config", "user.email", "pi@example.com"], dir);
+
+    for (const file of files) {
+      writeText(join(dir, file.path), file.before);
+    }
+
+    runGit(["add", "."], dir);
+    runGit(["commit", "-m", "initial"], dir);
+
+    for (const file of files) {
+      writeText(join(dir, file.path), file.after);
+    }
+
+    return { dir };
+  }
+
+  /**
+   * Build a block that moves between two files, with Git's move detection enabled.
+   *
+   * `plainAddition` is an ordinary added line in the same diff, so tests can tell a moved tint
+   * from the added tint instead of only asserting that some tint was painted.
+   */
+  function createMovedLinesRepoFixture() {
+    const movedBlock = [
+      "MOVED BLOCK ALPHA",
+      "MOVED BLOCK BRAVO",
+      "MOVED BLOCK CHARLIE",
+      "MOVED BLOCK DELTA",
+    ];
+    const plainAddition = "brand new destination line";
+    const fixture = createGitRepoFixture([
+      {
+        path: "source.txt",
+        before: ["source header one", "source header two", ...movedBlock, "source footer"].join(
+          "\n",
+        ),
+        after: ["source header one", "source header two", "source footer"].join("\n"),
+      },
+      {
+        path: "destination.txt",
+        before: ["destination header one", "destination header two"].join("\n"),
+        after: [
+          "destination header one",
+          "destination header two",
+          ...movedBlock,
+          plainAddition,
+        ].join("\n"),
+      },
+    ]);
+
+    runGit(["config", "diff.colorMoved", "zebra"], fixture.dir);
+    return { ...fixture, movedBlock, plainAddition };
+  }
+
+  /** Build the long-path fixture used to verify narrow file-header layout. */
+  function createNarrowHeaderTestRepoFixture() {
+    return createGitRepoFixture([
+      {
+        path: "packages/visual-studio-code-vscode/extension-postgres.ts",
+        before: "export const value = 1;\n",
+        after: "export const value = 2;\n",
+      },
+    ]);
+  }
+
+  /** Build a staged Unicode rename for exact Git path rendering coverage. */
+  function createUnicodePathRepoFixture() {
+    const dir = makeTempDir("hunk-tuistory-unicode-path-");
+    const previousPath = "国際化/日本語.txt";
+    const path = "国際化/한국어-🧪.txt";
+
+    runGit(["init"], dir);
+    runGit(["config", "user.name", "Pi"], dir);
+    runGit(["config", "user.email", "pi@example.com"], dir);
+    writeText(join(dir, previousPath), "shared\nold-only\nshared\n");
+    runGit(["add", "."], dir);
+    runGit(["commit", "-m", "initial"], dir);
+    runGit(["config", "core.quotePath", "false"], dir);
+    runGit(["mv", previousPath, path], dir);
+    writeText(join(dir, path), "shared\nnew-only\nshared\n");
+    runGit(["add", "."], dir);
+
+    return { dir, path, previousPath };
+  }
+
+  /** Build issue #664's Elixir heredoc edit in a real source-backed Git review. */
+  function createElixirHeredocRepoFixture() {
+    const before = `defmodule Repro do
+  @doc """
+  Line one.
+  Line two.
+  Line three.
+  Line four.
+  Line five.
+  """
+  def hello do
+    :world
+  end
+end
+`;
+
+    return createGitRepoFixture([
+      {
+        path: "repro.ex",
+        before,
+        after: before.replace("Line five.", "Line five, edited."),
+      },
+    ]);
+  }
+
+  /**
+   * Build a small review spanning three grammars whose second TypeScript hunk sits below the
+   * first screen, so a hunk-navigation key has a visible effect to time.
+   */
+  function createSmallMultiLanguageRepoFixture() {
+    const tsLines = Array.from({ length: 400 }, (_, index) => {
+      const line = index + 1;
+      return `export function service${line}(input: number): number {\n  return input + ${line};\n}`;
+    });
+    const tsAfter = [...tsLines];
+    tsAfter[4] = tsAfter[4]!.replace("input +", "input * 2 +");
+    tsAfter[140] = tsAfter[140]!.replace("input +", "input - ");
+    const mdLines = Array.from({ length: 40 }, (_, index) => `- Release note item ${index + 1}`);
+    const mdAfter = [...mdLines];
+    mdAfter[3] = "- Release note item 4 (revised)";
+    const tsxLines = Array.from(
+      { length: 300 },
+      (_, index) => `export const Row${index + 1} = () => <div className="row">${index + 1}</div>;`,
+    );
+    const tsxAfter = [...tsxLines];
+    tsxAfter[9] = 'export const Row10 = () => <div className="row wide">10</div>;';
+
+    return {
+      ...createGitRepoFixture([
+        { path: "notes.md", before: `${mdLines.join("\n")}\n`, after: `${mdAfter.join("\n")}\n` },
+        { path: "service.ts", before: `${tsLines.join("\n")}\n`, after: `${tsAfter.join("\n")}\n` },
+        { path: "View.tsx", before: `${tsxLines.join("\n")}\n`, after: `${tsxAfter.join("\n")}\n` },
+      ]),
+      firstPaintText: 'className="row wide"',
+      belowFoldText: "return input + 140;",
+    };
+  }
+
+  /**
+   * Build a binary file between two long text files.
+   *
+   * Each text file has more changed lines than a short terminal shows, so the binary file's
+   * "Binary file skipped" row is only on screen when the selection actually lands there.
+   */
+  function createBinaryNavigationRepoFixture() {
+    const textLines = (name: string, value: number) =>
+      Array.from(
+        { length: 30 },
+        (_unused, index) => `export const ${name}${index} = ${value};\n`,
+      ).join("");
+    return createGitRepoFixture([
+      { path: "alpha.ts", before: textLines("alpha", 1), after: textLines("alpha", 2) },
+      // NUL bytes make Git and Hunk treat the file as binary, so it has no hunks.
+      { path: "logo.png", before: "\u0000PNG before\u0001", after: "\u0000PNG after\u0002" },
+      { path: "zeta.ts", before: textLines("zeta", 1), after: textLines("zeta", 2) },
+    ]);
+  }
+
+  function createTwoFileRepoFixture() {
+    return createGitRepoFixture([
+      {
+        path: "alpha.ts",
+        before: "export const alpha = 1;\n",
+        after: "export const alpha = 2;\nexport const add = true;\n",
+      },
+      {
+        path: "beta.ts",
+        before: "export const beta = 1;\n",
+        after: "export const betaValue = 1;\n",
+      },
+    ]);
+  }
+
+  /** Build nested changed files whose sidebar labels distinguish flat and tree projections. */
+  function createNestedSidebarRepoFixture() {
+    return createGitRepoFixture([
+      {
+        path: "src/ui/alpha.ts",
+        before: "export const alpha = 1;\n",
+        after: "export const alpha = 2;\nexport const add = true;\n",
+      },
+      {
+        path: "src/ui/beta.ts",
+        before: "export const beta = 1;\n",
+        after: "export const betaValue = 1;\n",
+      },
+    ]);
+  }
+
+  /** Build many short files so a tall first paint must mount past the first-file overscan neighbor. */
+  function createManyShortFileRepoFixture(count = 8) {
+    return createGitRepoFixture(
+      Array.from({ length: count }, (_, index) => ({
+        path: `short-${index}.ts`,
+        before: `export const short${index} = ${index};\n`,
+        after: `export const short${index} = ${index + 10};\n`,
+      })),
+    );
+  }
+
+  /** Build a repo with enough one-line files that the sidebar list overflows a short terminal. */
+  function createManyFileSidebarRepoFixture(count = 40) {
+    return createGitRepoFixture(
+      Array.from({ length: count }, (_, index) => {
+        const name = `file-${String(index).padStart(2, "0")}`;
+        return {
+          path: `src/${name}.ts`,
+          before: `export const ${name.replace("-", "")} = ${index};\n`,
+          after: `export const ${name.replace("-", "")} = ${index + 100};\n`,
+        };
+      }),
+    );
+  }
+
+  function createPinnedHeaderRepoFixture() {
+    return createGitRepoFixture([
+      {
+        path: "first.ts",
+        before: `${createNumberedExportLines(1, 16)}\n`,
+        after: `${createNumberedExportLines(1, 16, 100)}\n`,
+      },
+      {
+        path: "second.ts",
+        before: `${createNumberedExportLines(17, 16)}\n`,
+        after: `${createNumberedExportLines(17, 16, 100)}\n`,
+      },
+    ]);
+  }
+
+  /** Build enough syntax-highlighted changes to exercise rapid whole-review theme previews. */
+  function createRapidThemePreviewTestRepoFixture() {
+    return createGitRepoFixture(
+      Array.from({ length: 8 }, (_, fileIndex) => ({
+        path: `theme-preview-${fileIndex}.ts`,
+        before: `${createNumberedExportLines(1, 150, fileIndex * 1_000)}\n`,
+        after: `${createNumberedExportLines(1, 150, (fileIndex + 8) * 1_000)}\n`,
+      })),
+    );
+  }
+
+  function createCollapsedTopRepoFixture() {
+    const longBefore =
+      Array.from(
+        { length: 400 },
+        (_, index) => `export const line${String(index + 1).padStart(3, "0")} = ${index + 1};`,
+      ).join("\n") + "\n";
+    const longAfterLines = longBefore.trimEnd().split("\n");
+    longAfterLines[365] = "export const line366 = 9999;";
+    const longAfter = `${longAfterLines.join("\n")}\n`;
+
+    return createGitRepoFixture([
+      {
+        path: "aaa-collapsed.ts",
+        before: longBefore,
+        after: longAfter,
+      },
+      {
+        path: "zzz-other.ts",
+        before: "export const other = 1;\n",
+        after: "export const other = 2;\n",
+      },
+    ]);
+  }
+
+  /**
+   * Build a repo for content search: `readConfig` appears in two hunks of a tall first file
+   * (the second well below the fold of a short terminal) and once in a second file.
+   */
+  function createSearchRepoFixture() {
+    const filler = Array.from(
+      { length: 60 },
+      (_, index) => `const filler${index} = ${index};`,
+    ).join("\n");
+    return createGitRepoFixture([
+      {
+        path: "alpha.ts",
+        before: `const top = 1;\n${filler}\nconst bottom = 2;\n`,
+        after: `const top = readConfig("first");\n${filler}\nconst bottom = readConfig("second");\n`,
+      },
+      {
+        path: "beta.ts",
+        before: "const other = 1;\n",
+        after: 'const other = readConfig("third");\n',
+      },
+    ]);
+  }
+
+  function createSidebarJumpRepoFixture() {
+    return createGitRepoFixture([
+      {
+        path: "alpha.ts",
+        before: "export const alpha = 1;\n",
+        after: "export const alphaValue = 2;\nexport const alphaOnly = true;\n",
+      },
+      {
+        path: "beta.ts",
+        before: "export const beta = 1;\n",
+        after: "export const betaValue = 2;\nexport const betaOnly = true;\n",
+      },
+      {
+        path: "gamma.ts",
+        before: "export const gamma = 1;\n",
+        after: "export const gammaValue = 2;\nexport const gammaOnly = true;\n",
+      },
+      {
+        path: "delta.ts",
+        before: "export const delta = 1;\n",
+        after: "export const deltaValue = 2;\nexport const deltaOnly = true;\n",
+      },
+      {
+        path: "epsilon.ts",
+        before: "export const epsilon = 1;\n",
+        after: "export const epsilonValue = 2;\nexport const epsilonOnly = true;\n",
+      },
+    ]);
+  }
+
+  /** Build a repo whose final short file can only align to the reachable bottom edge. */
+  function createBottomClampedRepoFixture() {
+    return createGitRepoFixture([
+      {
+        path: "first.ts",
+        before: `${createNumberedExportLines(1, 30)}\n`,
+        after: `${createNumberedExportLines(1, 30, 100)}\n`,
+      },
+      {
+        path: "second.ts",
+        before:
+          [
+            "export const shortLine1 = 1;",
+            "export const shortLine2 = 2;",
+            "export const shortLine3 = 3;",
+          ].join("\n") + "\n",
+        after:
+          [
+            "export const shortLine1 = 10;",
+            "export const shortLine2 = 20;",
+            "export const shortLine3 = 30;",
+          ].join("\n") + "\n",
+      },
+    ]);
+  }
+
+  /** Build the cross-file hunk-navigation shape that used to jump backward to the file top. */
+  function createCrossFileHunkNavigationRepoFixture() {
+    const longBeforeLines = Array.from(
+      { length: 342 },
+      (_, index) => `line ${String(index + 1).padStart(3, "0")}`,
+    );
+    const longAfterLines = [...longBeforeLines];
+    for (const lineNumber of [
+      2, 21, 41, 61, 81, 101, 121, 141, 161, 181, 201, 221, 241, 261, 281, 301, 321, 341,
+    ]) {
+      longAfterLines[lineNumber - 1] = `line ${String(lineNumber).padStart(3, "0")} changed`;
+    }
+
+    const shortBeforeLines = [
+      "// hunk 0 - at the very top of the file",
+      "export const top = 1;",
+      "",
+      "",
+      ...Array.from({ length: 25 }, (_, index) => `// filler ${index + 1}`),
+      "// hunk 1 - mid-file",
+      "export const mid = 3;",
+    ];
+    const shortAfterLines = [...shortBeforeLines];
+    shortAfterLines[1] = "export const top = 2;";
+    shortAfterLines[30] = "export const mid = 4;";
+
+    return createGitRepoFixture([
+      {
+        path: "long-file.txt",
+        before: `${longBeforeLines.join("\n")}\n`,
+        after: `${longAfterLines.join("\n")}\n`,
+      },
+      {
+        path: "short-file.ts",
+        before: `${shortBeforeLines.join("\n")}\n`,
+        after: `${shortAfterLines.join("\n")}\n`,
+      },
+    ]);
+  }
+
+  function createPagerPatchFixture(lines = 40) {
+    const dir = makeTempDir("hunk-tuistory-pager-");
+    const beforeDir = join(dir, "before");
+    const afterDir = join(dir, "after");
+    const patchFile = join(dir, "input.patch");
+
+    const beforeText =
+      Array.from(
+        { length: lines },
+        (_, index) => `export const before_${String(index + 1).padStart(2, "0")} = ${index + 1};`,
+      ).join("\n") + "\n";
+    const afterText =
+      Array.from(
+        { length: lines },
+        (_, index) => `export const after_${String(index + 1).padStart(2, "0")} = ${index + 101};`,
+      ).join("\n") + "\n";
+
+    writeText(join(beforeDir, "scroll.ts"), beforeText);
+    writeText(join(afterDir, "scroll.ts"), afterText);
+
+    const patch = runGit(
+      ["diff", "--no-index", "--no-color", "--", beforeDir, afterDir],
+      dir,
+      true,
+    );
+    writeText(patchFile, patch);
+
+    return { dir, patchFile };
+  }
+
+  /**
+   * Capture a multi-file working-tree diff as a patch file.
+   *
+   * Pager tests feed this on stdin to get the same review `git diff | hunk
+   * pager` produces, with a leading file tall enough that the second one only
+   * becomes visible once the reader navigates to it.
+   */
+  function createMultiFilePagerPatchFixture() {
+    const fixture = createGitRepoFixture([
+      {
+        path: "first.ts",
+        before: `${createNumberedExportLines(1, 40)}\n`,
+        after: `${createNumberedExportLines(1, 40, 100)}\n`,
+      },
+      {
+        path: "second.ts",
+        before: "export const secondValue = 1;\n",
+        after: "export const secondValue = 2;\n",
+      },
+    ]);
+    // Kept outside the repo so capturing it cannot change what the diff shows.
+    const patchFile = join(makeTempDir("hunk-tuistory-pager-patch-"), "working-tree.patch");
+    writeText(patchFile, runGit(["diff"], fixture.dir));
+
+    return { ...fixture, patchFile };
+  }
+
+  /** Build the configured Hunk command so PTY tests can reuse it inside shell pipelines. */
+  function buildHunkCommand(args: string[]) {
+    if (explicitHunkExecutable) {
+      return [shellQuote(explicitHunkExecutable), ...args.map(shellQuote)].join(" ");
+    }
+
+    return [
+      shellQuote(bunExecutable),
+      "run",
+      shellQuote(sourceEntrypoint),
+      "--",
+      ...args.map(shellQuote),
+    ].join(" ");
+  }
+
+  async function launchHunk(options: {
+    args: string[];
+    cwd?: string;
+    cols?: number;
+    rows?: number;
+    env?: Record<string, string | undefined>;
+    /** Answer terminal queries before launch readiness so startup probes can be tested end to end. */
+    testTerminalResponder?: (data: string, session: Session) => void;
+  }) {
+    const tuistory = await loadTuistory();
+    const launchOptions = {
+      command: explicitHunkExecutable ?? bunExecutable,
+      idleDelayMs: tuistoryIdleDelayMs,
+      args: explicitHunkExecutable
+        ? options.args
+        : ["run", sourceEntrypoint, "--", ...options.args],
+      cwd: options.cwd ?? repoRoot,
+      cols: options.cols ?? 140,
+      rows: options.rows ?? 24,
+      env: launchEnvironment(options.env),
+    };
+
+    return startTestTerminalSession(tuistory, launchOptions, options.testTerminalResponder);
+  }
+
+  /** Launch an arbitrary shell command inside the PTY for pipeline-style integration tests. */
+  async function launchShellCommand(options: {
+    command: string;
+    cwd?: string;
+    cols?: number;
+    rows?: number;
+    env?: Record<string, string | undefined>;
+    /** Answer terminal queries from the start, as `launchHunk` does. */
+    testTerminalResponder?: (data: string, session: Session) => void;
+  }) {
+    const tuistory = await loadTuistory();
+
+    return startTestTerminalSession(
+      tuistory,
+      {
+        command: "/bin/bash",
+        idleDelayMs: tuistoryIdleDelayMs,
+        args: ["-c", options.command],
+        cwd: options.cwd ?? repoRoot,
+        cols: options.cols ?? 140,
+        rows: options.rows ?? 24,
+        env: launchEnvironment(options.env),
+      },
+      options.testTerminalResponder,
+    );
+  }
+
+  /**
+   * Launch Hunk with a file-backed stdin while keeping stdout/stderr attached to the PTY.
+   * Uses `exec cmd < file` so bash replaces itself with Hunk, preserving the PTY on stdout/stderr
+   * and the controlling terminal while giving the child a non-TTY stdin.
+   */
+  async function launchHunkWithFileBackedStdin(options: {
+    stdinFile: string;
+    args: string[];
+    cwd?: string;
+    cols?: number;
+    rows?: number;
+    env?: Record<string, string | undefined>;
+  }) {
+    return launchShellCommand({
+      command: `exec ${buildHunkCommand(options.args)} < ${shellQuote(options.stdinFile)}`,
+      cwd: options.cwd,
+      cols: options.cols,
+      rows: options.rows,
+      env: options.env,
+    });
+  }
+
+  /** Observe a concrete screen state; output idleness alone does not acknowledge input. */
+  async function waitForSnapshot(
+    session: Pick<Session, "text" | "waitIdle">,
+    predicate: (text: string) => boolean,
+    timeoutMs = 5_000,
+  ) {
+    const start = Date.now();
+    let snapshot = await session.text({ immediate: true });
+
+    while (Date.now() - start < timeoutMs) {
+      if (predicate(snapshot)) {
+        return snapshot;
+      }
+
+      await session.waitIdle({ timeout: 50 });
+      await sleep(30);
+      snapshot = await session.text({ immediate: true });
+    }
+
+    throw new Error(
+      `Timed out after ${timeoutMs}ms waiting for snapshot. Last snapshot:\n${snapshot}`,
+    );
+  }
+
+  /**
+   * Send one key and observe its committed screen state before another input can follow.
+   * The predicate must distinguish the destination from the screen before the key: text
+   * shared by a draft and saved note, or by history and review, cannot acknowledge a transition.
+   * Never resend input on timeout; a dropped key must remain a test failure.
+   */
+  async function pressAndWaitForSnapshot(
+    session: Pick<Session, "sendKey" | "text" | "waitIdle">,
+    key: Key | Key[],
+    predicate: (text: string) => boolean,
+    timeoutMs = 5_000,
+  ) {
+    const before = await session.text({ immediate: true });
+    if (predicate(before)) {
+      throw new Error("pressAndWaitForSnapshot: destination was visible before the keypress.");
+    }
+
+    session.sendKey(key);
+    return waitForSnapshot(session, predicate, timeoutMs);
+  }
+
+  /** Send one click without waiting when a destination predicate will own readiness. */
+  function sendClick(
+    session: Pick<Session, "getTerminalData" | "writeRaw">,
+    pattern: Parameters<Session["click"]>[0],
+    first = false,
+  ) {
+    const regex =
+      typeof pattern === "string"
+        ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")
+        : new RegExp(
+            pattern.source,
+            pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`,
+          );
+    const matches: { x: number; y: number }[] = [];
+
+    for (const [y, line] of session.getTerminalData().lines.entries()) {
+      const text = line.spans.map((span) => span.text).join("");
+      regex.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(text)) !== null) {
+        matches.push({ x: match.index, y });
+        if (match[0].length === 0) regex.lastIndex += 1;
+      }
+    }
+
+    if (matches.length === 0) {
+      throw new Error(`sendClick: ${String(pattern)} is not visible.`);
+    }
+    if (matches.length > 1 && !first) {
+      throw new Error(`sendClick: ${String(pattern)} has ${matches.length} visible matches.`);
+    }
+
+    const target = matches[0]!;
+    const x = target.x + 1;
+    const y = target.y + 1;
+    session.writeRaw(`\x1b[<0;${x};${y}M`);
+    session.writeRaw(`\x1b[<0;${x};${y}m`);
+  }
+
+  /** Click visible text and wait for destination text that was absent beforehand. */
+  async function clickAndWaitForText(
+    session: Pick<Session, "getTerminalData" | "text" | "waitForText" | "writeRaw">,
+    target: Parameters<Session["click"]>[0],
+    destination: Parameters<Session["waitForText"]>[0],
+    options: { first?: boolean; timeout?: number } = {},
+  ) {
+    const before = await session.text({ immediate: true });
+    const matchedBefore =
+      typeof destination === "string"
+        ? before.includes(destination)
+        : new RegExp(destination.source, destination.flags.replace(/[gy]/g, "")).test(before);
+    if (matchedBefore) {
+      throw new Error("clickAndWaitForText: destination was visible before the click.");
+    }
+
+    sendClick(session, target, options.first);
+    return session.waitForText(destination, { timeout: options.timeout });
+  }
+
+  /** Click visible text and wait for a unique destination snapshot. */
+  async function clickAndWaitForSnapshot(
+    session: Pick<Session, "getTerminalData" | "text" | "waitIdle" | "writeRaw">,
+    target: Parameters<Session["click"]>[0],
+    predicate: (text: string) => boolean,
+    options: { first?: boolean; timeout?: number } = {},
+  ) {
+    const before = await session.text({ immediate: true });
+    if (predicate(before)) {
+      throw new Error("clickAndWaitForSnapshot: destination was visible before the click.");
+    }
+
+    sendClick(session, target, options.first);
+    return waitForSnapshot(session, predicate, options.timeout);
+  }
+
+  /** Send one key and wait for text that was absent before the transition. */
+  async function pressAndWaitForText(
+    session: Pick<Session, "sendKey" | "text" | "waitForText">,
+    key: Key | Key[],
+    pattern: Parameters<Session["waitForText"]>[0],
+    options?: Parameters<Session["waitForText"]>[1],
+  ) {
+    const before = await session.text({ immediate: true });
+    const matchedBefore =
+      typeof pattern === "string"
+        ? before.includes(pattern)
+        : new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, "")).test(before);
+    if (matchedBefore) {
+      throw new Error("pressAndWaitForText: destination was visible before the keypress.");
+    }
+
+    session.sendKey(key);
+    return session.waitForText(pattern, options);
+  }
+
+  function countMatches(text: string, pattern: RegExp) {
+    return (text.match(pattern) ?? []).length;
+  }
+
+  /**
+   * Wait until the app is actually listening for keys.
+   *
+   * The keypress handler is bound after the first paint, so a key sent the
+   * moment the review appears on screen can land before anything is subscribed
+   * and be dropped — which reads as a broken shortcut rather than as the
+   * startup race it is. Toggling the help overlay is a cheap key with an
+   * unmistakable effect, so proving one landed makes the next key — the one a
+   * test actually cares about — meaningful.
+   */
+  async function ensureKeyboardIsLive(session: Session) {
+    const closeHelp = async () => {
+      session.sendKey("escape");
+      await session.text({
+        timeout: 5_000,
+        waitFor: (text) => !text.includes("Controls help"),
+      });
+    };
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const before = await session.text({ immediate: true });
+      if (before.includes("Controls help")) {
+        await closeHelp();
+        return;
+      }
+
+      session.sendKey("?");
+      try {
+        await session.waitForText(/Controls help/, { timeout: 2_000 });
+        await closeHelp();
+        return;
+      } catch {
+        // Dropped before the app was listening; a delayed help frame is closed on the next pass.
+      }
+    }
+
+    throw new Error("The app never reacted to a keypress.");
+  }
+
+  return {
+    cleanup,
+    countMatches,
+    createAgentFilePair,
+    createAgentNavigationRepoFixture,
+    createBinaryNavigationRepoFixture,
+    createGapAnnotatedAgentFilePair,
+    createBottomClampedRepoFixture,
+    createCollapsedTopRepoFixture,
+    createExpandableContextFilePair,
+    createCrossFileHunkNavigationRepoFixture,
+    createDeletionOnlyFilePair,
+    createElixirHeredocRepoFixture,
+    createGitRepoFixture,
+    createIsolatedConfigHome,
+    createRepoExtensionFixture,
+    createLinkedWorktreeWatchFixture,
+    createLongWrapFilePair,
+    createMovedLinesRepoFixture,
+    createMultiFilePagerPatchFixture,
+    createNestedSidebarRepoFixture,
+    createMultiHunkFilePair,
+    createNarrowHeaderTestRepoFixture,
+    createPagerPatchFixture,
+    createManyShortFileRepoFixture,
+    createManyFileSidebarRepoFixture,
+    createPinnedHeaderRepoFixture,
+    createRapidThemePreviewTestRepoFixture,
+    createScrollableFilePair,
+    createSearchRepoFixture,
+    createSidebarJumpRepoFixture,
+    createSmallMultiLanguageRepoFixture,
+    createTabbedFilePair,
+    createTwoFileRepoFixture,
+    createUnicodePathRepoFixture,
+    createWatchFilePair,
+    createWideCharacterFilePair,
+    ensureKeyboardIsLive,
+    launchHunk,
+    launchHunkWithFileBackedStdin,
+    launchShellCommand,
+    buildHunkCommand,
+    clickAndWaitForSnapshot,
+    clickAndWaitForText,
+    shellQuote,
+    pressAndWaitForSnapshot,
+    pressAndWaitForText,
+    waitForSnapshot,
+  };
+}
