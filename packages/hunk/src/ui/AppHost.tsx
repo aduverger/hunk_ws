@@ -2,6 +2,8 @@ import { useRenderer } from "@opentui/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { resolveConfiguredExtensions } from "../app/extensionBootstrap";
 import { ReviewProducer } from "../app/review/producer";
+import { publishReviewReplacement } from "../app/session/reviewRuntime";
+import type { ReviewStore } from "../core/review/store";
 import { reviewDescriptorAfterReload, reviewDescriptorResourceCwd } from "../app/delegatedReview";
 import { loadConfiguredSessionBootstrap } from "../app/sessionBootstrap";
 import { getBundledVcsCatalog } from "../app/vcsCatalog";
@@ -21,10 +23,7 @@ import {
 import { emitExtensionEvent } from "../extensions/events";
 import type { ExtensionSession } from "../extensions/session";
 import { extendVcsCatalog } from "../core/vcs";
-import {
-  createInitialSessionSnapshot,
-  updateSessionRegistration,
-} from "../app/session/registration";
+import { createInitialSessionSnapshot } from "../app/session/registration";
 import {
   createSessionReloadBounds,
   validateSessionReloadWithinBounds,
@@ -74,6 +73,8 @@ export function AppHost({
   hostClient,
   onQuit = () => process.exit(0),
   onActiveBootstrapChange,
+  onRegisterDeparture,
+  initialReviewStore,
   onFirstFrameReady,
   onViewPreferencesChange,
   returnToSurface,
@@ -97,6 +98,10 @@ export function AppHost({
   onQuit?: () => void;
   /** Observe the bootstrap after its matching App commit; used by mounted host tests. */
   onActiveBootstrapChange?: (bootstrap: AppBootstrap) => void;
+  /** Register a switch barrier that blocks writes and drains reloads; release it when preparation fails. */
+  onRegisterDeparture?: (prepare: () => Promise<() => void>) => () => void;
+  /** Reattach the repository's semantic state after its previous renderer was unmounted. */
+  initialReviewStore?: ReviewStore;
   /** Report once the dynamically mounted review has committed its first requested frame. */
   onFirstFrameReady?: () => void;
   /** Publish live preferences to the owner of a routed review surface. */
@@ -209,6 +214,7 @@ export function AppHost({
     promise: Promise<ExtensionReviewReloadResult>;
   } | null>(null);
   const quitRequestedRef = useRef(false);
+  const preparingDepartureRef = useRef(false);
   const pendingWorkspaceWritesRef = useRef<Set<Promise<void>>>(new Set());
   const workspaceRefreshRequestRef = useRef<WorkspaceRefreshRequest | undefined>(undefined);
   const pendingReloadLifecycleRef = useRef<{
@@ -273,7 +279,7 @@ export function AppHost({
 
   /** Start one irreversible write atomically with host tracking, unless quit already won. */
   const runWorkspaceWrite = useCallback<WorkspaceWriteRunner>(async (write) => {
-    if (quitRequestedRef.current) return false;
+    if (quitRequestedRef.current || preparingDepartureRef.current) return false;
     const pending = write();
     pendingWorkspaceWritesRef.current.add(pending);
     try {
@@ -433,31 +439,9 @@ export function AppHost({
                 createUnknownVcsNotice(sessionVcs.unknownVcsId, String(reloadInput.options.vcs)),
               ]
             : configured.startupNotices;
-        const preparedPublication = producer.preparePublication({
-          files: nextBootstrap.changeset.files,
-          sourceLabel: nextBootstrap.changeset.sourceLabel,
-        });
-        nextSnapshot = createInitialSessionSnapshot(nextBootstrap, preparedPublication.publication);
-        const publicationReservation = producer.reservePublication(preparedPublication);
-        try {
-          if (hostClient) {
-            // Keep the daemon-facing registration aligned with the review about to mount.
-            const nextRegistration = updateSessionRegistration(
-              hostClient.getRegistration(),
-              nextBootstrap,
-              preparedPublication.publication,
-            );
-            sessionId = nextRegistration.sessionId;
-            hostClient.replaceSession(nextRegistration, nextSnapshot);
-          }
-          // The matching React store does not exist yet. Detach the previous
-          // generation so broker commands refuse rather than mutate stale state
-          // until the child layout effect attaches the committed review.
-          publicationReservation.commit({ detachStore: true });
-        } catch (error) {
-          publicationReservation.cancel();
-          throw error;
-        }
+        const replacement = publishReviewReplacement(nextBootstrap, producer, hostClient);
+        nextSnapshot = replacement.snapshot;
+        sessionId = replacement.sessionId;
       } catch (error) {
         restoreFileLanguageRegistrations(loaded.previousFileLanguages);
         await activeExtensionSession.retirePrepared(replacementExtensions);
@@ -542,12 +526,32 @@ export function AppHost({
 
   /** Serialize broker, watch, workspace, and manual reloads around extension replacement. */
   const reloadSession = useCallback(
-    (nextInput: CliInput, options?: ReloadSessionOptions) =>
-      enqueueReload(() => {
+    (nextInput: CliInput, options?: ReloadSessionOptions) => {
+      if (preparingDepartureRef.current)
+        return Promise.reject(new Error("The review is switching repositories."));
+      return enqueueReload(() => {
         if (quitRequestedRef.current) throw reloadRefusedDuringShutdown();
         return performReloadSession(nextInput, options);
-      }),
+      });
+    },
     [enqueueReload, performReloadSession],
+  );
+
+  /** Drain native refresh work before a repository switch without retiring its extension authority. */
+  const prepareDeparture = useCallback(async () => {
+    if (quitRequestedRef.current) throw reloadRefusedDuringShutdown();
+    if (pendingWorkspaceWritesRef.current.size > 0)
+      throw new Error("Finish pending file writes before switching repositories.");
+    preparingDepartureRef.current = true;
+    await enqueueReload(async () => undefined);
+    if (quitRequestedRef.current) throw reloadRefusedDuringShutdown();
+    return () => {
+      preparingDepartureRef.current = false;
+    };
+  }, [enqueueReload]);
+  useLayoutEffect(
+    () => onRegisterDeparture?.(prepareDeparture),
+    [onRegisterDeparture, prepareDeparture],
   );
 
   /** Keep the latest mounted refresh descriptor without letting stale cleanup clear its successor. */
@@ -579,6 +583,12 @@ export function AppHost({
   /** Coalesce extension requests and resolve their descriptor at the front of the host queue. */
   const requestExtensionReviewReload = useCallback(
     (reviewGeneration: AppBootstrap): Promise<ExtensionReviewReloadResult> => {
+      if (preparingDepartureRef.current)
+        return Promise.resolve({
+          ok: false,
+          reason: "unavailable",
+          detail: "The review is switching repositories.",
+        });
       const existing = pendingExtensionReloadRef.current;
       if (existing?.reviewGeneration === reviewGeneration) return existing.promise;
 
@@ -655,6 +665,7 @@ export function AppHost({
     <App
       key={appVersion}
       bootstrap={activeBootstrap}
+      initialReviewStore={initialReviewStore}
       canReloadExtensions={extensionOwnership === "owned"}
       hostClient={hostClient}
       noticeText={startupNoticeText}

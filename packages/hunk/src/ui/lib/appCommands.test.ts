@@ -318,7 +318,9 @@ describe("builtinCommandKeyDefaults", () => {
       "hunk.view.cursorLineNumber",
       "hunk.view.cursorLineOff",
       "hunk.view.cursorLineRow",
+      "hunk.view.selectRepository",
       "hunk.view.toggleCopyDecorations",
+      "hunk.view.toggleRepositorySelector",
     ]);
   });
 });
@@ -416,6 +418,20 @@ describe("executeAppCommand", () => {
     expect(executeAppCommand(disabled, "hunk.app.refresh")).toBe(false);
     expect(executeAppCommand(commands, "nobody.registered.this")).toBe(false);
     expect(ran).toEqual([]);
+  });
+
+  test("repository commands require workspace controls", () => {
+    const ordinary = createTestCommands();
+    expect(executeAppCommand(ordinary.commands, "hunk.view.selectRepository")).toBe(false);
+    expect(executeAppCommand(ordinary.commands, "hunk.view.toggleRepositorySelector")).toBe(false);
+
+    const workspace = createTestCommands(undefined, {
+      openRepositoryPicker: () => workspace.ran.push("selectRepository"),
+      toggleRepositorySelector: () => workspace.ran.push("toggleRepositorySelector"),
+    });
+    expect(executeAppCommand(workspace.commands, "hunk.view.selectRepository")).toBe(true);
+    expect(executeAppCommand(workspace.commands, "hunk.view.toggleRepositorySelector")).toBe(true);
+    expect(workspace.ran).toEqual(["selectRepository", "toggleRepositorySelector"]);
   });
 
   test("save-note stays idle until a draft exists", () => {

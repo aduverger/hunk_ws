@@ -159,6 +159,8 @@ Review and shared commands:
 | `hunk.view.layoutSplit`                        | Split layout                                   | `2`                          |
 | `hunk.view.layoutUnified`                      | Unified layout                                 | `1`                          |
 | `hunk.view.openThemeSelector`                  | Choose theme                                   | `t`                          |
+| `hunk.view.selectRepository`                   | Choose a workspace repository                  | _(none)_                     |
+| `hunk.view.toggleRepositorySelector`           | Toggle workspace repository selector           | _(none)_                     |
 | `hunk.view.toggleAgentNotes`                   | Toggle agent notes                             | `a`                          |
 | `hunk.view.toggleCopyDecorations`              | Toggle copy decorations                        | _(none)_                     |
 | `hunk.view.toggleFilesPane`                    | Toggle files pane                              | `s`                          |
@@ -166,6 +168,11 @@ Review and shared commands:
 | `hunk.view.toggleLineNumbers`                  | Toggle line numbers                            | `l`                          |
 | `hunk.view.toggleLineWrap`                     | Toggle line wrapping                           | `w`                          |
 | `hunk.view.toggleMenuBar`                      | Toggle menu bar                                | `M`                          |
+
+Workspace review and history surfaces provide repository selection and a
+**View → Repository selector** visibility toggle. Their commands ship unbound and are unavailable
+in ordinary single-repository windows. The selector appears above the native Files
+tree (use `--sidebar` to show that pane), or below the menu in history.
 
 The files-pane command follows the named `hunk:files` role. If an extension
 replaces that role, the command and **View → Files pane** toggle the resolved

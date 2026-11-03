@@ -1,10 +1,24 @@
-import { readdirSync, realpathSync } from "node:fs";
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ParsedCliInput } from "../core/run/commandInputs";
 import type { WorkspaceInitialization } from "../core/session/initialization";
 import { detectVcs, getVcsAdapter } from "../core/vcs";
 import type { VcsCatalog } from "../core/vcs/types";
 import { expandHomePath } from "../extensions/discovery";
+
+/** Reject removed or redirected checkouts before loading or restoring their review. */
+export function assertWorkspaceRepository(
+  workspace: WorkspaceInitialization,
+  repositoryPath: string,
+) {
+  if (
+    !workspace.repositories.some((repo) => repo.path === repositoryPath) ||
+    !lstatSync(repositoryPath).isDirectory() ||
+    realpathSync(repositoryPath) !== repositoryPath
+  ) {
+    throw new Error("Select a repository inside this workspace.");
+  }
+}
 
 /** Discover child Git checkouts and bind explicit file arguments to the launch directory. */
 export function discoverWorkspace(

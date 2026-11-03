@@ -41,6 +41,7 @@ export interface BuildAppMenusOptions {
   cursorLine: CursorLine;
   layoutMode: LayoutMode;
   filesPaneVisible: boolean;
+  repositorySelectorVisible?: boolean;
   showAgentNotes: boolean;
   showHelp: boolean;
   showHunkHeaders: boolean;
@@ -136,6 +137,7 @@ export function buildAppMenus({
   cursorLine,
   layoutMode,
   filesPaneVisible,
+  repositorySelectorVisible,
   showAgentNotes,
   showHelp,
   showHunkHeaders,
@@ -162,6 +164,12 @@ export function buildAppMenus({
       { commandId: "hunk.view.layoutAuto", checked: layoutMode === "auto" },
       SEPARATOR,
       { commandId: "hunk.view.toggleFilesPane", label: "Files pane", checked: filesPaneVisible },
+      { commandId: "hunk.view.selectRepository", label: "Repository…" },
+      {
+        commandId: "hunk.view.toggleRepositorySelector",
+        label: "Repository selector",
+        checked: repositorySelectorVisible,
+      },
       { commandId: "hunk.view.toggleMenuBar", label: "Menu bar", checked: showMenuBar },
       SEPARATOR,
       { commandId: "hunk.view.openThemeSelector", label: "Themes…" },

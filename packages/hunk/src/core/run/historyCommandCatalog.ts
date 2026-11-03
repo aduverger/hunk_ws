@@ -71,6 +71,8 @@ const HISTORY_COMMANDS = [
     defaultKeys: ["q", "ctrl+c"],
   },
   sharedHistoryCommand("hunk.view.openThemeSelector", "view", "Application"),
+  sharedHistoryCommand("hunk.view.selectRepository", "view"),
+  sharedHistoryCommand("hunk.view.toggleRepositorySelector", "view"),
   {
     id: "hunk.history.toggleGraph",
     title: "Graph view",

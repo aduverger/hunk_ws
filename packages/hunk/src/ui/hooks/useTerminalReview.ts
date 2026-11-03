@@ -330,6 +330,7 @@ export interface AgentNoteGeometrySnapshot {
 /** Own the shared review stream state used by both the UI and session bridge. */
 export function useTerminalReview({
   files,
+  initialStore,
   initialShowAgentNotes = false,
   lineCursors = EMPTY_LINE_CURSORS,
   reviewVerticalStops = EMPTY_REVIEW_VERTICAL_STOPS,
@@ -339,6 +340,7 @@ export function useTerminalReview({
   stmlEnabled = false,
 }: {
   files: DiffFile[];
+  initialStore?: ReviewStore;
   /** Note-layer visibility the launch configuration resolved for this review. */
   initialShowAgentNotes?: boolean;
   /**
@@ -372,14 +374,14 @@ export function useTerminalReview({
     () => projectReviewDocument(files, { sourceLabel }),
     [files, sourceLabel],
   );
-  const [store] = useState(() =>
-    createReviewStore(document, { showAgentNotes: initialShowAgentNotes }),
+  const [store] = useState(
+    () => initialStore ?? createReviewStore(document, { showAgentNotes: initialShowAgentNotes }),
   );
   const sourceLoadRequestsRef = useRef(new Map<string, SourceLoadRequest>());
   const nextSourceLoadRequestIdRef = useRef(1);
   const lineCursorBeforeExpandRef = useRef(new Map<string, LineCursor>());
 
-  const reconciledDocumentRef = useRef(document);
+  const reconciledDocumentRef = useRef(initialStore?.getSnapshot().document ?? document);
 
   // Agent attention marks, keyed by runtime file id. A ref backs the state so daemon
   // handlers can compute counts synchronously; both always move together.

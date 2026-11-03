@@ -7,9 +7,10 @@ repository selector and one mounted native review UI. Preserve Hunk's existing G
 review, history, extension, and session behavior instead of introducing a second
 VCS implementation.
 
-This document describes the complete agreed behavior. Workspace discovery and
-native launch routing are implemented. The selector, retained per-repository
-review contexts, and workspace session operations remain to be implemented.
+This document describes the complete agreed behavior. Workspace discovery, native
+launch routing, the repository selector, and retained per-repository review contexts
+are implemented. Workspace-aware session targeting, grouped exports, and reload-all
+operations remain to be implemented; native session commands are not workspace-aware yet.
 
 ## Agreed behavior
 
@@ -199,10 +200,58 @@ first. Keep this section current as implementation reveals additional choices.
    preserving it avoids breaking existing PRs and checkouts. Use ordinary merges
    for later upstream updates and retain the repair's merge parents when landing it.
 
+## Selector implementation decisions
+
+Choices for the terminal slice, ordered least-confident first:
+
+1. Keep native Files-pane visibility rules, including `--no-sidebar` and automatic
+   hiding. The selector appears above the tree when that pane is visible; use
+   `--sidebar` to force it open. Repository selection remains available in View.
+   If asking were free, ask whether workspace launches should override automatic
+   pane visibility; explicit launch options are not overridden here.
+2. Ignore another selection while a switch is preparing instead of queueing it or
+   cancelling the first load. This prevents stale publication without adding a
+   competing scheduler. If asking were free, ask whether last-request-wins matters.
+3. In history, use the existing blank row below the menu for the selector because
+   there is no Files tree. Keep graph geometry unchanged and show switch errors on
+   the native status line. If asking were free, ask whether another placement is preferred.
+4. Keep the committed theme window-wide, like native history routing, while retaining
+   review view preferences separately per repository. Neither choice introduces
+   additional preference persistence.
+5. Reuse a loaded review until native refresh is requested; do not reload it merely
+   because it becomes visible. Keep only its semantic store, bootstrap, and extension
+   owner, not hidden renderers. Validate its directory again before restoring it so
+   a removed checkout or directory symlink cannot redirect a cached context.
+6. Give the new commands no default shortcut to avoid taking existing bindings.
+   `hunk.view.selectRepository` and `hunk.view.toggleRepositorySelector` remain
+   public, remappable native commands, enabled only with workspace controls. They
+   share the native select dialog's mouse and keyboard behavior.
+7. Reject a switch while filesystem writes are pending; drain existing reloads and
+   block new writes/reloads during preparation. Failed loads release that gate and
+   leave the old review and notes usable. Retire retained repository extension
+   owners and history cursors when the window closes, not on every switch.
+
+## Selector validation
+
+- `bun run test`: 5,196 passed, 40 skipped in the final full run. Earlier runs hit
+  an intermittent GC-retention assertion (also reproduced on clean `main`) and a
+  session-test teardown `EPIPE`; targeted reruns and the final full run passed.
+- `bun run test:integration`: 289 passed, one macOS-only case skipped; includes
+  five real-Git workspace selector tests for notes, failed/retried loads, redirected
+  cached paths, history selection, revision show, and repeated requests during startup.
+- `bun run test:tty-smoke`: 11 passed, including a real terminal multi-file diff.
+- `bun test ./test/review-conformance`: 118 passed.
+- `bun run test:session-broker-node`: four passed.
+- Typecheck, lint, formatting, dependency boundaries, and the unchanged session wire
+  fixture passed. No registered or published wire fields changed in this slice.
+- Verified from source on Linux arm64. macOS and Windows remain unverified; optional
+  JJ/Sapling and compiled-binary cases were skipped. The installed binary was not replaced.
+
 ## Next step
 
-Extend the launch-owned workspace initialization into retained per-repository review
-contexts, then wire the native Files-pane selector and session protocol against
-that same owner. Keep the single-repository regression path covered throughout.
+Extend the existing broker/session protocol against the retained repository owner:
+explicit workspace membership and targeting, grouped review export with on-demand
+loading, reload-all failures, wire fixtures, and generated agent documentation.
+Keep the single-repository regression path covered throughout.
 The broad feature is not complete until CLI, terminal, and agent/session behavior
 satisfy the acceptance list.

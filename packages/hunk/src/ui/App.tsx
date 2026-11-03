@@ -67,6 +67,8 @@ import { useIntermediateRenderAfterMount } from "./hooks/useIntermediateRenderAf
 import { useCurrentReviewRefreshController } from "./hooks/useCurrentReviewRefreshController";
 import { useExtensionCommandRunner } from "./hooks/useExtensionCommandRunner";
 import { useExtensionDialogController } from "./hooks/useExtensionDialogController";
+import type { ReviewStore } from "../core/review/store";
+import { useWorkspaceRepositoryPicker } from "./session/WorkspaceContext";
 import { useExtensionEventContextProvider } from "./hooks/useExtensionEventContextProvider";
 import { useExtensionNotifications } from "./hooks/useExtensionNotifications";
 import { useExtensionPaneController } from "./hooks/useExtensionPaneController";
@@ -174,6 +176,7 @@ export function App({
   onRequestExtensionReviewReload,
   onWorkspaceWriteCompleted,
   reviewProducer,
+  initialReviewStore,
   runWorkspaceWrite,
   themeController,
   initialFilePath,
@@ -205,6 +208,7 @@ export function App({
   onWorkspaceWriteCompleted: () => void;
   /** The producer publishing this review's generations, when the host mounted one. */
   reviewProducer?: ReviewProducer;
+  initialReviewStore?: ReviewStore;
   /** Start and track one irreversible write, or refuse it once graceful shutdown begins. */
   runWorkspaceWrite: WorkspaceWriteRunner;
   /** Session-owned committed theme state shared across routed surfaces. */
@@ -245,6 +249,7 @@ export function App({
     getGeneration: getReviewGeneration,
   });
   const review = useTerminalReview({
+    initialStore: initialReviewStore,
     files: reviewFiles,
     initialShowAgentNotes: bootstrap.initialShowAgentNotes ?? false,
     lineCursors,
@@ -645,6 +650,9 @@ export function App({
     selectedIndex: extensionDialogSelectedIndex,
     updateInput: setExtensionDialogInputValue,
   } = useExtensionDialogController({ reviewGeneration: bootstrap });
+  const { workspace, open: openRepositoryPicker } = useWorkspaceRepositoryPicker(
+    createQueuedExtensionDialogs,
+  );
 
   /** Report whether an extension id names Hunk's own bundled tier, which needs no attribution. */
   const isBundledExtension = useCallback(
@@ -1377,6 +1385,8 @@ export function App({
   const appCommands = observeAppCommandDispatch(
     [
       ...buildAppCommands({
+        openRepositoryPicker: workspace && !workspace.switching ? openRepositoryPicker : undefined,
+        toggleRepositorySelector: workspace?.toggleSelector,
         canAlignCurrentLine: cursorLine !== "off" && review.lineCursor !== null,
         canApplyFilePresentationToAllMatching: selectedFileViewBulkTarget !== null,
         canDeleteActiveNote: activeRemovableNote !== undefined && review.draftNote === null,
@@ -1489,6 +1499,7 @@ export function App({
     copyDecorations,
     layoutMode,
     filesPaneVisible,
+    repositorySelectorVisible: workspace?.selectorVisible,
     showAgentNotes,
     showHelp,
     showHunkHeaders,
