@@ -1,4 +1,4 @@
-# hunk_ws
+# hunks
 
 This repository maintains a Hunk fork for reviewing independent Git repositories
 from a workspace directory. Workspace launch for `diff`, `show`, and `log` is
@@ -17,7 +17,7 @@ Workspace-aware session operations are not implemented yet: existing session com
 do not export or reload every repository or accept explicit workspace targets.
 The full behavior and acceptance criteria are recorded in the implementation plan below.
 
-- `origin`: https://github.com/aduverger/hunk_ws.git
+- `origin`: https://github.com/aduverger/hunks.git
 - `upstream`: https://github.com/modem-dev/hunk.git
 - Implementation plan: [Workspace reviews](docs/workspace-review-plan.md)
 
