@@ -85,6 +85,24 @@ test.each([
   expect(result.stdout).toContain(expected);
   expect(result.stdout).not.toContain("web after");
   expect(result.stdout).not.toContain("web changed");
+  expect(result.stdout).not.toContain("web working tree");
+});
+
+test("workspace startup does not load an unopened sibling's comparison", () => {
+  const { root, env } = createTestWorkspace();
+  const removed = Bun.spawnSync(["git", "update-ref", "-d", "refs/remotes/origin/main"], {
+    cwd: join(root, "web"),
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  expect(removed.exitCode).toBe(0);
+
+  const result = runTestHunk(root, env, "diff", "origin/main...HEAD");
+  expect(result.code).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("api after");
+  expect(result.stdout).not.toContain("web after");
 });
 
 test("workspace CLI fails on a missing ref and supports a subsequent valid invocation", () => {
