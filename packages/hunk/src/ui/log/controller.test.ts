@@ -63,6 +63,34 @@ function createRuntime(subjects = ["first", "second", "third"], notices: readonl
 }
 
 describe("LogController", () => {
+  test("keeps interactive read-error notices while preparation can reject the native failure", async () => {
+    for (const throwOnError of [false, true]) {
+      const { runtime } = createRuntime();
+      const nativeFailure = new Error("Native history read failed.");
+      runtime.source.read = async () => {
+        throw nativeFailure;
+      };
+      const controller = new LogController(runtime);
+      try {
+        if (throwOnError) {
+          await expect(controller.loadMore({ throwOnError: true })).rejects.toThrow(
+            nativeFailure.message,
+          );
+        } else {
+          await controller.loadMore();
+        }
+        expect(controller.getSnapshot()).toMatchObject({
+          rows: [],
+          historyDone: true,
+          loading: false,
+          notice: nativeFailure.message,
+        });
+      } finally {
+        await controller.close();
+      }
+    }
+  });
+
   test("preserves bootstrap notices when keymap diagnostics arrive after mount", async () => {
     const { runtime } = createRuntime(undefined, [
       "Configured VCS is unavailable.",

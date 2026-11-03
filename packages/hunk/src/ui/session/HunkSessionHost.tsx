@@ -7,6 +7,7 @@ import {
 } from "../../app/historyReview";
 import {
   createReviewSessionRuntime,
+  publishReviewReplacement,
   type ReviewSessionRuntime,
 } from "../../app/session/reviewRuntime";
 import type { StartupNotice } from "../../core/process/startupNotice";
@@ -15,7 +16,19 @@ import type { PersistedViewPreferences } from "../../core/run/config";
 import type { InteractiveSessionInitialization } from "../../core/session/initialization";
 import type { ExtensionVcsHistoryReviewAction } from "../../extension-api/types";
 import { parseExtensionReviewDescriptor } from "../../core/reviewDescriptor";
-import type { ExtensionSession } from "../../extensions/session";
+import { createExtensionSession, type ExtensionSession } from "../../extensions/session";
+import { assertWorkspaceRepository } from "../../app/workspace";
+import { prepareStartupPlan } from "../../app/startup";
+import { createReviewStore, type ReviewStore } from "../../core/review/store";
+import { projectReviewDocument } from "../../core/review/document";
+import { resolveExperimentalDiffFiles } from "../../core/run/experimental";
+import { applyExtensionRegistrations } from "../../extensions/apply";
+import { getBundledVcsCatalog } from "../../app/vcsCatalog";
+import {
+  fileLanguageRegistrationSnapshot,
+  restoreFileLanguageRegistrations,
+} from "../../core/documents/fileLanguage";
+import { WorkspaceContext, type WorkspaceControls } from "./WorkspaceContext";
 import type { ExtensionLoadResult } from "../../extensions/types";
 import { AppHost } from "../AppHost";
 import type { DocumentBrowserBootstrap } from "../../core/documents/bootstrap";
@@ -40,6 +53,8 @@ export interface HistorySurfaceRoute {
   controller: LogController;
   runtime: InteractiveHistoryRuntime;
   returnRoute?: StatusSurfaceRoute;
+  /** Retain workspace commit-review choices across returns to this history route. */
+  viewPreferences?: PersistedViewPreferences;
 }
 
 export interface StatusSurfaceRoute {
@@ -74,6 +89,19 @@ interface ActiveReviewSurfaceRoute extends StandaloneReviewSurfaceRoute {
   mountMode: "initial" | "dynamic";
   returnRoute?: HistorySurfaceRoute | StatusSurfaceRoute;
   initialFilePath?: string;
+  reviewStore?: ReviewStore;
+  viewPreferences?: PersistedViewPreferences;
+}
+
+/** Retain semantic review state independently of the mounted renderer. */
+function createRetainedReviewStore(bootstrap: AppBootstrap) {
+  return createReviewStore(
+    projectReviewDocument(
+      resolveExperimentalDiffFiles(bootstrap.changeset.files, bootstrap.input.options),
+      { sourceLabel: bootstrap.changeset.sourceLabel },
+    ),
+    { showAgentNotes: bootstrap.initialShowAgentNotes },
+  );
 }
 
 type ActiveSurfaceRoute =
@@ -150,10 +178,10 @@ function historyReviewDescriptor(
 }
 
 /**
- * Route retained status/history and fresh review surfaces inside one stable React root.
+ * Routes repository switches, history selections, and status inspection through one mounted surface.
  *
- * Workspace inspection, history selections and standalone review startup converge here. The host owns route preparation
- * and review-surface disposal, draining preparation and cleanup before exposing a caller.
+ * The host retains workspace review stores and repository extension authority without hidden renderers.
+ * It drains route preparation before switching or quitting; native loaders still own repository semantics.
  * `runHunkSession` retains terminal ownership, while `AppHost` retains
  * review reload and extension-event commit ordering.
  */
@@ -174,7 +202,8 @@ export function HunkSessionHost({
 }) {
   const renderer = useRenderer();
   const prepareReview = deps.prepareReview ?? prepareEmbeddedHistoryReview;
-  const createReviewRuntime = deps.createReviewRuntime ?? createReviewSessionRuntime;
+  const createNativeReviewRuntime = deps.createReviewRuntime ?? createReviewSessionRuntime;
+  const workspace = initialization.workspace;
   const [themeController] = useState(
     () =>
       new ThemeController({
@@ -201,6 +230,7 @@ export function HunkSessionHost({
           extensionOwnership: "owned",
           quitBehavior: "quit-session",
           mountMode: "initial",
+          reviewStore: workspace ? createRetainedReviewStore(initialRoute.bootstrap) : undefined,
         },
   );
   const routeRef = useRef(route);
@@ -212,6 +242,38 @@ export function HunkSessionHost({
     settlement: Promise<void>;
   } | null>(null);
   const nextInstanceRef = useRef(initialRoute.kind === "review" ? initialRoute.instanceId + 1 : 1);
+  const workspaceRuntimeRef = useRef(
+    workspace && initialRoute.kind === "review" ? initialRoute.runtime : undefined,
+  );
+  const inactiveWorkspaceRoutesRef = useRef(new Map<string, ActiveSurfaceRoute>());
+  const [selectedRepositoryPath, setSelectedRepositoryPath] = useState(
+    workspace?.repositories[0]?.path ?? "",
+  );
+  const selectedRepositoryPathRef = useRef(selectedRepositoryPath);
+  const [switchingRepository, setSwitchingRepository] = useState(false);
+  const [repositoryError, setRepositoryError] = useState<string | null>(null);
+  const [selectorVisible, setSelectorVisible] = useState(true);
+  const pickerRef = useRef<(() => void) | null>(null);
+  const departureRef = useRef<(() => Promise<() => void>) | undefined>(undefined);
+  const registerDeparture = useCallback((prepare: () => Promise<() => void>) => {
+    departureRef.current = prepare;
+    return () => {
+      if (departureRef.current === prepare) departureRef.current = undefined;
+    };
+  }, []);
+
+  /** Reuse the window's publication lifecycle while repository stores remain independent. */
+  const createReviewRuntime = (bootstrap: AppBootstrap, cwd: string) => {
+    if (!workspace) return createNativeReviewRuntime(bootstrap, cwd);
+    const current = workspaceRuntimeRef.current;
+    if (current) {
+      publishReviewReplacement(bootstrap, current.reviewProducer, current.hostClient);
+      return current;
+    }
+    const next = createNativeReviewRuntime(bootstrap, cwd);
+    workspaceRuntimeRef.current = next;
+    return next;
+  };
   const quitRequestedRef = useRef(false);
   const shutdownPendingRef = useRef(false);
   const pendingExitCodeRef = useRef<number | undefined>(undefined);
@@ -221,15 +283,59 @@ export function HunkSessionHost({
     sessionViewPreferencesRef.current = preferences;
   }, []);
 
+  /** Resolve history review preferences locally for workspaces and session-wide for native routing. */
+  const getHistoryViewPreferences = (history: HistorySurfaceRoute) => {
+    if (!workspace) return sessionViewPreferencesRef.current;
+    return history.viewPreferences ?? history.runtime.initialViewPreferences;
+  };
+
   /** Attempt broker cleanup and retain failed runtimes for the final unmount retry. */
-  const stopReviewRuntime = useCallback((runtime: ReviewSessionRuntime) => {
-    try {
-      runtime.stop();
-      failedReviewStopsRef.current.delete(runtime);
-    } catch {
-      failedReviewStopsRef.current.add(runtime);
+  const stopReviewRuntime = useCallback(
+    (runtime: ReviewSessionRuntime) => {
+      if (
+        workspace &&
+        mountedRef.current &&
+        !shutdownPendingRef.current &&
+        !quitRequestedRef.current
+      )
+        return;
+      try {
+        runtime.stop();
+        failedReviewStopsRef.current.delete(runtime);
+      } catch {
+        failedReviewStopsRef.current.add(runtime);
+      }
+    },
+    [workspace],
+  );
+
+  /** Retire loaded repository owners and history cursors when the workspace window closes. */
+  const closeWorkspace = useCallback(async () => {
+    if (!workspace) return;
+    const sessions = new Set<ExtensionSession>();
+    const histories = new Set<LogController>();
+    for (const retained of [...inactiveWorkspaceRoutesRef.current.values(), routeRef.current]) {
+      if (retained.kind === "review") {
+        sessions.add(retained.extensionSession);
+        if (retained.returnRoute?.kind === "history") {
+          sessions.add(retained.returnRoute.runtime.extensionSession);
+          histories.add(retained.returnRoute.controller);
+        }
+      } else if (retained.kind === "history") {
+        sessions.add(retained.runtime.extensionSession);
+        histories.add(retained.controller);
+      }
     }
-  }, []);
+    try {
+      await Promise.all(
+        [...sessions]
+          .map((session) => session.shutdown())
+          .concat([...histories].map((history) => history.close())),
+      );
+    } finally {
+      workspaceRuntimeRef.current?.stop();
+    }
+  }, [workspace]);
 
   const historyClosuresRef = useRef(new WeakMap<LogController, Promise<void>>());
   /** Drain each status-owned history once across return, shutdown, preparation and unmount. */
@@ -249,6 +355,7 @@ export function HunkSessionHost({
 
   const completeQuit = useCallback(() => {
     if (quitRequestedRef.current) return;
+    shutdownPendingRef.current = true;
     quitRequestedRef.current = true;
     const current = routeRef.current;
     const history =
@@ -265,12 +372,16 @@ export function HunkSessionHost({
             ? current.returnRoute
             : undefined));
     void (async () => {
+      await preparation.cancel(
+        new Error("Hunk surface preparation was cancelled during shutdown."),
+      );
       if (history?.returnRoute)
         await closeStatusHistory(history.controller, history.returnRoute.controller);
       await status?.controller.close();
+      await closeWorkspace();
       onQuit(pendingExitCodeRef.current);
     })().catch(() => onQuit(pendingExitCodeRef.current ?? 1));
-  }, [onQuit, closeStatusHistory]);
+  }, [onQuit, closeStatusHistory, closeWorkspace, preparation]);
 
   const requestQuit = useCallback(
     (exitCode?: number) => {
@@ -436,7 +547,7 @@ export function HunkSessionHost({
         throw new Error("An embedded review cannot replace the owning extension session.");
       }
       const reviewBootstrap = applySessionViewPreferences(plan.bootstrap, {
-        ...sessionViewPreferencesRef.current,
+        ...getHistoryViewPreferences(historyRoute),
         theme: themeController.getSnapshot().themeId,
       });
       const reviewRuntime = createReviewRuntime(
@@ -453,6 +564,7 @@ export function HunkSessionHost({
         extensionOwnership: "borrowed",
         quitBehavior: "return-to-caller",
         mountMode: "dynamic",
+        reviewStore: workspace ? createRetainedReviewStore(reviewBootstrap) : undefined,
         returnRoute: historyRoute,
       };
       routeRef.current = reviewRoute;
@@ -611,83 +723,236 @@ export function HunkSessionHost({
       if (history?.returnRoute)
         void closeStatusHistory(history.controller, history.returnRoute.controller);
       for (const runtime of failedReviewStopsRef.current) stopReviewRuntime(runtime);
+      void closeWorkspace().catch(() => undefined);
     },
-    [stopReviewRuntime, closeStatusHistory, preparation],
+    [stopReviewRuntime, closeStatusHistory, preparation, closeWorkspace],
   );
 
-  if (route.kind === "documents") {
-    return (
-      <DocumentApp
-        controller={route.controller}
-        themeController={themeController}
-        options={route.bootstrap.configured.input.options}
-        keybindings={route.bootstrap.configured.keybindings}
-        onQuit={() => requestQuit()}
-      />
-    );
-  }
+  /** Load or restore one repository, leaving the current review usable when preparation fails. */
+  const switchRepository = async (path: string) => {
+    if (
+      !workspace ||
+      path === selectedRepositoryPathRef.current ||
+      preparation.pending ||
+      shutdownPendingRef.current
+    )
+      return;
+    const transaction = preparation.begin(externalQuitSignal);
+    const { signal } = transaction;
+    const previous = routeRef.current;
+    const previousLanguages = fileLanguageRegistrationSnapshot();
+    let resume: (() => void) | undefined;
+    let preparedOwner: ExtensionSession | undefined;
+    let preparedHistory: LogController | undefined;
+    let committed = false;
+    setSwitchingRepository(true);
+    setRepositoryError(null);
+    try {
+      if (previous.kind === "review") resume = await departureRef.current?.();
+      signal.throwIfAborted();
+      assertWorkspaceRepository(workspace, path);
+      let next = inactiveWorkspaceRoutesRef.current.get(path);
+      if (!next) {
+        const plan = await prepareStartupPlan(["bun", "hunk"], {
+          cwd: path,
+          parseCliImpl: async () => workspace.input,
+          stdinIsTTY: true,
+          stdoutIsTTY: true,
+          terminalThemeMode: themeController.themeMode ?? renderer.themeMode ?? "dark",
+          signal,
+        });
+        if (plan.kind === "app") {
+          if (!plan.bootstrap.extensions)
+            throw new Error("Repository startup did not provide extension authority.");
+          plan.controllingTerminal?.close();
+          preparedOwner = createExtensionSession(plan.bootstrap.extensions, path);
+          const runtime = workspaceRuntimeRef.current;
+          if (!runtime) throw new Error("The workspace review runtime is unavailable.");
+          next = {
+            kind: "review",
+            instanceId: nextInstanceRef.current++,
+            bootstrap: plan.bootstrap,
+            extensionSession: preparedOwner,
+            runtime,
+            extensionOwnership: "owned",
+            quitBehavior: "quit-session",
+            mountMode: "dynamic",
+            reviewStore: createRetainedReviewStore(plan.bootstrap),
+          };
+        } else if (plan.kind === "history-interactive") {
+          preparedOwner = plan.bootstrap.extensionSession;
+          preparedHistory = new LogController(plan.bootstrap);
+          await preparedHistory.loadMore({ throwOnError: true });
+          next = { kind: "history", runtime: plan.bootstrap, controller: preparedHistory };
+        } else throw new Error("This input cannot open an interactive repository review.");
+      }
+      if (previous.kind === "review") await departureRef.current?.();
+      signal.throwIfAborted();
+      if (!mountedRef.current || shutdownPendingRef.current || routeRef.current !== previous)
+        throw new Error("Repository selection was cancelled.");
+      if (next.kind === "review") {
+        if (next.viewPreferences)
+          next = {
+            ...next,
+            bootstrap: applySessionViewPreferences(next.bootstrap, next.viewPreferences),
+          };
+        next = {
+          ...next,
+          runtime: createReviewRuntime(next.bootstrap, path),
+          instanceId: nextInstanceRef.current++,
+          mountMode: "dynamic",
+        };
+        themeController.replaceCustomThemes(next.bootstrap.customThemes ?? []);
+        applyExtensionRegistrations(next.extensionSession.current, getBundledVcsCatalog());
+      } else if (next.kind === "history") {
+        themeController.replaceCustomThemes(next.runtime.customThemes);
+        applyExtensionRegistrations(next.runtime.extensionSession.current, getBundledVcsCatalog());
+      }
+      inactiveWorkspaceRoutesRef.current.set(selectedRepositoryPathRef.current, previous);
+      inactiveWorkspaceRoutesRef.current.delete(path);
+      selectedRepositoryPathRef.current = path;
+      routeRef.current = next;
+      setSelectedRepositoryPath(path);
+      setRoute(next);
+      committed = true;
+    } catch (error) {
+      restoreFileLanguageRegistrations(previousLanguages);
+      if (!signal.aborted && mountedRef.current) {
+        const name = workspace.repositories.find((repo) => repo.path === path)?.name ?? path;
+        setRepositoryError(
+          `Could not open ${name}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    } finally {
+      try {
+        if (!committed) await Promise.all([preparedHistory?.close(), preparedOwner?.shutdown()]);
+      } catch (error) {
+        if (mountedRef.current && !signal.aborted)
+          setRepositoryError(`Repository cleanup failed: ${String(error)}`);
+      } finally {
+        if (!committed) resume?.();
+        preparation.finish(transaction);
+        if (mountedRef.current) setSwitchingRepository(false);
+      }
+    }
+  };
+  const controls: WorkspaceControls | null = workspace
+    ? {
+        repositories: workspace.repositories,
+        selectedRepositoryPath,
+        switching: switchingRepository,
+        error: repositoryError,
+        selectorVisible,
+        switchRepository,
+        toggleSelector: () => setSelectorVisible((visible) => !visible),
+        requestPicker: () => pickerRef.current?.(),
+        registerPicker: (open) => {
+          pickerRef.current = open;
+          return () => {
+            if (pickerRef.current === open) pickerRef.current = null;
+          };
+        },
+      }
+    : null;
 
-  if (route.kind === "review") {
-    return (
-      <AppHost
-        key={route.instanceId}
-        bootstrap={route.bootstrap}
-        externalQuitSignal={externalQuitSignal}
-        hostClient={route.runtime.hostClient}
-        onQuit={retireReview}
-        {...(route.quitBehavior === "return-to-caller"
-          ? { onViewPreferencesChange: retainSessionViewPreferences }
-          : {})}
-        {...(route.mountMode === "dynamic" ? { onFirstFrameReady: () => undefined } : {})}
-        returnToSurface={route.returnRoute?.kind}
-        initialFilePath={route.initialFilePath}
-        retainLaunchConfig={
-          route.returnRoute?.kind === "status" ||
-          (route.returnRoute?.kind === "history" && Boolean(route.returnRoute.returnRoute))
-        }
-        sessionCustomThemes={
-          route.returnRoute?.kind === "status" ||
-          (route.returnRoute?.kind === "history" && route.returnRoute.returnRoute)
-            ? initialization.theme.customThemes
-            : undefined
-        }
-        extensionSession={route.extensionSession}
-        extensionOwnership={route.extensionOwnership}
-        onRequestSessionShutdown={
-          route.extensionOwnership === "owned"
-            ? () => route.extensionSession.shutdown()
-            : async () => undefined
-        }
-        reviewProducer={route.runtime.reviewProducer}
-        startupNoticeResolver={startupNoticeResolver}
-        themeController={themeController}
-      />
-    );
-  }
+  const renderRoute = () => {
+    if (route.kind === "documents") {
+      return (
+        <DocumentApp
+          controller={route.controller}
+          themeController={themeController}
+          options={route.bootstrap.configured.input.options}
+          keybindings={route.bootstrap.configured.keybindings}
+          onQuit={() => requestQuit()}
+        />
+      );
+    }
 
-  if (route.kind === "status")
+    if (route.kind === "review") {
+      return (
+        <AppHost
+          key={route.instanceId}
+          bootstrap={route.bootstrap}
+          externalQuitSignal={externalQuitSignal}
+          hostClient={route.runtime.hostClient}
+          onQuit={retireReview}
+          initialReviewStore={route.reviewStore}
+          onRegisterDeparture={workspace ? registerDeparture : undefined}
+          onActiveBootstrapChange={
+            workspace
+              ? (bootstrap) => {
+                  route.bootstrap = { ...bootstrap, extensions: route.extensionSession.current };
+                }
+              : undefined
+          }
+          onViewPreferencesChange={
+            workspace || route.quitBehavior === "return-to-caller"
+              ? (preferences) => {
+                  if (workspace) {
+                    route.viewPreferences = preferences;
+                    if (route.returnRoute?.kind === "history") {
+                      route.returnRoute.viewPreferences = preferences;
+                    }
+                  }
+                  retainSessionViewPreferences(preferences);
+                }
+              : undefined
+          }
+          {...(route.mountMode === "dynamic" ? { onFirstFrameReady: () => undefined } : {})}
+          returnToSurface={route.returnRoute?.kind}
+          initialFilePath={route.initialFilePath}
+          retainLaunchConfig={
+            route.returnRoute?.kind === "status" ||
+            (route.returnRoute?.kind === "history" && Boolean(route.returnRoute.returnRoute))
+          }
+          sessionCustomThemes={
+            route.returnRoute?.kind === "status" ||
+            (route.returnRoute?.kind === "history" && route.returnRoute.returnRoute)
+              ? initialization.theme.customThemes
+              : undefined
+          }
+          extensionSession={route.extensionSession}
+          extensionOwnership={route.extensionOwnership}
+          onRequestSessionShutdown={
+            route.extensionOwnership === "owned"
+              ? async () => {
+                  await route.extensionSession.shutdown();
+                }
+              : async () => undefined
+          }
+          reviewProducer={route.runtime.reviewProducer}
+          startupNoticeResolver={startupNoticeResolver}
+          themeController={themeController}
+        />
+      );
+    }
+
+    if (route.kind === "status")
+      return (
+        <StatusApp
+          controller={route.controller}
+          runtime={route.runtime}
+          themeController={themeController}
+          sessionViewPreferences={sessionViewPreferencesRef.current}
+          onOutcome={(outcome) => handleStatusOutcome(route, outcome)}
+          quitScheduler={deps.viewPreferenceQuitScheduler}
+        />
+      );
+
     return (
-      <StatusApp
+      <LogApp
+        key={selectedRepositoryPath}
         controller={route.controller}
         runtime={route.runtime}
-        themeController={themeController}
-        sessionViewPreferences={sessionViewPreferencesRef.current}
-        onOutcome={(outcome) => handleStatusOutcome(route, outcome)}
+        returnToStatus={Boolean(route.returnRoute)}
+        transparentBackground={route.returnRoute?.runtime.launchOptions.transparentBackground}
+        useColor={interactiveLogUsesColor(route.runtime.input.color, process.env)}
+        onOutcome={(outcome) => handleHistoryOutcome(route, outcome)}
         quitScheduler={deps.viewPreferenceQuitScheduler}
+        sessionViewPreferences={getHistoryViewPreferences(route)}
+        themeController={themeController}
       />
     );
-
-  return (
-    <LogApp
-      controller={route.controller}
-      runtime={route.runtime}
-      returnToStatus={Boolean(route.returnRoute)}
-      transparentBackground={route.returnRoute?.runtime.launchOptions.transparentBackground}
-      useColor={interactiveLogUsesColor(route.runtime.input.color, process.env)}
-      onOutcome={(outcome) => handleHistoryOutcome(route, outcome)}
-      quitScheduler={deps.viewPreferenceQuitScheduler}
-      sessionViewPreferences={sessionViewPreferencesRef.current}
-      themeController={themeController}
-    />
-  );
+  };
+  return <WorkspaceContext value={controls}>{renderRoute()}</WorkspaceContext>;
 }

@@ -23,6 +23,7 @@ export interface BuildHistoryCommandsOptions {
   getSnapshot: () => LogSnapshot;
   handlers: HistoryCommandHandlers;
   resolvedKeys?: ResolvedCommandKeys;
+  workspaceAvailable?: boolean;
 }
 
 /** Return the history command defaults consumed by shared keymap resolution. */
@@ -77,10 +78,14 @@ export function buildHistoryCommands({
   getSnapshot,
   handlers,
   resolvedKeys,
+  workspaceAvailable = false,
 }: BuildHistoryCommandsOptions): AppCommand[] {
   return buildSurfaceCommands(HISTORY_COMMAND_CATALOG, {
     resolvedKeys,
-    isEnabled: (entry) => isHistoryCommandEnabled(entry.id as HistoryCommandId, getSnapshot()),
+    isEnabled: (entry) =>
+      entry.id === "hunk.view.selectRepository" || entry.id === "hunk.view.toggleRepositorySelector"
+        ? workspaceAvailable
+        : isHistoryCommandEnabled(entry.id as HistoryCommandId, getSnapshot()),
     run: (entry, key) => handlers[entry.id as HistoryCommandId](key, entry),
   });
 }

@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { removeTestDirectory } from "../../../../test/helpers/filesystem";
 import { loadAppBootstrap as loadCoreAppBootstrap } from "../core/changeset/loaders";
 
@@ -278,6 +278,7 @@ async function withAppHost(
     externalQuitSignal?: AbortSignal;
     hostClient?: HunkSessionBrokerClient;
     onQuit?: () => void;
+    onRegisterDeparture?: ComponentProps<typeof AppHost>["onRegisterDeparture"];
     workspaceFileWriter?: WorkspaceFileWriter;
   } = {},
 ) {
@@ -287,6 +288,7 @@ async function withAppHost(
       externalQuitSignal={options.externalQuitSignal}
       hostClient={options.hostClient}
       onQuit={options.onQuit ?? (() => {})}
+      onRegisterDeparture={options.onRegisterDeparture}
       workspaceFileWriter={options.workspaceFileWriter}
     />,
     {
@@ -523,6 +525,144 @@ describe("extension workspace reads", () => {
 });
 
 describe("extension workspace writes", () => {
+  test("refuses repository departure until an already-started write finishes", async () => {
+    const repo = createTestRepo("hunk-ext-write-departure-");
+    const extDir = createTempDir("hunk-ext-write-departure-ext-");
+    const logPath = join(extDir, "probe.log");
+    const extPath = join(extDir, "ext.ts");
+    writeWorkspaceFixture(extPath, logPath);
+    const bootstrap = await launchWithExtension(repo, extPath, {
+      kind: "vcs",
+      staged: false,
+      options: { mode: "unified", extensionPaths: [extPath] },
+    });
+    const deferredWriter = createDeferredWorkspaceWriter();
+    let prepareDeparture: (() => Promise<() => void>) | undefined;
+    await withAppHost(
+      bootstrap,
+      async (setup) => {
+        if (!prepareDeparture) throw new Error("The host did not register repository departure.");
+        try {
+          await act(async () => setup.mockInput.typeText("Y"));
+          await flushUntil(
+            setup,
+            () => setup.captureCharFrame().includes("Write alpha.txt?"),
+            "write consent",
+          );
+          await act(async () => setup.mockInput.pressEnter());
+          await deferredWriter.started;
+          await expect(prepareDeparture()).rejects.toThrow();
+          expect(readFileSync(join(repo, "alpha.txt"), "utf8")).toBe("one\ntwo\n");
+
+          deferredWriter.release();
+          await flushUntil(
+            setup,
+            () => setup.captureCharFrame().includes("rewritten"),
+            "the completed write and refresh",
+          );
+          const resume = await prepareDeparture();
+          resume();
+          expect(readFileSync(join(repo, "alpha.txt"), "utf8")).toBe("rewritten\n");
+        } finally {
+          deferredWriter.release();
+        }
+      },
+      {
+        workspaceFileWriter: deferredWriter.writer,
+        onRegisterDeparture: (prepare) => {
+          prepareDeparture = prepare;
+          return () => {
+            prepareDeparture = undefined;
+          };
+        },
+      },
+    );
+  });
+
+  test("blocks new writes and reloads during departure and restores both after a cancelled switch", async () => {
+    const repo = createTestRepo("hunk-ext-departure-resume-");
+    const extDir = createTempDir("hunk-ext-departure-resume-ext-");
+    const logPath = join(extDir, "probe.log");
+    const extPath = join(extDir, "ext.ts");
+    writeWorkspaceFixture(extPath, logPath);
+    const input: CliInput = {
+      kind: "vcs",
+      staged: false,
+      options: { mode: "unified", extensionPaths: [extPath] },
+    };
+    const bootstrap = await launchWithExtension(repo, extPath, input);
+    const broker = createTestBrokerClient();
+    let prepareDeparture: (() => Promise<() => void>) | undefined;
+    await withAppHost(
+      bootstrap,
+      async (setup) => {
+        if (!prepareDeparture) throw new Error("The host did not register repository departure.");
+        const resume = await prepareDeparture();
+        try {
+          await expect(broker.reload(input)).rejects.toThrow();
+          await act(async () => setup.mockInput.typeText("Y"));
+          await flushUntil(
+            setup,
+            () =>
+              setup.captureCharFrame().includes("Write alpha.txt?") ||
+              readProbeLog(logPath).some((line) => line.includes('"reason":"unavailable"')),
+            "consent or early refusal during preparation",
+          );
+          if (setup.captureCharFrame().includes("Write alpha.txt?")) {
+            await act(async () => setup.mockInput.pressEnter());
+          }
+          await flushUntil(
+            setup,
+            () => readProbeLog(logPath).some((line) => line.includes('"reason":"unavailable"')),
+            "the write refusal",
+          );
+          expect(readFileSync(join(repo, "alpha.txt"), "utf8")).toBe("one\ntwo\n");
+        } finally {
+          resume();
+        }
+
+        writeFileSync(join(repo, "alpha.txt"), "resumed review\n");
+        let refreshed = false;
+        const reload = broker.reload(input).then(() => {
+          refreshed = true;
+        });
+        await flushUntil(
+          setup,
+          () => refreshed && setup.captureCharFrame().includes("resumed review"),
+          "refresh after cancellation",
+        );
+        await reload;
+        await act(async () => setup.mockInput.typeText("Y"));
+        await flushUntil(
+          setup,
+          () => setup.captureCharFrame().includes("Write alpha.txt?"),
+          "write consent after cancellation",
+        );
+        await act(async () => setup.mockInput.pressEnter());
+        await flushUntil(
+          setup,
+          () => readProbeLog(logPath).includes('result {"ok":true}'),
+          "the resumed write",
+        );
+        expect(readFileSync(join(repo, "alpha.txt"), "utf8")).toBe("rewritten\n");
+        await flushUntil(
+          setup,
+          () => setup.captureCharFrame().includes("rewritten"),
+          "the resumed write's refresh",
+        );
+      },
+      {
+        hostClient: broker.client,
+        onRegisterDeparture: (prepare) => {
+          prepareDeparture = prepare;
+          return () => {
+            prepareDeparture = undefined;
+          };
+        },
+      },
+    );
+  });
+
   test("a confirmed write replaces the reviewed file and reloads the review", async () => {
     const repo = createTestRepo("hunk-ext-write-confirm-");
     // Outside the repo, so the fixture and its log never join the review.

@@ -114,6 +114,8 @@ interface BuiltinCommandHandler {
 
 /** The callbacks the built-in command set drives; App supplies its own handlers. */
 export interface BuildAppCommandsOptions {
+  openRepositoryPicker?: () => void;
+  toggleRepositorySelector?: () => void;
   canAlignCurrentLine: boolean;
   canApplyFilePresentationToAllMatching: boolean;
   canDeleteActiveNote?: boolean;
@@ -272,6 +274,14 @@ function builtinCommandHandlers(
       run: () => options.applyFilePresentationToAllMatching(),
     },
     "hunk.view.toggleFilesPane": { run: () => options.toggleFilesPane() },
+    "hunk.view.selectRepository": {
+      isEnabled: () => Boolean(options.openRepositoryPicker),
+      run: () => options.openRepositoryPicker?.(),
+    },
+    "hunk.view.toggleRepositorySelector": {
+      isEnabled: () => Boolean(options.toggleRepositorySelector),
+      run: () => options.toggleRepositorySelector?.(),
+    },
     "hunk.app.refresh": {
       isEnabled: () => options.canRefreshCurrentInput,
       run: () => options.triggerRefreshCurrentInput(),
