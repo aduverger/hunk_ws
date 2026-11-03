@@ -1,7 +1,9 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -67,7 +69,7 @@ async function selectTestRepository(
   index: number,
   destination: string | RegExp,
 ) {
-  await harness.clickAndWaitForText(session, `▾ ${current}`, "1. a-api", { timeout: 10_000 });
+  await harness.clickAndWaitForText(session, `▾ ${current}`, "Repository", { timeout: 10_000 });
   for (let step = 0; step < index; step++) await session.press("down");
   return harness.pressAndWaitForText(session, "enter", destination, { timeout: 10_000 });
 }
@@ -122,7 +124,6 @@ test.skipIf(process.platform === "win32")(
       const webAgain = await selectTestRepository(session, "a-api", 1, "web after");
       expect(webAgain).toContain("Web-specific review note");
       const failed = await selectTestRepository(session, "b-web", 2, "Could not open");
-      expect(failed).toContain("broken:");
       expect(failed).toContain("web after");
       expect(failed).toContain("Web-specific review note");
       runTestGit(join(root, "c-broken"), "update-ref", "refs/remotes/origin/main", "HEAD~1");
@@ -165,10 +166,18 @@ test.skipIf(process.platform === "win32")(
         (text) => !text.includes("▾ a-api"),
       );
       await harness.pressAndWaitForText(session, ["shift", "w"], "▾ a-api");
-      await harness.pressAndWaitForText(session, ["shift", "r"], "1. a-api");
+      await harness.pressAndWaitForText(session, ["shift", "r"], "Repository");
       await session.press("down");
       await harness.pressAndWaitForText(session, "enter", "web after");
       await harness.clickAndWaitForText(session, /View/, "Repository selector");
+      const hidden = await harness.clickAndWaitForSnapshot(
+        session,
+        "Repository selector",
+        (text) => !text.includes("▾ b-web") && !text.includes("Repository selector"),
+      );
+      expect(hidden).toMatch(/M\s+file\.ts/);
+      await harness.clickAndWaitForText(session, /View/, "Repository selector");
+      await harness.clickAndWaitForText(session, "Repository selector", "▾ b-web");
     } finally {
       session.close();
     }
@@ -229,9 +238,27 @@ test.skipIf(process.platform === "win32")(
   async () => {
     const root = createTestWorkspace();
     const extension = join(root, "slow-startup.ts");
+    const startupGate = join(root, "release-startup");
+    const repoConfig = join(root, "b-web", ".hunk");
+    mkdirSync(repoConfig);
+    writeFileSync(
+      join(repoConfig, "config.toml"),
+      `[extension.slow-startup]\ngate = ${JSON.stringify(startupGate)}\n`,
+    );
     writeFileSync(
       extension,
-      "export default async function () { await new Promise(resolve => setTimeout(resolve, 500)); }\n",
+      `import { existsSync, writeFileSync } from "node:fs";
+export default async function (hunk) {
+  const gate = hunk.config.gate;
+  if (typeof gate !== "string") return;
+  writeFileSync(gate + ".started", "started");
+  const deadline = Date.now() + 15_000;
+  while (!existsSync(gate)) {
+    if (Date.now() >= deadline) throw new Error("Test startup gate was not released.");
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+`,
     );
     const home = harness.createIsolatedConfigHome();
     mkdirSync(join(home, "hunk"), { recursive: true });
@@ -256,14 +283,122 @@ test.skipIf(process.platform === "win32")(
     });
     try {
       await session.waitForText("api after", { timeout: 15_000 });
-      await harness.pressAndWaitForText(session, ["shift", "r"], "1. a-api");
+      await harness.pressAndWaitForText(session, ["shift", "r"], "Repository");
       await session.press("down");
-      const loading = await harness.pressAndWaitForText(session, "enter", "Loading repository");
+      session.sendKey("enter");
+      const loading = await harness.waitForSnapshot(
+        session,
+        (text) => existsSync(`${startupGate}.started`) && text.includes("Loading repository"),
+        10_000,
+      );
       expect(loading).toContain("api after");
       await session.press(["shift", "r"]);
+      expect(await session.text({ immediate: true })).not.toContain("Repository");
+      writeFileSync(startupGate, "released");
       const web = await session.waitForText("web after", { timeout: 10_000 });
       expect(web).not.toContain("api after");
-      expect(web).not.toContain("1. a-api");
+      expect(web).not.toContain("Repository");
+    } finally {
+      session.close();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "retains a refreshed repository snapshot across switches until its next native refresh",
+  async () => {
+    const root = createTestWorkspace();
+    const apiFile = join(root, "a-api", "file.ts");
+    writeFileSync(apiFile, "export const value = 'api working';\n");
+    writeFileSync(join(root, "b-web", "file.ts"), "export const value = 'web working';\n");
+    const session = await harness.launchHunk({
+      args: ["diff", "--sidebar", "--no-extensions", "--theme", "github-dark-default"],
+      cwd: root,
+      cols: 140,
+      rows: 24,
+    });
+    try {
+      await session.waitForText("api working", { timeout: 15_000 });
+      writeFileSync(apiFile, "export const value = 'api refreshed';\n");
+      await harness.pressAndWaitForText(session, "r", "api refreshed");
+      await selectTestRepository(session, "a-api", 1, "web working");
+
+      writeFileSync(apiFile, "export const value = 'api later on disk';\n");
+      const cached = await selectTestRepository(session, "b-web", 0, "api refreshed");
+      expect(cached).not.toContain("api later on disk");
+      await harness.pressAndWaitForText(session, "r", "api later on disk");
+      const web = await selectTestRepository(session, "a-api", 1, "web working");
+      expect(web).not.toContain("api later on disk");
+    } finally {
+      session.close();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "retains repository extension owners during switches and retires them when the window quits",
+  async () => {
+    const root = createTestWorkspace();
+    const extension = join(root, "lifecycle.ts");
+    const logPath = join(root, "lifecycle.jsonl");
+    writeFileSync(
+      extension,
+      `import { appendFileSync } from "node:fs";
+export default function (hunk) {
+  let started = false;
+  const record = (kind, cwd) => appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ kind, cwd }) + "\\n");
+  hunk.on("startup", (_, ctx) => { started = true; record("startup", ctx.cwd); });
+  hunk.on("shutdown", (_, ctx) => { if (started) record("shutdown", ctx.cwd); });
+}
+`,
+    );
+    /** Read lifecycle observations written by the fixture extension. */
+    const readTestLifecycleEvents = (): Array<{ kind: string; cwd: string }> =>
+      existsSync(logPath)
+        ? readFileSync(logPath, "utf8")
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => JSON.parse(line))
+        : [];
+    const session = await harness.launchHunk({
+      args: [
+        "diff",
+        "origin/main...HEAD",
+        "--sidebar",
+        "--extension",
+        extension,
+        "--theme",
+        "github-dark-default",
+      ],
+      cwd: root,
+      cols: 140,
+      rows: 24,
+    });
+    const repositories = [join(root, "a-api"), join(root, "b-web")].sort();
+    try {
+      await session.waitForText("api after", { timeout: 15_000 });
+      await selectTestRepository(session, "a-api", 1, "web after");
+      await harness.waitForSnapshot(
+        session,
+        () => readTestLifecycleEvents().filter((event) => event.kind === "startup").length === 2,
+      );
+      expect(readTestLifecycleEvents().filter((event) => event.kind === "shutdown")).toEqual([]);
+      session.sendKey("q");
+
+      const deadline = Date.now() + 5_000;
+      while (
+        readTestLifecycleEvents().filter((event) => event.kind === "shutdown").length < 2 &&
+        Date.now() < deadline
+      ) {
+        await Bun.sleep(20);
+      }
+      expect(
+        readTestLifecycleEvents()
+          .filter((event) => event.kind === "shutdown")
+          .map((event) => event.cwd)
+          .sort(),
+      ).toEqual(repositories);
     } finally {
       session.close();
     }

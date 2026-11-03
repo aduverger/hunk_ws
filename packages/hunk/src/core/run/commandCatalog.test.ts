@@ -62,15 +62,15 @@ describe("app command catalog", () => {
 
   test("keeps host-only commands to the ones that must run where the review is hosted", () => {
     expect(
-      APP_COMMAND_CATALOG.filter((command) => command.locus === "host-only").map(
-        (command) => command.id,
-      ),
+      APP_COMMAND_CATALOG.filter((command) => command.locus === "host-only")
+        .map((command) => command.id)
+        .toSorted(),
     ).toEqual([
-      "hunk.app.quit",
       "hunk.app.openAgentSkill",
-      "hunk.view.selectRepository",
+      "hunk.app.quit",
       "hunk.app.refresh",
       "hunk.review.editSelectedFile",
+      "hunk.view.selectRepository",
     ]);
   });
 
