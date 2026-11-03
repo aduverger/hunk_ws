@@ -1,5 +1,9 @@
 import type { SessionBootstrapResult } from "./sessionBootstrap";
-import { createExtensionApplyNotices, createUnknownVcsNotice } from "../extensions/apply";
+import {
+  createExtensionApplyNotices,
+  createUnknownVcsNotice,
+  resolveExtensionVcsAdapters,
+} from "../extensions/apply";
 import type { loadStartupExtensions } from "../extensions/startup";
 import { resolveConfiguredCliInput } from "../core/run/config";
 import { HunkUserError } from "../core/run/errors";
@@ -30,6 +34,7 @@ import { canReloadInput } from "../core/run/inputReload";
 import { assertReliableWatchRuntime } from "../core/watch/runtime";
 import { parseCli } from "./cli";
 import { resolveSessionSelectorBoundary } from "./sessionSelector";
+import { extendVcsCatalog } from "../core/vcs";
 import type { VcsCatalog } from "../core/vcs/types";
 import type { ExtensionReviewDescriptor } from "../extension-api/types";
 import type { InteractiveSessionInitialization } from "../core/session/initialization";
@@ -711,12 +716,7 @@ export async function prepareStartupPlan(
     !deps.borrowedExtensionLoad &&
     (runtimeCliInput.kind === "vcs" || runtimeCliInput.kind === "show")
   ) {
-    const [{ discoverWorkspace }, { resolveExtensionVcsAdapters }, { extendVcsCatalog }] =
-      await Promise.all([
-        import("./workspace"),
-        import("../extensions/apply"),
-        import("../core/vcs"),
-      ]);
+    const { discoverWorkspace } = await import("./workspace");
     const catalog = extendVcsCatalog(
       baseVcsCatalog,
       resolveExtensionVcsAdapters(extensionResult.registry, baseVcsCatalog).adapters,
