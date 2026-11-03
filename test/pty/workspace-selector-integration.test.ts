@@ -508,3 +508,64 @@ export default async function (hunk) {
     }
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "keeps history review preferences repository-specific while sharing the selected theme",
+  async () => {
+    const root = createTestWorkspace();
+    for (const [name, mode, wrap] of [
+      ["a-api", "split", true],
+      ["b-web", "unified", false],
+    ] as const) {
+      const config = join(root, name, ".hunk");
+      mkdirSync(config);
+      writeFileSync(
+        join(config, "config.toml"),
+        `mode = "${mode}"\nwrap_lines = ${wrap}\nsidebar = true\n`,
+      );
+    }
+    const session = await harness.launchHunk({
+      args: ["log", "--no-extensions", "--theme", "github-dark-default"],
+      cwd: root,
+      cols: 220,
+      rows: 28,
+    });
+
+    /** Read the review's public menu state without depending on diff-row geometry. */
+    const expectTestPreferences = async (layout: "Split" | "Unified", wrap: boolean) => {
+      const menu = await harness.clickAndWaitForText(session, /View/, "Line wrapping");
+      expect(menu).toMatch(new RegExp(`\\[x\\]\\s+${layout} view`));
+      expect(menu).toMatch(new RegExp(`\\[${wrap ? "x" : " "}\\]\\s+Line wrapping`));
+      await session.press("escape");
+    };
+    try {
+      await session.waitForText("api changed", { timeout: 15_000 });
+      await harness.pressAndWaitForText(session, "enter", "api after");
+      await expectTestPreferences("Split", true);
+      await harness.pressAndWaitForText(session, "q", "Git history");
+
+      await selectTestRepository(session, "a-api", 1, "web changed");
+      await harness.pressAndWaitForText(session, "enter", "web after");
+      await expectTestPreferences("Unified", false);
+      await session.press("w");
+      await harness.pressAndWaitForText(session, "t", "Theme selector");
+      await session.click("github-light-default");
+      await harness.waitForSnapshot(session, (text) => !text.includes("Theme selector"));
+      await harness.pressAndWaitForText(session, "q", "Git history");
+
+      await selectTestRepository(session, "b-web", 0, "api changed");
+      await harness.pressAndWaitForText(session, "enter", "api after");
+      await expectTestPreferences("Split", true);
+      const themes = await harness.pressAndWaitForText(session, "t", "Theme selector");
+      expect(themes).toMatch(/›\s+github-light-default/);
+      await session.press("escape");
+      await harness.pressAndWaitForText(session, "q", "Git history");
+
+      await selectTestRepository(session, "a-api", 1, "web changed");
+      await harness.pressAndWaitForText(session, "enter", "web after");
+      await expectTestPreferences("Unified", true);
+    } finally {
+      session.close();
+    }
+  },
+);

@@ -257,6 +257,10 @@ Test curation and workspace-wide session implementation remain separate work.
    Ordinary interactive paging still reports notices, and empty history remains a
    successful load. Preserve provider errors rather than prevalidating Git refs or
    interpreting display notices as error state.
+3. Keep workspace commit-review preferences on the retained history route. Until a
+   review publishes choices, derive them from that repository's resolved launch
+   preferences. Use the same resolver for history chrome and commit preparation;
+   keep the theme window-wide and native single-repository retention unchanged.
 
 ## Selector validation
 

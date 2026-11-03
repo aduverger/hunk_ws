@@ -53,6 +53,8 @@ export interface HistorySurfaceRoute {
   controller: LogController;
   runtime: InteractiveHistoryRuntime;
   returnRoute?: StatusSurfaceRoute;
+  /** Retain workspace commit-review choices across returns to this history route. */
+  viewPreferences?: PersistedViewPreferences;
 }
 
 export interface StatusSurfaceRoute {
@@ -280,6 +282,12 @@ export function HunkSessionHost({
   const retainSessionViewPreferences = useCallback((preferences: PersistedViewPreferences) => {
     sessionViewPreferencesRef.current = preferences;
   }, []);
+
+  /** Resolve history review preferences locally for workspaces and session-wide for native routing. */
+  const getHistoryViewPreferences = (history: HistorySurfaceRoute) => {
+    if (!workspace) return sessionViewPreferencesRef.current;
+    return history.viewPreferences ?? history.runtime.initialViewPreferences;
+  };
 
   /** Attempt broker cleanup and retain failed runtimes for the final unmount retry. */
   const stopReviewRuntime = useCallback(
@@ -539,7 +547,7 @@ export function HunkSessionHost({
         throw new Error("An embedded review cannot replace the owning extension session.");
       }
       const reviewBootstrap = applySessionViewPreferences(plan.bootstrap, {
-        ...sessionViewPreferencesRef.current,
+        ...getHistoryViewPreferences(historyRoute),
         theme: themeController.getSnapshot().themeId,
       });
       const reviewRuntime = createReviewRuntime(
@@ -880,7 +888,12 @@ export function HunkSessionHost({
           onViewPreferencesChange={
             workspace || route.quitBehavior === "return-to-caller"
               ? (preferences) => {
-                  if (workspace) route.viewPreferences = preferences;
+                  if (workspace) {
+                    route.viewPreferences = preferences;
+                    if (route.returnRoute?.kind === "history") {
+                      route.returnRoute.viewPreferences = preferences;
+                    }
+                  }
                   retainSessionViewPreferences(preferences);
                 }
               : undefined
@@ -936,7 +949,7 @@ export function HunkSessionHost({
         useColor={interactiveLogUsesColor(route.runtime.input.color, process.env)}
         onOutcome={(outcome) => handleHistoryOutcome(route, outcome)}
         quitScheduler={deps.viewPreferenceQuitScheduler}
-        sessionViewPreferences={sessionViewPreferencesRef.current}
+        sessionViewPreferences={getHistoryViewPreferences(route)}
         themeController={themeController}
       />
     );
