@@ -116,6 +116,9 @@ source definitions, not by hand.
 - Validate actual repository roots, including worktrees whose `.git` is a file.
 - Skip directory symlinks during workspace discovery; validate resolved containment.
 - Keep Git invocation argument-based; treat filenames literally in mutation paths.
+- Bind explicit `--extension` paths and file-backed `--agent-context` paths to the
+  original launch directory before selecting a child. Preserve stdin's `-` sentinel
+  and keep Git pathspecs repository-relative.
 - Preserve existing repository-local configuration and extension trust boundaries.
   Switching repositories must not implicitly trust another repository's extensions.
 - Serialize switches, reloads, and exports through existing lifecycle owners. A

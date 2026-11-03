@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CliInput, HistoryCommandInput } from "../core/run/commandInputs";
@@ -63,7 +71,11 @@ function createTestRepo(path: string, label: string) {
 }
 
 /** Exercise the real application bootstrap without opening a terminal or user config. */
-async function prepareTestWorkspace(root: string, command = input, interactive = false) {
+async function prepareTestWorkspace(
+  root: string,
+  command: CliInput | HistoryCommandInput = input,
+  interactive = false,
+) {
   const home = join(root, "test-home");
   mkdirSync(home, { recursive: true });
   const plan = await prepareStartupPlan(["bun", "hunk", "diff"], {
@@ -155,6 +167,86 @@ describe("workspace discovery", () => {
         ],
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("workspace invocation file identity", () => {
+  test.each(["diff", "show", "log"])(
+    "%s retains the explicit launch-directory extension",
+    async (kind) => {
+      const root = createTestWorkspace();
+      const repo = join(root, "api");
+      createTestRepo(repo, "api");
+      const extensionPath = join(root, "review.ts");
+      const childMarker = join(root, "child-extension-executed");
+      writeFileSync(
+        extensionPath,
+        `export default (hunk) => {
+      hunk.transformChangeset((changeset) => ({ ...changeset, title: "Launch extension retained" }));
+    };`,
+      );
+      writeFileSync(
+        join(repo, "review.ts"),
+        `import { writeFileSync } from "node:fs";
+      export default () => writeFileSync(${JSON.stringify(childMarker)}, "unexpected");`,
+      );
+
+      let command: CliInput | HistoryCommandInput;
+      if (kind === "log") {
+        command = { ...historyInput, extensionsEnabled: true, extensionPaths: ["./review.ts"] };
+      } else {
+        const options = { extensions: true, extensionPaths: ["./review.ts"] };
+        command = kind === "show" ? { kind: "show", ref: "HEAD", options } : { ...input, options };
+      }
+      const plan = await prepareTestWorkspace(root, command);
+      expect(existsSync(childMarker)).toBe(false);
+      if (plan.kind === "history-static") {
+        expect(
+          plan.bootstrap.extensionSession.current.loaded.some(
+            (entry) => entry.sourcePath === extensionPath,
+          ),
+        ).toBe(true);
+      } else if (plan.kind === "static-diff") {
+        expect(plan.bootstrap.changeset.title).toBe("Launch extension retained");
+      } else {
+        throw new Error("Expected native static review or history");
+      }
+    },
+  );
+
+  test("loads a relative sidecar from the launch directory, not the selected checkout", async () => {
+    const root = createTestWorkspace();
+    const repo = join(root, "api");
+    createTestRepo(repo, "api");
+    const sidecar = (summary: string) =>
+      JSON.stringify({
+        files: [{ path: "file.txt", annotations: [{ summary, newRange: [1, 1] }] }],
+      });
+    writeFileSync(join(root, "notes.json"), sidecar("Launch note"));
+    writeFileSync(join(repo, "notes.json"), sidecar("Checkout note"));
+    const plan = await prepareTestWorkspace(root, {
+      ...input,
+      options: { ...input.options, agentContext: "./notes.json" },
+    });
+    if (plan.kind !== "static-diff") throw new Error("Expected static review");
+    expect(
+      plan.bootstrap.changeset.files
+        .find((file) => file.path === "file.txt")
+        ?.agent?.annotations?.map((note) => note.summary),
+    ).toEqual(["Launch note"]);
+  });
+
+  test("keeps stdin sidecars and repository-relative Git pathspecs unchanged", () => {
+    const root = createTestWorkspace();
+    createTestRepo(join(root, "api"), "api");
+    const workspace = discoverWorkspace(
+      root,
+      { ...input, pathspecs: ["src"], options: { agentContext: "-" } },
+      catalog,
+    );
+    if (workspace?.input.kind !== "vcs") throw new Error("Expected workspace diff");
+    expect(workspace.input.options.agentContext).toBe("-");
+    expect(workspace.input.pathspecs).toEqual(["src"]);
   });
 });
 

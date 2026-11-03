@@ -728,7 +728,7 @@ export async function prepareStartupPlan(
       const plan = await prepareStartupPlan(argv, {
         ...deps,
         cwd: workspace.repositories[0]!.path,
-        parseCliImpl: async () => runtimeCliInput,
+        parseCliImpl: async () => workspace.input,
       });
       if (plan.kind === "app") plan.initialization.workspace = workspace;
       return plan;

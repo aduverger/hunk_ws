@@ -114,10 +114,10 @@ export async function loadHistoryBootstrap({
   );
   const catalog = extendVcsCatalog(baseVcsCatalog, extensionAdapters.adapters);
   const workspace = discoverWorkspace(cwd, input, catalog);
-  if (workspace) {
+  if (workspace?.input.kind === "history") {
     await retireExtensionLoadResult(resolved.extensions);
     const bootstrap = await loadHistoryBootstrap({
-      input,
+      input: workspace.input,
       cwd: workspace.repositories[0]!.path,
       env,
       baseVcsCatalog,
