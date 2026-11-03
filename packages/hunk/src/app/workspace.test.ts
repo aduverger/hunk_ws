@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CliInput, HistoryCommandInput } from "../core/run/commandInputs";
+import { resolveCanonicalPath } from "../core/run/paths";
 import { retireExtensionLoadResult } from "../extensions/events";
 import { discoverWorkspace } from "./workspace";
 import { prepareStartupPlan, type StartupPlan } from "./startup";
@@ -264,7 +265,9 @@ describe("native workspace launch", () => {
     const plan = await prepareTestWorkspace(root);
     if (plan.kind !== "static-diff") throw new Error("Expected static review");
     expect(plan.bootstrap.input.options.watch).toBe(false);
-    expect(plan.bootstrap.changeset.sourceLabel).toBe(repo);
+    expect(resolveCanonicalPath(plan.bootstrap.changeset.sourceLabel)).toBe(
+      resolveCanonicalPath(repo),
+    );
 
     await expect(
       prepareTestWorkspace(root, {
@@ -282,7 +285,9 @@ describe("native workspace launch", () => {
     expect(plan.kind).toBe("app");
     if (plan.kind !== "app") throw new Error("Expected interactive app");
     expect(plan.bootstrap.reloadContext.cwd).toBe(join(root, "a-web"));
-    expect(plan.bootstrap.changeset.sourceLabel).toBe(join(root, "a-web"));
+    expect(resolveCanonicalPath(plan.bootstrap.changeset.sourceLabel)).toBe(
+      resolveCanonicalPath(join(root, "a-web")),
+    );
     expect(plan.bootstrap.changeset.files.map((file) => file.path)).toEqual(["file.txt"]);
     expect(plan.initialization.workspace?.repositories.map((repo) => repo.name)).toEqual([
       "a-web",
@@ -317,7 +322,9 @@ describe("native workspace launch", () => {
     });
     if (plan.kind !== "static-diff") throw new Error("Expected static review");
     expect(plan.bootstrap.input.kind).toBe("show");
-    expect(plan.bootstrap.changeset.sourceLabel).toBe(join(root, "api"));
+    expect(resolveCanonicalPath(plan.bootstrap.changeset.sourceLabel)).toBe(
+      resolveCanonicalPath(join(root, "api")),
+    );
     expect(plan.bootstrap.changeset.files.map((file) => file.path)).toEqual(["file.txt"]);
   });
 
