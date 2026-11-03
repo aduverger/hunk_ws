@@ -1,9 +1,47 @@
 import { createNativeSessionBrokerLifecycleClock } from "@hunk/session-broker";
 import type { AppBootstrap } from "../../core/bootstrap";
-import { SessionBrokerClient } from "../../session/broker/brokerClient";
+import {
+  SessionBrokerClient,
+  type HunkSessionBrokerClient,
+} from "../../session/broker/brokerClient";
 import { reportHunkSessionBrokerLifecycleDefect } from "../../session/broker/lifecycleDefect";
 import { ReviewProducer } from "../review/producer";
-import { createInitialSessionSnapshot, createSessionRegistration } from "./registration";
+import {
+  createInitialSessionSnapshot,
+  createSessionRegistration,
+  updateSessionRegistration,
+} from "./registration";
+
+/** Publish replacement content with retired state detached until its matching store attaches. */
+export function publishReviewReplacement(
+  bootstrap: AppBootstrap,
+  producer: ReviewProducer,
+  hostClient?: HunkSessionBrokerClient,
+) {
+  const prepared = producer.preparePublication({
+    files: bootstrap.changeset.files,
+    sourceLabel: bootstrap.changeset.sourceLabel,
+  });
+  const snapshot = createInitialSessionSnapshot(bootstrap, prepared.publication);
+  const reservation = producer.reservePublication(prepared);
+  let sessionId = "local-session";
+  try {
+    if (hostClient) {
+      const registration = updateSessionRegistration(
+        hostClient.getRegistration(),
+        bootstrap,
+        prepared.publication,
+      );
+      sessionId = registration.sessionId;
+      hostClient.replaceSession(registration, snapshot);
+    }
+    reservation.commit({ detachStore: true });
+  } catch (error) {
+    reservation.cancel();
+    throw error;
+  }
+  return { snapshot, sessionId };
+}
 
 export interface ReviewSessionRuntime {
   hostClient: SessionBrokerClient;

@@ -23,6 +23,8 @@ import {
   FileListItem,
 } from "../../../../ui/components/panes/FileListItem";
 
+import { WorkspaceRepositorySelector } from "../../../../ui/components/panes/WorkspaceRepositorySelector";
+
 export type BuiltInSidebarProps = Omit<
   ExtensionPaneProps,
   "placement" | "height" | "currentLine" | "review"
@@ -322,33 +324,36 @@ export function FlexFileSidebar({
   }, [revealPendingRow, selectedFileId]);
 
   return (
-    <scrollbox
-      ref={scrollRef}
-      width="100%"
-      height="100%"
-      focused={false}
-      scrollY={true}
-      viewportCulling={true}
-      rootOptions={{ backgroundColor: theme.panel }}
-      wrapperOptions={{ backgroundColor: theme.panel }}
-      viewportOptions={{ backgroundColor: theme.panel }}
-      contentOptions={{ backgroundColor: theme.panel }}
-      verticalScrollbarOptions={{ visible: false }}
-      horizontalScrollbarOptions={{ visible: false }}
-    >
-      <VirtualizedFileSidebarRows
-        actions={actions}
-        collapsedDirectoryPaths={mode === "tree" ? collapsedDirectoryPaths : undefined}
-        entries={entries}
-        estimatedViewportRows={terminal.height}
-        onToggleDirectory={mode === "tree" ? toggleDirectory : undefined}
-        paddingLeft={mode === "tree" ? 0 : 1}
-        scrollTop={scrollViewport.top}
-        selectedFileId={selectedFileId}
-        textWidth={textWidth}
-        theme={theme}
-        viewportHeight={scrollViewport.height}
-      />
-    </scrollbox>
+    <box width="100%" height="100%" flexDirection="column">
+      <WorkspaceRepositorySelector theme={theme} />
+      <scrollbox
+        ref={scrollRef}
+        width="100%"
+        flexGrow={1}
+        focused={false}
+        scrollY={true}
+        viewportCulling={true}
+        rootOptions={{ backgroundColor: theme.panel }}
+        wrapperOptions={{ backgroundColor: theme.panel }}
+        viewportOptions={{ backgroundColor: theme.panel }}
+        contentOptions={{ backgroundColor: theme.panel }}
+        verticalScrollbarOptions={{ visible: false }}
+        horizontalScrollbarOptions={{ visible: false }}
+      >
+        <VirtualizedFileSidebarRows
+          actions={actions}
+          collapsedDirectoryPaths={mode === "tree" ? collapsedDirectoryPaths : undefined}
+          entries={entries}
+          estimatedViewportRows={terminal.height}
+          onToggleDirectory={mode === "tree" ? toggleDirectory : undefined}
+          paddingLeft={mode === "tree" ? 0 : 1}
+          scrollTop={scrollViewport.top}
+          selectedFileId={selectedFileId}
+          textWidth={textWidth}
+          theme={theme}
+          viewportHeight={scrollViewport.height}
+        />
+      </scrollbox>
+    </box>
   );
 }

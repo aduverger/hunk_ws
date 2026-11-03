@@ -94,8 +94,11 @@ export class LogController {
     for (const listener of this.listeners) listener();
   }
 
-  /** Load one bounded page, preserving symbolic graph state across page boundaries. */
-  async loadMore() {
+  /**
+   * Load one bounded page, preserving symbolic graph state across page boundaries.
+   * Propagate failures only when route preparation explicitly requests it.
+   */
+  async loadMore({ throwOnError = false }: { throwOnError?: boolean } = {}) {
     if (this.loadingPromise) return this.loadingPromise;
     if (this.closed || this.snapshot.historyDone) return;
     const generation = this.generation;
@@ -121,6 +124,7 @@ export class LogController {
             notice: sanitizeTerminalLine(error instanceof Error ? error.message : String(error)),
           });
         }
+        if (throwOnError) throw error;
       } finally {
         if (generation === this.generation && !this.closed) this.publish({ loading: false });
       }

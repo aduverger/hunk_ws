@@ -1,4 +1,4 @@
-# hunk_ws
+# hunks
 
 This repository maintains a Hunk fork for reviewing independent Git repositories
 from a workspace directory. Workspace launch for `diff`, `show`, and `log` is
@@ -7,11 +7,17 @@ child Git repository alphabetically and uses its native command handling.
 Ordinary folders and directory symlinks are ignored; Git worktrees are supported.
 Noninteractive output also uses that first repository, not a combined diff.
 
-The repository selector, repository-specific retained review state, and workspace
-session operations are not implemented yet. The full behavior and acceptance
-criteria are recorded in the implementation plan below.
+A repository selector above the native Files tree switches reviews on demand and
+retains independent notes and review state. Use `--sidebar` when native automatic
+pane visibility hides the tree; View offers repository selection and a selector
+visibility toggle. History uses a selector below its menu and retains each repository's
+graph selection. A failed switch keeps the previous review visible.
 
-- `origin`: https://github.com/aduverger/hunk_ws.git
+Workspace-aware session operations are not implemented yet: existing session commands
+do not export or reload every repository or accept explicit workspace targets.
+The full behavior and acceptance criteria are recorded in the implementation plan below.
+
+- `origin`: https://github.com/aduverger/hunks.git
 - `upstream`: https://github.com/modem-dev/hunk.git
 - Implementation plan: [Workspace reviews](docs/workspace-review-plan.md)
 

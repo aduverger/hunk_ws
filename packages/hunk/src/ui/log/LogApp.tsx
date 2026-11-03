@@ -12,6 +12,10 @@ import type {
 } from "../../extension-api/types";
 import { sanitizeTerminalLine } from "../../lib/terminalText";
 import { resolveExtensionSessionOptions } from "../../extensions/apply";
+import { ExtensionDialog } from "../components/chrome/ExtensionDialog";
+import { WorkspaceRepositorySelector } from "../components/panes/WorkspaceRepositorySelector";
+import { useExtensionDialogController } from "../hooks/useExtensionDialogController";
+import { useWorkspaceRepositoryPicker } from "../session/WorkspaceContext";
 import { HelpDialog } from "../components/chrome/HelpDialog";
 import { MenuBar } from "../components/chrome/MenuBar";
 import { MenuDropdown } from "../components/chrome/MenuDropdown";
@@ -34,7 +38,12 @@ import type { StatusItem } from "../statusLine/types";
 import { useStatusLine } from "../statusLine/useStatusLine";
 import type { InteractiveHistoryRuntime } from "../history/types";
 import type { LogController } from "./controller";
-import { dispatchAppCommand, executeAppCommand, findAppCommandById } from "../lib/appCommands";
+import {
+  dispatchAppCommand,
+  executeAppCommand,
+  findAppCommandById,
+  verticalCommandDirection,
+} from "../lib/appCommands";
 import { resolveCommandKeys } from "../lib/keymap";
 import { buildSessionCommands } from "../lib/sessionRegistrations";
 import {
@@ -100,6 +109,10 @@ export function LogApp({
   transparentBackground?: boolean;
 }) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const repositoryDialog = useExtensionDialogController({ reviewGeneration: controller });
+  const { workspace, open: openRepositoryPicker } = useWorkspaceRepositoryPicker(
+    repositoryDialog.createDialogs,
+  );
   const terminal = useTerminalDimensions();
   const renderer = useRenderer();
   const [showHelp, setShowHelp] = useState(false);
@@ -177,7 +190,7 @@ export function LogApp({
     }
   };
   const openSelected = async (parentRevisionId?: string, pending = false) => {
-    if (reviewPending.current && !pending) return;
+    if (workspace?.switching || (reviewPending.current && !pending)) return;
     reviewPending.current = true;
     reviewQuitEnabled.current = false;
     await controller.settleNavigation();
@@ -253,7 +266,7 @@ export function LogApp({
     closeSaveConfigPrompt: closeLogSaveConfigPrompt,
   };
   const requestOpenSelected = async () => {
-    if (reviewPending.current) return;
+    if (workspace?.switching || reviewPending.current) return;
     reviewPending.current = true;
     reviewQuitEnabled.current = false;
     await controller.settleNavigation();
@@ -303,6 +316,8 @@ export function LogApp({
     "hunk.history.refresh": () => void controller.refresh(),
     "hunk.app.quit": (key) => requestLogQuit(key.ctrl && key.name === "c" ? 130 : undefined),
     "hunk.view.openThemeSelector": () => themeSelector.openThemeSelector(),
+    "hunk.view.selectRepository": openRepositoryPicker,
+    "hunk.view.toggleRepositorySelector": () => workspace?.toggleSelector(),
     "hunk.history.toggleGraph": () => controller.togglePresentation("graph"),
     "hunk.history.toggleUnicode": () => controller.togglePresentation("unicode"),
     "hunk.history.toggleAuthor": () => controller.togglePresentation("author"),
@@ -342,6 +357,7 @@ export function LogApp({
     getSnapshot: controller.getSnapshot,
     handlers: commandHandlers,
     resolvedKeys: historyKeymap.keys,
+    workspaceAvailable: Boolean(workspace),
   });
   const reportedKeymapIssues = useRef(new Set<string>());
   useEffect(() => {
@@ -388,6 +404,14 @@ export function LogApp({
     ],
     view: [
       commandItem("hunk.view.openThemeSelector"),
+      ...(workspace
+        ? [
+            commandItem("hunk.view.selectRepository"),
+            commandItem("hunk.view.toggleRepositorySelector", {
+              checked: workspace.selectorVisible,
+            }),
+          ]
+        : []),
       { kind: "separator" },
       commandItem("hunk.history.toggleGraph", { checked: snapshot.presentation.graph }),
       commandItem("hunk.history.toggleUnicode", { checked: snapshot.presentation.unicode }),
@@ -473,8 +497,19 @@ export function LogApp({
       consume();
       return;
     }
-    if (reviewPending.current) {
-      if (!reviewQuitEnabled.current) {
+    if (repositoryDialog.request) {
+      const direction = verticalCommandDirection(commands, key);
+      if (name === "escape") repositoryDialog.cancel();
+      else if (name === "return" || name === "enter") repositoryDialog.accept();
+      else if (direction !== undefined) repositoryDialog.moveSelection(direction);
+      else if (name === "up") repositoryDialog.moveSelection(-1);
+      else if (name === "down" || name === "tab")
+        repositoryDialog.moveSelection(key.shift ? -1 : 1);
+      consume();
+      return;
+    }
+    if (reviewPending.current || workspace?.switching) {
+      if (!reviewQuitEnabled.current && !workspace?.switching) {
         const quit = findAppCommandById(commands, "hunk.app.quit");
         if (quit?.match(key) && key.ctrl && key.name === "c") {
           quit.run(key, 1);
@@ -592,6 +627,7 @@ export function LogApp({
         ? `${visualSelectionKey ? `${visualSelectionKey} select · ` : ""}Enter open · F10 menu`
         : "";
   const statusText =
+    workspace?.error ||
     transientNotice ||
     snapshot.notice ||
     ((selection?.count ?? 0) > 1 || snapshot.visualSelectionActive
@@ -631,7 +667,9 @@ export function LogApp({
         }}
         onToggleMenu={menu.toggleMenu}
       />
-      <box style={{ width: "100%", height: 1 }} />
+      <box style={{ width: "100%", height: 1 }}>
+        <WorkspaceRepositorySelector theme={theme} showError={false} />
+      </box>
       <box
         style={{
           width: "100%",
@@ -853,6 +891,20 @@ export function LogApp({
             if (!entry.disabled) entry.action();
             menu.closeMenu();
           }}
+        />
+      ) : null}
+      {repositoryDialog.request ? (
+        <ExtensionDialog
+          request={repositoryDialog.request}
+          selectedIndex={repositoryDialog.selectedIndex}
+          inputValue={repositoryDialog.inputValue}
+          onAccept={repositoryDialog.accept}
+          onCancel={repositoryDialog.cancel}
+          onPickOption={repositoryDialog.pickOption}
+          onChangeInput={repositoryDialog.updateInput}
+          terminalHeight={terminal.height}
+          terminalWidth={terminal.width}
+          theme={chromeTheme}
         />
       ) : null}
       {parentSelectorIndex !== null && parentRow ? (
