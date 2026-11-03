@@ -193,6 +193,11 @@ first. Keep this section current as implementation reveals additional choices.
 7. Fork setup: preserve the existing `hunk_ws` initial commit and `origin`, add Hunk as
    `upstream`, and import upstream history on a local feature branch. Do not push,
    publish releases, replace the installed executable, or change global config.
+8. Ancestry repair: connect the original, already-imported upstream tip with a
+   snapshot-preserving merge rather than rewriting published fork commits. If
+   asking were free, ask whether replacing the published history is preferred;
+   preserving it avoids breaking existing PRs and checkouts. Use ordinary merges
+   for later upstream updates and retain the repair's merge parents when landing it.
 
 ## Next step
 
