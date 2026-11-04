@@ -201,6 +201,14 @@ Show the top application menu bar.
 - **Accepted:** `true` or `false`
 - **Built-in default:** `true`
 
+#### `review_info`
+
+Show review metadata and the comparison commit list above the diff.
+
+- **Type:** boolean
+- **Accepted:** `true` or `false`
+- **Built-in default:** `true`
+
 #### `animations`
 
 Animate panes as they open and close.

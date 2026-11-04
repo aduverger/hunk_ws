@@ -24,6 +24,7 @@ const MENU_STATE: Omit<BuildAppMenusOptions, "commands" | "extensionCommands"> =
   showHunkHeaders: false,
   showLineNumbers: true,
   showMenuBar: true,
+  showReviewInfo: true,
   wrapLines: true,
 };
 
@@ -40,6 +41,7 @@ function createTestCommands(overrides: Partial<BuildAppCommandsOptions> = {}) {
     canAlignCurrentLine: true,
     canApplyFilePresentationToAllMatching: false,
     canRefreshCurrentInput: true,
+    canToggleReviewInfo: true,
     alignCurrentLine: record("alignCurrentLine"),
     applyFilePresentationToAllMatching: record("applyFilePresentationToAllMatching"),
     focusFilter: noop,
@@ -65,6 +67,7 @@ function createTestCommands(overrides: Partial<BuildAppCommandsOptions> = {}) {
     toggleLineWrap: noop,
     toggleMenuBar: noop,
     toggleFilesPane: record("toggleFilesPane"),
+    toggleReviewInfo: record("toggleReviewInfo"),
     triggerEditSelectedFile: noop,
     triggerRefreshCurrentInput: noop,
     ...overrides,
@@ -138,6 +141,7 @@ describe("buildAppMenus", () => {
     ).toEqual([
       "Unified view",
       "Menu bar",
+      "Review info",
       "Agent notes",
       "Line numbers",
       "Line wrapping",
@@ -153,6 +157,50 @@ describe("buildAppMenus", () => {
     ]);
     // The filter ships unbound, so its Navigate entry carries no hint.
     expect(items(menus.navigate).map((item) => item.hint)).toEqual(["[", "]", "{", "}", undefined]);
+  });
+
+  test("groups repository navigation separately and keeps selector visibility in View", () => {
+    const selected: string[] = [];
+    const { keys } = resolveCommandKeys({
+      defaults: builtinCommandKeyDefaults(),
+      userBindings: { "hunk.view.selectRepository": "R" },
+    });
+    const { commands } = createTestCommands({
+      resolvedKeys: keys as ResolvedCommandKeys,
+      openRepositoryPicker: () => selected.push("repository"),
+      toggleRepositorySelector: () => selected.push("visibility"),
+    });
+    const menus = buildAppMenus({ commands, ...MENU_STATE, repositorySelectorVisible: true });
+
+    expect(menus.navigate?.slice(-2)).toMatchObject([
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Repository…",
+        commandId: "hunk.view.selectRepository",
+        hint: "R",
+      },
+    ]);
+    expect(items(menus.view).map((item) => item.commandId)).not.toContain(
+      "hunk.view.selectRepository",
+    );
+    expect(entry(menus, "view", "Repository selector").checked).toBe(true);
+    entry(menus, "navigate", "Repository…").action();
+    entry(menus, "view", "Repository selector").action();
+    expect(selected).toEqual(["repository", "visibility"]);
+  });
+
+  test("omits the repository section outside a workspace", () => {
+    const { commands } = createTestCommands();
+    const menus = buildAppMenus({ commands, ...MENU_STATE });
+
+    expect(menus.navigate?.at(-1)?.kind).toBe("item");
+    expect(items(menus.navigate).map((item) => item.commandId)).not.toContain(
+      "hunk.view.selectRepository",
+    );
+    expect(items(menus.view).map((item) => item.commandId)).not.toContain(
+      "hunk.view.toggleRepositorySelector",
+    );
   });
 
   test("every item carries the id of the command it runs", () => {
@@ -190,6 +238,7 @@ describe("buildAppMenus", () => {
     const menus = buildAppMenus({ commands, ...MENU_STATE });
 
     entry(menus, "view", "Files pane").action();
+    entry(menus, "view", "Review info").action();
     entry(menus, "view", "Copy decorations").action();
     entry(menus, "agent", "Agent skill").action();
     entry(menus, "agent", "Next annotated file").action();
@@ -197,6 +246,7 @@ describe("buildAppMenus", () => {
 
     expect(ran).toEqual([
       "toggleFilesPane",
+      "toggleReviewInfo",
       "toggleCopyDecorations",
       "openAgentSkill",
       "moveSelection:annotated-file,1",

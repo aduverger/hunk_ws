@@ -53,6 +53,7 @@ export interface AppBootstrap<ExtensionState = unknown> {
   initialWrapLines?: boolean;
   initialShowHunkHeaders?: boolean;
   initialShowMenuBar?: boolean;
+  initialShowReviewInfo?: boolean;
   initialSidebar?: SidebarVisibility;
   initialShowAgentNotes?: boolean;
   initialCopyDecorations?: boolean;

@@ -136,6 +136,142 @@ test.skipIf(process.platform === "win32")(
 );
 
 test.skipIf(process.platform === "win32")(
+  "omits review info controls from plain file comparisons",
+  async () => {
+    const fixture = harness.createMultiHunkFilePair();
+    const session = await harness.launchHunk({
+      args: ["diff", "--files", fixture.before, fixture.after, "--no-extensions"],
+      cwd: fixture.dir,
+      cols: 140,
+      rows: 30,
+    });
+    try {
+      await session.waitForText("line60", { timeout: 15_000 });
+      const menu = await harness.clickAndWaitForText(session, /View/, "Line wrapping");
+      expect(menu).not.toContain("Review info");
+    } finally {
+      session.close();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "review info follows menu and remapped keys across refreshes and isolated repository switches",
+  async () => {
+    const root = createTestWorkspace();
+    const home = harness.createIsolatedConfigHome();
+    mkdirSync(join(home, "hunk"), { recursive: true });
+    writeFileSync(
+      join(home, "hunk", "config.toml"),
+      '[keybindings]\n"hunk.view.toggleReviewInfo" = "I"\n',
+    );
+    mkdirSync(join(root, "b-web", ".hunk"));
+    writeFileSync(join(root, "b-web", ".hunk", "config.toml"), "review_info = false\n");
+    const session = await harness.launchHunk({
+      args: ["diff", "origin/main...HEAD", "--sidebar", "--no-extensions"],
+      cwd: root,
+      cols: 140,
+      rows: 30,
+      env: { XDG_CONFIG_HOME: home },
+    });
+    try {
+      await session.waitForText("api changed", { timeout: 15_000 });
+      const menu = await harness.clickAndWaitForText(session, /View/, "Review info");
+      expect(menu).toMatch(/\[x\]\s+Review info/);
+      const hidden = await harness.clickAndWaitForSnapshot(
+        session,
+        "Review info",
+        (text) =>
+          !text.includes("Review info") &&
+          !text.includes("api changed") &&
+          text.includes("api after"),
+      );
+      expect(hidden).toContain("▾ a-api");
+      expect(hidden).toMatch(/M\s+file\.ts/);
+      await harness.pressAndWaitForText(session, ["shift", "i"], "api changed");
+      await harness.pressAndWaitForSnapshot(
+        session,
+        ["shift", "i"],
+        (text) => !text.includes("api changed") && text.includes("api after"),
+      );
+
+      writeFileSync(join(root, "a-api", "file.ts"), "export const value = 'api refreshed';\n");
+      runTestGit(join(root, "a-api"), "commit", "-qam", "api refresh metadata");
+      const refreshed = await harness.pressAndWaitForText(session, "r", "api refreshed");
+      expect(refreshed).not.toContain("api refresh metadata");
+      const web = await selectTestRepository(session, "a-api", 1, "web after");
+      expect(web).not.toContain("web changed");
+      await harness.pressAndWaitForText(session, ["shift", "i"], "web changed");
+      const api = await selectTestRepository(session, "b-web", 0, "api refreshed");
+      expect(api).not.toContain("api refresh metadata");
+      const failed = await selectTestRepository(session, "a-api", 2, "Could not open");
+      expect(failed).toContain("api refreshed");
+      expect(failed).not.toContain("api refresh metadata");
+      const restored = await selectTestRepository(session, "a-api", 1, "web changed");
+      expect(restored).toContain("web after");
+    } finally {
+      session.close();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "saves hidden commit metadata and restores it after reopening without hiding Files",
+  async () => {
+    const root = createTestWorkspace();
+    const home = harness.createIsolatedConfigHome();
+    const configPath = join(home, "hunk", "config.toml");
+    mkdirSync(join(home, "hunk"), { recursive: true });
+    writeFileSync(configPath, "# Personal defaults\n");
+    const options = {
+      args: ["show", "HEAD", "--sidebar", "--no-extensions"],
+      cwd: join(root, "a-api"),
+      cols: 140,
+      rows: 30,
+      env: { XDG_CONFIG_HOME: home },
+    };
+    let session = await harness.launchHunk(options);
+    try {
+      await session.waitForText("api changed", { timeout: 15_000 });
+      await harness.clickAndWaitForText(session, /View/, "Review info");
+      await harness.clickAndWaitForSnapshot(
+        session,
+        "Review info",
+        (text) =>
+          !text.includes("Review info") &&
+          !text.includes("api changed") &&
+          text.includes("api after"),
+      );
+      const prompt = await harness.pressAndWaitForText(session, "q", "Save view preferences?");
+      expect(prompt).toContain("- review_info = true");
+      expect(prompt).toContain("+ review_info = false");
+      await harness.pressAndWaitForSnapshot(
+        session,
+        "escape",
+        (text) => !text.includes("Save view preferences?") && !text.includes("api changed"),
+      );
+      expect(readFileSync(configPath, "utf8")).not.toContain("review_info");
+      await harness.pressAndWaitForText(session, "q", "Save view preferences?");
+      await session.press("enter");
+      expect(await session.waitForExit(5_000)).toBe(true);
+      expect(readFileSync(configPath, "utf8")).toContain("review_info = false");
+      expect(readFileSync(configPath, "utf8")).toContain("# Personal defaults");
+      session.close();
+
+      session = await harness.launchHunk(options);
+      const reopened = await session.waitForText("api after", { timeout: 15_000 });
+      expect(reopened).not.toContain("api changed");
+      expect(reopened).toMatch(/M\s+file\.ts/);
+      const menu = await harness.clickAndWaitForText(session, /View/, "Review info");
+      expect(menu).toMatch(/\[ \]\s+Review info/);
+      await harness.clickAndWaitForText(session, "Review info", "api changed");
+    } finally {
+      session.close();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
   "repository commands are remappable and the selector can be hidden and restored",
   async () => {
     const root = createTestWorkspace();
@@ -167,6 +303,13 @@ test.skipIf(process.platform === "win32")(
         (text) => !text.includes("▾ a-api"),
       );
       await harness.pressAndWaitForText(session, ["shift", "w"], "▾ a-api");
+      await harness.clickAndWaitForText(session, /Navigate/, "Repository…");
+      await harness.clickAndWaitForText(session, "Repository…", "1. a-api");
+      await harness.pressAndWaitForSnapshot(
+        session,
+        "escape",
+        (text) => !text.includes("1. a-api"),
+      );
       await harness.pressAndWaitForText(session, ["shift", "r"], "Repository");
       await session.press("down");
       await harness.pressAndWaitForText(session, "enter", "web after");
@@ -198,7 +341,13 @@ test.skipIf(process.platform === "win32")(
     try {
       await session.waitForText("api changed", { timeout: 15_000 });
       await session.press("down");
-      await selectTestRepository(session, "a-api", 1, "web changed");
+      await session.press("f10");
+      await session.press("right");
+      await harness.pressAndWaitForText(session, "right", "Choose repository…");
+      await session.press("up");
+      await harness.pressAndWaitForText(session, "enter", "1. a-api");
+      await session.press("down");
+      await harness.pressAndWaitForText(session, "enter", "web changed");
       await harness.pressAndWaitForText(session, "enter", "web after", { timeout: 10_000 });
       await harness.pressAndWaitForText(session, "q", "Git history");
       await selectTestRepository(session, "b-web", 0, "api changed");
@@ -533,16 +682,34 @@ test.skipIf(process.platform === "win32")(
     });
 
     /** Read the review's public menu state without depending on diff-row geometry. */
-    const expectTestPreferences = async (layout: "Split" | "Unified", wrap: boolean) => {
+    const expectTestPreferences = async (
+      layout: "Split" | "Unified",
+      wrap: boolean,
+      showReviewInfo = true,
+    ) => {
       const menu = await harness.clickAndWaitForText(session, /View/, "Line wrapping");
       expect(menu).toMatch(new RegExp(`\\[x\\]\\s+${layout} view`));
       expect(menu).toMatch(new RegExp(`\\[${wrap ? "x" : " "}\\]\\s+Line wrapping`));
-      await session.press("escape");
+      expect(menu).toMatch(new RegExp(`\\[${showReviewInfo ? "x" : " "}\\]\\s+Review info`));
+      await harness.pressAndWaitForSnapshot(
+        session,
+        "escape",
+        (text) => !text.includes("Line wrapping"),
+      );
     };
     try {
       await session.waitForText("api changed", { timeout: 15_000 });
       await harness.pressAndWaitForText(session, "enter", "api after");
       await expectTestPreferences("Split", true);
+      await harness.clickAndWaitForText(session, /View/, "Review info");
+      await harness.clickAndWaitForSnapshot(
+        session,
+        "Review info",
+        (text) =>
+          !text.includes("Review info") &&
+          !text.includes("api changed") &&
+          text.includes("api after"),
+      );
       await harness.pressAndWaitForText(session, "q", "Git history");
 
       await selectTestRepository(session, "a-api", 1, "web changed");
@@ -556,7 +723,7 @@ test.skipIf(process.platform === "win32")(
 
       await selectTestRepository(session, "b-web", 0, "api changed");
       await harness.pressAndWaitForText(session, "enter", "api after");
-      await expectTestPreferences("Split", true);
+      await expectTestPreferences("Split", true, false);
       const themes = await harness.pressAndWaitForText(session, "t", "Theme selector");
       expect(themes).toMatch(/›\s+github-light-default/);
       await session.press("escape");

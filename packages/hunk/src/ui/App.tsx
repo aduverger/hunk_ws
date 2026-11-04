@@ -36,11 +36,17 @@ import {
 import type { CliInput, CursorLine, LayoutMode } from "../core/run/commandInputs";
 import { sanitizeTerminalLine } from "../lib/terminalText";
 import {
+  qualifiedViewKey,
   resolveExtensionFileViews,
   resolveExtensionKeyboardModes,
   resolveExtensionSessionOptions,
 } from "../extensions/apply";
 import { projectExtensionReviewNotes } from "../extensions/reviewSnapshot";
+import {
+  BUNDLED_COMPARISON_REVIEW_INFO_VIEW_ID,
+  BUNDLED_REVIEW_INFO_VIEW_ID,
+  supportsReviewInfo,
+} from "../extensions/default/ui/reviewInfo";
 import type { ExtensionNotifyType, ExtensionLoadResult } from "../extensions/types";
 import type { ReviewProducer } from "../app/review/producer";
 import type { HunkSessionBrokerClient } from "../session/broker/brokerClient";
@@ -124,7 +130,7 @@ import {
   MIN_EXTENSION_REVIEW_HEIGHT,
   type PlannedPane,
 } from "./lib/extensionPanes";
-import { HUNK_FILES_PANE_KEY } from "../extensions/extensionIds";
+import { HUNK_FILES_PANE_KEY, HUNK_VENDOR_EXTENSION_ID } from "../extensions/extensionIds";
 import { maxFileHeaderStatsWidth } from "./lib/fileHeader";
 import { setMouseCapture } from "./lib/mouseCapture";
 import { openSelectedFileInEditor } from "./lib/openInEditor";
@@ -149,6 +155,10 @@ type FocusArea = "files" | "filter" | "note";
 type StoredFocusArea = Exclude<FocusArea, "filter">;
 
 const FAST_CODE_HORIZONTAL_SCROLL_COLUMNS = 8;
+const REVIEW_INFO_PANE_KEYS = [
+  BUNDLED_REVIEW_INFO_VIEW_ID,
+  BUNDLED_COMPARISON_REVIEW_INFO_VIEW_ID,
+].map((paneId) => qualifiedViewKey(HUNK_VENDOR_EXTENSION_ID, paneId));
 
 const LazyAgentSkillDialog = lazy(async () => ({
   default: (await import("./components/chrome/AgentSkillDialog")).AgentSkillDialog,
@@ -350,44 +360,6 @@ export function App({
     themeController: activeThemeController,
     transparentBackground: bootstrap.input.options.transparentBackground ?? false,
   });
-  const currentViewPreferences = useMemo<PersistedViewPreferences>(
-    () => ({
-      mode: layoutMode,
-      theme: themeId,
-      showLineNumbers,
-      wrapLines,
-      showHunkHeaders,
-      showMenuBar,
-      showAgentNotes,
-      copyDecorations,
-      cursorLine,
-    }),
-    [
-      copyDecorations,
-      cursorLine,
-      layoutMode,
-      showAgentNotes,
-      showHunkHeaders,
-      showLineNumbers,
-      showMenuBar,
-      themeId,
-      wrapLines,
-    ],
-  );
-  const currentViewPreferencesRef = useRef(currentViewPreferences);
-  currentViewPreferencesRef.current = currentViewPreferences;
-  const publishViewPreferenceChanges = useCallback(
-    (changes: Partial<PersistedViewPreferences>) => {
-      const preferences = { ...currentViewPreferencesRef.current, ...changes };
-      currentViewPreferencesRef.current = preferences;
-      onViewPreferencesChange?.(preferences);
-    },
-    [onViewPreferencesChange],
-  );
-  useLayoutEffect(() => {
-    currentViewPreferencesRef.current = currentViewPreferences;
-    onViewPreferencesChange?.(currentViewPreferences);
-  }, [currentViewPreferences, onViewPreferencesChange]);
   const filteredFiles = review.visibleFiles;
   const semanticFileIdentities = useMemo(
     () =>
@@ -460,40 +432,6 @@ export function App({
     [review.selectVisibleFile],
   );
 
-  const openAgentNotes = useCallback(() => {
-    publishViewPreferenceChanges({ showAgentNotes: true });
-    review.setShowAgentNotes(true);
-  }, [publishViewPreferenceChanges, review.setShowAgentNotes]);
-
-  /** Close the modal keyboard help overlay. */
-  const closeHelp = useCallback(() => {
-    setShowHelp(false);
-  }, []);
-  const viewPreferenceQuit = useViewPreferenceQuitController({
-    currentPreferences: currentViewPreferences,
-    initialPreferences: {
-      ...currentViewPreferences,
-      theme: activeThemeController.initialThemeId,
-    },
-    configPath: bootstrap.viewPreferencesConfigPath,
-    pagerMode,
-    promptSaveViewPreferences:
-      bootstrap.input.options.promptSaveViewPreferences !== false && !returnToSurface,
-    transientViewPreferences: extensionSessionOptions.transientViewPreferences,
-    onQuit,
-    showNotice: showSessionNotice,
-    showError: showSessionNotice,
-    closeHelp,
-    homeDirectory: process.env.HOME,
-  });
-  const {
-    saveConfigPromptOpen,
-    requestQuit,
-    saveViewPreferencesAndQuit,
-    discardViewPreferencesAndQuit,
-    neverAskToSaveViewPreferencesAndQuit,
-    closeSaveConfigPrompt,
-  } = viewPreferenceQuit;
   const notifyExtensionMode = useCallback(
     (message: string, type?: ExtensionNotifyType) => extensions?.context.notify(message, type),
     [extensions],
@@ -596,11 +534,13 @@ export function App({
     endPaneResize,
     filesPaneVisible,
     onCurrentLinePaintChange,
+    openPaneKeys,
     paneLayout,
     paneLayoutSettled,
     reportPaneRenderFailure,
     renderSidebar,
     resizingPaneKey,
+    setPaneOpen,
     toggleFilesPane,
     updatePaneResize,
   } = useExtensionPaneController({
@@ -616,6 +556,7 @@ export function App({
     createReviewCapabilityLease,
     currentLineCursor: review.lineCursor,
     extensions,
+    initialClosedPaneKeys: bootstrap.initialShowReviewInfo === false ? REVIEW_INFO_PANE_KEYS : [],
     initialSidebar: bootstrap.initialSidebar,
     minReviewHeight: MIN_EXTENSION_REVIEW_HEIGHT,
     minReviewWidth: DIFF_MIN_WIDTH,
@@ -623,6 +564,83 @@ export function App({
     pagerMode,
     responsiveShowsSidebar,
   });
+
+  const showReviewInfo = REVIEW_INFO_PANE_KEYS.some((key) => openPaneKeys.includes(key));
+  const currentViewPreferences = useMemo<PersistedViewPreferences>(
+    () => ({
+      mode: layoutMode,
+      theme: themeId,
+      showLineNumbers,
+      wrapLines,
+      showHunkHeaders,
+      showMenuBar,
+      showReviewInfo,
+      showAgentNotes,
+      copyDecorations,
+      cursorLine,
+    }),
+    [
+      copyDecorations,
+      cursorLine,
+      layoutMode,
+      showAgentNotes,
+      showHunkHeaders,
+      showLineNumbers,
+      showMenuBar,
+      showReviewInfo,
+      themeId,
+      wrapLines,
+    ],
+  );
+  const currentViewPreferencesRef = useRef(currentViewPreferences);
+  currentViewPreferencesRef.current = currentViewPreferences;
+  const publishViewPreferenceChanges = useCallback(
+    (changes: Partial<PersistedViewPreferences>) => {
+      const preferences = { ...currentViewPreferencesRef.current, ...changes };
+      currentViewPreferencesRef.current = preferences;
+      onViewPreferencesChange?.(preferences);
+    },
+    [onViewPreferencesChange],
+  );
+  useLayoutEffect(() => {
+    currentViewPreferencesRef.current = currentViewPreferences;
+    onViewPreferencesChange?.(currentViewPreferences);
+  }, [currentViewPreferences, onViewPreferencesChange]);
+
+  const openAgentNotes = useCallback(() => {
+    publishViewPreferenceChanges({ showAgentNotes: true });
+    review.setShowAgentNotes(true);
+  }, [publishViewPreferenceChanges, review.setShowAgentNotes]);
+
+  /** Close the modal keyboard help overlay. */
+  const closeHelp = useCallback(() => {
+    setShowHelp(false);
+  }, []);
+  const viewPreferenceQuit = useViewPreferenceQuitController({
+    currentPreferences: currentViewPreferences,
+    initialPreferences: {
+      ...currentViewPreferences,
+      theme: activeThemeController.initialThemeId,
+    },
+    configPath: bootstrap.viewPreferencesConfigPath,
+    pagerMode,
+    promptSaveViewPreferences:
+      bootstrap.input.options.promptSaveViewPreferences !== false && !returnToSurface,
+    transientViewPreferences: extensionSessionOptions.transientViewPreferences,
+    onQuit,
+    showNotice: showSessionNotice,
+    showError: showSessionNotice,
+    closeHelp,
+    homeDirectory: process.env.HOME,
+  });
+  const {
+    saveConfigPromptOpen,
+    requestQuit,
+    saveViewPreferencesAndQuit,
+    discardViewPreferencesAndQuit,
+    neverAskToSaveViewPreferencesAndQuit,
+    closeSaveConfigPrompt,
+  } = viewPreferenceQuit;
 
   const { animating: paneLayoutAnimating, layout: presentedPaneLayout } = usePaneSlideAnimation({
     bodyHeight,
@@ -1114,6 +1132,13 @@ export function App({
     setShowMenuBar(nextShowMenuBar);
   };
 
+  /** Toggle both review summaries through the pane controller’s logical open state. */
+  const toggleReviewInfo = () => {
+    const nextShowReviewInfo = !currentViewPreferencesRef.current.showReviewInfo;
+    publishViewPreferenceChanges({ showReviewInfo: nextShowReviewInfo });
+    for (const key of REVIEW_INFO_PANE_KEYS) setPaneOpen(key, nextShowReviewInfo);
+  };
+
   const { canRefreshCurrentInput, refreshCurrentInput, triggerRefreshCurrentInput } =
     useCurrentReviewRefreshController({
       input: bootstrap.input,
@@ -1129,6 +1154,7 @@ export function App({
         showHunkHeaders,
         showLineNumbers,
         showMenuBar,
+        showReviewInfo,
         wrapLines,
       },
       watchRuntime,
@@ -1397,6 +1423,7 @@ export function App({
           return review.draftNote !== null || isDraftFocusPending();
         },
         canRefreshCurrentInput,
+        canToggleReviewInfo: supportsReviewInfo(bootstrap.review ?? null),
         alignCurrentLine,
         applyFilePresentationToAllMatching,
         focusFilter,
@@ -1443,6 +1470,7 @@ export function App({
         toggleLineWrap,
         toggleMenuBar,
         toggleFilesPane,
+        toggleReviewInfo,
         triggerEditSelectedFile,
         triggerRefreshCurrentInput,
       }).map((command) =>
@@ -1505,6 +1533,7 @@ export function App({
     showHunkHeaders,
     showLineNumbers,
     showMenuBar,
+    showReviewInfo,
     wrapLines,
   });
 

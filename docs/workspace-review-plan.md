@@ -206,7 +206,7 @@ Choices for the terminal slice, ordered least-confident first:
 
 1. Keep native Files-pane visibility rules, including `--no-sidebar` and automatic
    hiding. The selector appears above the tree when that pane is visible; use
-   `--sidebar` to force it open. Repository selection remains available in View.
+   `--sidebar` to force it open. Repository selection remains available in Navigate.
    If asking were free, ask whether workspace launches should override automatic
    pane visibility; explicit launch options are not overridden here.
 2. Ignore another selection while a switch is preparing instead of queueing it or
@@ -230,6 +230,70 @@ Choices for the terminal slice, ordered least-confident first:
    block new writes/reloads during preparation. Failed loads release that gate and
    leave the old review and notes usable. Retire retained repository extension
    owners and history cursors when the window closes, not on every switch.
+
+## Repository navigation menu decisions
+
+1. Place repository selection last in Navigate, separated from the existing actions,
+   on both review and history surfaces. If asking were free, ask whether it should
+   appear first instead; the existing navigation order stays unchanged.
+2. Keep the selector visibility toggle in View and preserve both public command ids
+   and their keybindings. Menu placement does not rename commands or change switching.
+
+## Review info visibility decisions
+
+Choices below are ordered least-confident first:
+
+1. Leave the toggle unbound; if asking were free, ask which shortcut is preferred.
+   It remains available through View and the remappable `hunk.view.toggleReviewInfo`
+   command when the input supports review metadata. Plain patches and file comparisons
+   keep their existing menus. No additional CLI flag is introduced.
+2. Keep review info visible by default. `review_info = false` hides both the fixed
+   metadata summary and comparison commit list; it does not change Files or history.
+3. Derive the preference from the existing pane controller's logical open choices,
+   not responsive visibility. Reuse normal refresh, per-repository retention, and
+   save-on-quit persistence rather than adding a second visibility store.
+4. Carry the option through the existing strict reload schema and bump the session
+   daemon revision to 18. Do not restart the user's running daemon automatically.
+
+Validation for this follow-up:
+
+- Final full runs: 5,204 unit tests passed with 40 existing skips; 297 PTY tests passed
+  with one macOS-only skip. All 11 TTY smoke, 118 review-conformance, and four real-Node
+  broker tests passed. Typecheck, lint, formatting, dependency boundaries, generated
+  documentation, and the version-18 wire fixture passed.
+- A separate real-workspace PTY check hid and restored the API branch comparison's
+  commit list while keeping its code and Files selector visible, then quit without
+  a save prompt after restoring the initial preference.
+- Earlier full runs exposed the JSX change-atlas menu interaction, corrected by
+  omitting the unavailable toggle from ordinary file comparisons. A later unit run
+  hit the GC-retention assertion and a portable file-watch timeout; their focused
+  reruns and the final complete runs passed. Their root causes were not established
+  in this change. No tests were skipped or excluded to obtain the final passes.
+- Verified from source on Linux arm64. Native macOS and Windows remain unverified;
+  the installed executable, personal config, and running daemon were not replaced.
+
+## UI follow-up ship simplification
+
+No product decisions or defaults changed. Reuse existing definitions rather than
+introducing another identity or visibility abstraction:
+
+1. Derive the Review info pane keys from the bundled pane ids and existing qualified-key
+   helper. Preserve the same two addressed panes, command availability, and preferences.
+2. Seed sidebar reveal from the already-initialized logical pane state instead of
+   rebuilding that state. Preserve launch-time closures, Files replacements, and pager rules.
+
+Review scope note: the shared Review info pane also renders change-request summaries.
+The toggle hides those too. The user explicitly approved hiding comparison commits and
+single-commit metadata; extending this to change-request metadata follows the existing
+pane ownership and remains unchanged for independent review disposition.
+
+Focused simplification validation: 164 unit/controller/protocol tests passed, all
+13 workspace PTY cases passed on a serial rerun, and the JSX change-atlas PTY case
+passed. Typecheck, lint, formatting, dependency boundaries, and generated docs passed.
+The initial workspace PTY run hit a destination-already-visible assertion immediately
+after cancelling the repository picker in the remapped-command case (12 passed, one
+failed); preserve this observation for test curation rather than changing tests here.
+Full regression and native macOS/Windows validation remain for subsequent ship phases.
 
 ## Simplification decisions
 

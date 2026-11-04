@@ -47,6 +47,7 @@ export interface BuildAppMenusOptions {
   showHunkHeaders: boolean;
   showLineNumbers: boolean;
   showMenuBar: boolean;
+  showReviewInfo: boolean;
   wrapLines: boolean;
 }
 
@@ -143,6 +144,7 @@ export function buildAppMenus({
   showHunkHeaders,
   showLineNumbers,
   showMenuBar,
+  showReviewInfo,
   wrapLines,
 }: BuildAppMenusOptions): AppMenus {
   const specs: Record<Exclude<MenuId, "extensions" | "commit">, MenuEntrySpec[]> = {
@@ -164,13 +166,13 @@ export function buildAppMenus({
       { commandId: "hunk.view.layoutAuto", checked: layoutMode === "auto" },
       SEPARATOR,
       { commandId: "hunk.view.toggleFilesPane", label: "Files pane", checked: filesPaneVisible },
-      { commandId: "hunk.view.selectRepository", label: "Repository…" },
       {
         commandId: "hunk.view.toggleRepositorySelector",
         label: "Repository selector",
         checked: repositorySelectorVisible,
       },
       { commandId: "hunk.view.toggleMenuBar", label: "Menu bar", checked: showMenuBar },
+      { commandId: "hunk.view.toggleReviewInfo", label: "Review info", checked: showReviewInfo },
       SEPARATOR,
       { commandId: "hunk.view.openThemeSelector", label: "Themes…" },
       SEPARATOR,
@@ -248,6 +250,10 @@ export function buildAppMenus({
       ])
     : [];
 
+  const repositoryEntries = toMenuEntries(commands, [
+    { commandId: "hunk.view.selectRepository", label: "Repository…" },
+  ]);
+
   return {
     file: toMenuEntries(commands, specs.file),
     view: [
@@ -255,7 +261,12 @@ export function buildAppMenus({
       ...fileViewEntries,
       ...(applyAllEntries.length > 0 ? [{ kind: "separator" as const }, ...applyAllEntries] : []),
     ],
-    navigate: toMenuEntries(commands, specs.navigate),
+    navigate: [
+      ...toMenuEntries(commands, specs.navigate),
+      ...(repositoryEntries.length > 0
+        ? [{ kind: "separator" as const }, ...repositoryEntries]
+        : []),
+    ],
     agent: toMenuEntries(commands, specs.agent),
     // No extension commands means no menu at all, rather than an empty dropdown.
     ...(extensions.length > 0 ? { extensions } : {}),

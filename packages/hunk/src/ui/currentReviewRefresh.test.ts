@@ -13,6 +13,7 @@ const currentView: CurrentReviewViewOptions = {
   showHunkHeaders: false,
   showLineNumbers: false,
   showMenuBar: false,
+  showReviewInfo: false,
   wrapLines: true,
 };
 
@@ -35,6 +36,7 @@ describe("current review refresh descriptor", () => {
         hunkHeaders: false,
         lineNumbers: false,
         menuBar: false,
+        reviewInfo: false,
         wrapLines: true,
       },
     });

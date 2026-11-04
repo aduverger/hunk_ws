@@ -64,6 +64,7 @@ export interface CommonOptions {
   wrapLines?: boolean;
   hunkHeaders?: boolean;
   menuBar?: boolean;
+  reviewInfo?: boolean;
   animations?: boolean;
   sidebar?: SidebarVisibility;
   agentNotes?: boolean;

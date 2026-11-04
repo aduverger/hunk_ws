@@ -430,6 +430,15 @@ const BUILTIN_COMMANDS = [
     closesMenu: true,
   },
   {
+    id: "hunk.view.toggleReviewInfo",
+    title: "Toggle review info",
+    category: "view",
+    defaultKeys: [],
+    locus: "client-local",
+    publicToExtensions: true,
+    closesMenu: true,
+  },
+  {
     id: "hunk.view.selectRepository",
     title: "Choose repository…",
     category: "view",

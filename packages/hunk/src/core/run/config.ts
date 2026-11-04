@@ -92,6 +92,7 @@ export interface PersistedViewPreferences {
   wrapLines: boolean;
   showHunkHeaders: boolean;
   showMenuBar: boolean;
+  showReviewInfo: boolean;
   showAgentNotes: boolean;
   copyDecorations: boolean;
   cursorLine: CursorLine;
@@ -108,6 +109,7 @@ const DEFAULT_VIEW_PREFERENCES: PersistedViewPreferences = {
   wrapLines: false,
   showHunkHeaders: true,
   showMenuBar: true,
+  showReviewInfo: true,
   showAgentNotes: false,
   copyDecorations: false,
   cursorLine: "row",
@@ -124,6 +126,7 @@ export function persistedViewPreferencesFromOptions(
     wrapLines: options.wrapLines ?? DEFAULT_VIEW_PREFERENCES.wrapLines,
     showHunkHeaders: options.hunkHeaders ?? DEFAULT_VIEW_PREFERENCES.showHunkHeaders,
     showMenuBar: options.menuBar ?? DEFAULT_VIEW_PREFERENCES.showMenuBar,
+    showReviewInfo: options.reviewInfo ?? DEFAULT_VIEW_PREFERENCES.showReviewInfo,
     showAgentNotes: options.agentNotes ?? DEFAULT_VIEW_PREFERENCES.showAgentNotes,
     copyDecorations: options.copyDecorations ?? DEFAULT_VIEW_PREFERENCES.copyDecorations,
     cursorLine: options.cursorLine ?? DEFAULT_VIEW_PREFERENCES.cursorLine,
@@ -141,6 +144,7 @@ const PERSISTED_VIEW_PREFERENCE_KEYS: Array<{
   { configKey: "wrap_lines", value: (preferences) => preferences.wrapLines },
   { configKey: "hunk_headers", value: (preferences) => preferences.showHunkHeaders },
   { configKey: "menu_bar", value: (preferences) => preferences.showMenuBar },
+  { configKey: "review_info", value: (preferences) => preferences.showReviewInfo },
   { configKey: "agent_notes", value: (preferences) => preferences.showAgentNotes },
   { configKey: "copy_decorations", value: (preferences) => preferences.copyDecorations },
   { configKey: "cursor_line", value: (preferences) => preferences.cursorLine },
@@ -509,6 +513,14 @@ export const CONFIG_REFERENCE_OPTIONS: readonly ConfigReferenceOption[] = [
     accepted: "`true` or `false`",
     runtimeDefault: DEFAULT_VIEW_PREFERENCES.showMenuBar,
     description: "Show the top application menu bar.",
+  },
+  {
+    key: "review_info",
+    property: "reviewInfo",
+    type: "boolean",
+    accepted: "`true` or `false`",
+    runtimeDefault: DEFAULT_VIEW_PREFERENCES.showReviewInfo,
+    description: "Show review metadata and the comparison commit list above the diff.",
   },
   {
     key: "animations",
@@ -1168,6 +1180,7 @@ function mergeOptions(base: CommonOptions, overrides: CommonOptions): CommonOpti
     wrapLines: overrides.wrapLines ?? base.wrapLines,
     hunkHeaders: overrides.hunkHeaders ?? base.hunkHeaders,
     menuBar: overrides.menuBar ?? base.menuBar,
+    reviewInfo: overrides.reviewInfo ?? base.reviewInfo,
     animations: overrides.animations ?? base.animations,
     sidebar: overrides.sidebar ?? base.sidebar,
     agentNotes: overrides.agentNotes ?? base.agentNotes,
@@ -1461,6 +1474,7 @@ export function resolveConfiguredInput<Input extends ConfigurableInput>(
     wrapLines: resolvedOptions.wrapLines ?? DEFAULT_VIEW_PREFERENCES.wrapLines,
     hunkHeaders: resolvedOptions.hunkHeaders ?? DEFAULT_VIEW_PREFERENCES.showHunkHeaders,
     menuBar: resolvedOptions.menuBar ?? DEFAULT_VIEW_PREFERENCES.showMenuBar,
+    reviewInfo: resolvedOptions.reviewInfo ?? DEFAULT_VIEW_PREFERENCES.showReviewInfo,
     animations: resolvedOptions.animations ?? true,
     sidebar: resolvedOptions.sidebar ?? "auto",
     agentNotes: resolvedOptions.agentNotes ?? DEFAULT_VIEW_PREFERENCES.showAgentNotes,

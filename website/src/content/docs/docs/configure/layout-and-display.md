@@ -39,6 +39,7 @@ hunk_headers = true
 file_gap = 1
 hunk_gap = 0
 menu_bar = true
+review_info = true
 animations = true
 sidebar = "auto"
 agent_notes = false
@@ -48,6 +49,10 @@ cursor_line = "row"
 ```
 
 `transparent_background` lets the terminal's own background show through Hunk surfaces. It is off by default; turn it on when matching a transparent or blurred terminal matters more than exact theme colors.
+
+Set `review_info = false` to hide the review metadata and comparison commit list above
+the diff. **View → Review info** changes it for the current repository; accept the save
+prompt when quitting to keep the preference. It leaves the Files sidebar unchanged.
 
 Set `animations = false` to make panes open and close immediately.
 

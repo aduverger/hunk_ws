@@ -26,6 +26,7 @@ function RefreshHarness({
   onRegister,
   onReload,
   onSetTheme,
+  onSetReviewInfo,
   onWatchReloadPending,
   watchRuntime,
 }: {
@@ -33,11 +34,13 @@ function RefreshHarness({
   onController: (controller: CurrentReviewRefreshController) => void;
   onRegister: (request: WorkspaceRefreshRequest) => () => void;
   onSetTheme?: (setTheme: (themeId: string) => void) => void;
+  onSetReviewInfo?: (setReviewInfo: (shown: boolean) => void) => void;
   onReload: (input: CliInput, options?: ReloadSessionOptions) => Promise<ReloadedSessionResult>;
   onWatchReloadPending?: () => void;
   watchRuntime?: Parameters<typeof useCurrentReviewRefreshController>[0]["watchRuntime"];
 }) {
   const [themeId, setThemeId] = useState("dracula");
+  const [showReviewInfo, setShowReviewInfo] = useState(true);
   const controller = useCurrentReviewRefreshController({
     input,
     onRegisterWorkspaceRefreshRequest: onRegister,
@@ -52,12 +55,14 @@ function RefreshHarness({
       showHunkHeaders: true,
       showLineNumbers: true,
       showMenuBar: true,
+      showReviewInfo,
       wrapLines: false,
     },
     watchRuntime,
   });
   onController(controller);
   onSetTheme?.(setThemeId);
+  onSetReviewInfo?.(setShowReviewInfo);
 
   return (
     <box>
@@ -146,6 +151,50 @@ describe("useCurrentReviewRefreshController", () => {
 
     expect(cleaned).toEqual(registered);
     expect(active).toBeUndefined();
+  });
+
+  test("refreshes the latest review info preference when the input and other view settings stay unchanged", async () => {
+    let controller!: CurrentReviewRefreshController;
+    let setReviewInfo!: (shown: boolean) => void;
+    let registered: WorkspaceRefreshRequest | undefined;
+    const reloads: CliInput[] = [];
+    const setup = await testRender(
+      <RefreshHarness
+        input={reloadableInput}
+        onController={(value) => {
+          controller = value;
+        }}
+        onSetReviewInfo={(value) => {
+          setReviewInfo = value;
+        }}
+        onRegister={(request) => {
+          registered = request;
+          return () => {
+            if (registered === request) registered = undefined;
+          };
+        }}
+        onReload={async (input) => {
+          reloads.push(input);
+          return reloadedResult;
+        }}
+      />,
+      { width: 20, height: 4 },
+    );
+
+    try {
+      await act(async () => setup.renderOnce());
+      await act(async () => {
+        setReviewInfo(false);
+        await setup.renderOnce();
+      });
+      await controller.refreshCurrentInput({ reason: "manual" });
+
+      expect(reloads).toHaveLength(1);
+      expect(reloads[0]?.options.reviewInfo).toBe(false);
+      expect(registered?.nextInput.options.reviewInfo).toBe(false);
+    } finally {
+      await act(async () => setup.renderer.destroy());
+    }
   });
 
   test("manual reload reports a rejection while the general operation preserves it", async () => {

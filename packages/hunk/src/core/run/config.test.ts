@@ -83,6 +83,7 @@ describe("config persistence", () => {
         wrapLines: true,
         showHunkHeaders: false,
         showMenuBar: false,
+        showReviewInfo: false,
         showAgentNotes: true,
         copyDecorations: true,
         cursorLine: "row",
@@ -100,6 +101,7 @@ describe("config persistence", () => {
         "line_numbers = false",
         "hunk_headers = false",
         "menu_bar = false",
+        "review_info = false",
         "agent_notes = true",
         "copy_decorations = true",
         'cursor_line = "row"',
@@ -139,6 +141,7 @@ describe("config persistence", () => {
       wrapLines: false,
       showHunkHeaders: false,
       showMenuBar: true,
+      showReviewInfo: true,
       showAgentNotes: true,
       copyDecorations: false,
       cursorLine: "row",
@@ -151,6 +154,7 @@ describe("config persistence", () => {
         mode: "split",
         theme: "github-dark-dimmed",
         showLineNumbers: true,
+        showReviewInfo: false,
       }),
     ).toEqual([
       {
@@ -160,6 +164,7 @@ describe("config persistence", () => {
       },
       { configKey: "mode", previousValue: '"auto"', nextValue: '"split"' },
       { configKey: "line_numbers", previousValue: "false", nextValue: "true" },
+      { configKey: "review_info", previousValue: "true", nextValue: "false" },
     ]);
   });
 });
@@ -288,6 +293,28 @@ describe("config resolution", () => {
     expect(
       resolveConfiguredCliInput(createPatchPagerInput(), { cwd: repo, env }).input.options.menuBar,
     ).toBe(true);
+  });
+
+  test("layers review info visibility through defaults, user, command, repository, and input", () => {
+    const home = createTempDir("hunk-review-info-home-");
+    const repo = createTempDir("hunk-review-info-repo-");
+    createRepo(repo);
+    const env = { HOME: home };
+    const input = createPatchPagerInput();
+    const resolve = (options = input.options) =>
+      resolveConfiguredCliInput({ ...input, options }, { cwd: repo, env }).input.options.reviewInfo;
+
+    expect(resolve()).toBe(true);
+    const userConfig = join(home, ".config", "hunk", "config.toml");
+    mkdirSync(join(home, ".config", "hunk"), { recursive: true });
+    writeFileSync(userConfig, "review_info = false\n");
+    expect(resolve()).toBe(false);
+    writeFileSync(userConfig, "review_info = false\n[patch]\nreview_info = true\n");
+    expect(resolve()).toBe(true);
+    mkdirSync(join(repo, ".hunk"));
+    writeFileSync(join(repo, ".hunk", "config.toml"), "review_info = false\n");
+    expect(resolve()).toBe(false);
+    expect(resolve({ ...input.options, reviewInfo: true })).toBe(true);
   });
 
   test("enables animations by default and accepts a config override", () => {
@@ -1177,6 +1204,7 @@ describe("config resolution", () => {
         "wheel_scroll_lines = 4",
         "wrap_lines = true",
         "menu_bar = false",
+        "review_info = false",
         "sidebar = true",
         "hunk_headers = false",
         "agent_notes = true",
@@ -1210,6 +1238,7 @@ describe("config resolution", () => {
     expect(bootstrap.initialWheelScrollLines).toBe(4);
     expect(bootstrap.initialWrapLines).toBe(true);
     expect(bootstrap.initialShowMenuBar).toBe(false);
+    expect(bootstrap.initialShowReviewInfo).toBe(false);
     expect(bootstrap.initialSidebar).toBe(true);
     expect(bootstrap.initialShowHunkHeaders).toBe(false);
     expect(bootstrap.initialShowAgentNotes).toBe(true);

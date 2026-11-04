@@ -13,7 +13,7 @@ export const BUNDLED_REVIEW_INFO_VIEW_ID = "review-info";
 export const BUNDLED_COMPARISON_REVIEW_INFO_VIEW_ID = "comparison-review-info";
 
 /** Report whether the bundled pane has a concise projection for this review kind. */
-function supportsReviewInfo(
+export function supportsReviewInfo(
   review: ExtensionReviewDescriptor | null,
 ): review is Extract<
   ExtensionReviewDescriptor,
