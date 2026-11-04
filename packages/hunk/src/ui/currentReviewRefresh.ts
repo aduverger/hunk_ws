@@ -22,6 +22,7 @@ export interface CurrentReviewViewOptions {
   showHunkHeaders: boolean;
   showLineNumbers: boolean;
   showMenuBar: boolean;
+  showReviewInfo: boolean;
   wrapLines: boolean;
 }
 
@@ -58,6 +59,7 @@ export function withCurrentReviewViewOptions(
       hunkHeaders: view.showHunkHeaders,
       lineNumbers: view.showLineNumbers,
       menuBar: view.showMenuBar,
+      reviewInfo: view.showReviewInfo,
       wrapLines: view.wrapLines,
     },
   };

@@ -47,6 +47,7 @@ export interface BuildAppMenusOptions {
   showHunkHeaders: boolean;
   showLineNumbers: boolean;
   showMenuBar: boolean;
+  showReviewInfo: boolean;
   wrapLines: boolean;
 }
 
@@ -143,6 +144,7 @@ export function buildAppMenus({
   showHunkHeaders,
   showLineNumbers,
   showMenuBar,
+  showReviewInfo,
   wrapLines,
 }: BuildAppMenusOptions): AppMenus {
   const specs: Record<Exclude<MenuId, "extensions" | "commit">, MenuEntrySpec[]> = {
@@ -170,6 +172,7 @@ export function buildAppMenus({
         checked: repositorySelectorVisible,
       },
       { commandId: "hunk.view.toggleMenuBar", label: "Menu bar", checked: showMenuBar },
+      { commandId: "hunk.view.toggleReviewInfo", label: "Review info", checked: showReviewInfo },
       SEPARATOR,
       { commandId: "hunk.view.openThemeSelector", label: "Themes…" },
       SEPARATOR,

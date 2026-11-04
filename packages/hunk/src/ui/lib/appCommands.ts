@@ -124,6 +124,7 @@ export interface BuildAppCommandsOptions {
   /** True while the composer has a draft the save command can persist. */
   canSaveDraftNote?: boolean;
   canRefreshCurrentInput: boolean;
+  canToggleReviewInfo: boolean;
   alignCurrentLine: (alignment: "top" | "center" | "bottom") => void;
   applyFilePresentationToAllMatching: () => void;
   focusFilter: () => void;
@@ -160,6 +161,7 @@ export interface BuildAppCommandsOptions {
   toggleLineWrap: () => void;
   toggleMenuBar: () => void;
   toggleFilesPane: () => void;
+  toggleReviewInfo: () => void;
   triggerEditSelectedFile: () => void;
   triggerRefreshCurrentInput: () => void;
 }
@@ -274,6 +276,10 @@ function builtinCommandHandlers(
       run: () => options.applyFilePresentationToAllMatching(),
     },
     "hunk.view.toggleFilesPane": { run: () => options.toggleFilesPane() },
+    "hunk.view.toggleReviewInfo": {
+      isEnabled: () => options.canToggleReviewInfo,
+      run: () => options.toggleReviewInfo(),
+    },
     "hunk.view.selectRepository": {
       isEnabled: () => Boolean(options.openRepositoryPicker),
       run: () => options.openRepositoryPicker?.(),
@@ -373,6 +379,7 @@ const NOOP_COMMAND_OPTIONS: BuildAppCommandsOptions = (() => {
     canAlignCurrentLine: false,
     canApplyFilePresentationToAllMatching: false,
     canRefreshCurrentInput: true,
+    canToggleReviewInfo: false,
     canSaveDraftNote: true,
     alignCurrentLine: noop,
     applyFilePresentationToAllMatching: noop,
@@ -403,6 +410,7 @@ const NOOP_COMMAND_OPTIONS: BuildAppCommandsOptions = (() => {
     toggleLineWrap: noop,
     toggleMenuBar: noop,
     toggleFilesPane: noop,
+    toggleReviewInfo: noop,
     triggerEditSelectedFile: noop,
     triggerRefreshCurrentInput: noop,
   };

@@ -335,6 +335,7 @@ export const CONFIG_REFERENCE_GROUPS = {
     "wrap_lines",
     "hunk_headers",
     "menu_bar",
+    "review_info",
     "animations",
     "sidebar",
     "transparent_background",

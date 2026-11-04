@@ -51,6 +51,7 @@ function createTestCommands(
     canAlignCurrentLine: true,
     canApplyFilePresentationToAllMatching: false,
     canRefreshCurrentInput: true,
+    canToggleReviewInfo: true,
     alignCurrentLine: record("alignCurrentLine"),
     applyFilePresentationToAllMatching: record("applyFilePresentationToAllMatching"),
     focusFilter: record("focusFilter"),
@@ -77,6 +78,7 @@ function createTestCommands(
     toggleLineWrap: record("toggleLineWrap"),
     toggleMenuBar: record("toggleMenuBar"),
     toggleFilesPane: record("toggleFilesPane"),
+    toggleReviewInfo: record("toggleReviewInfo"),
     triggerEditSelectedFile: record("triggerEditSelectedFile"),
     triggerRefreshCurrentInput: record("triggerRefreshCurrentInput"),
     ...overrides,
@@ -321,6 +323,7 @@ describe("builtinCommandKeyDefaults", () => {
       "hunk.view.selectRepository",
       "hunk.view.toggleCopyDecorations",
       "hunk.view.toggleRepositorySelector",
+      "hunk.view.toggleReviewInfo",
     ]);
   });
 });
@@ -538,6 +541,7 @@ describe("command catalog parity", () => {
       showHunkHeaders: true,
       showLineNumbers: true,
       showMenuBar: true,
+      showReviewInfo: true,
       wrapLines: false,
     });
     const menuCommandIds = Object.values(menus)

@@ -52,6 +52,7 @@ function RefreshHarness({
       showHunkHeaders: true,
       showLineNumbers: true,
       showMenuBar: true,
+      showReviewInfo: true,
       wrapLines: false,
     },
     watchRuntime,

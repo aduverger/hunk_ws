@@ -22,6 +22,7 @@ function createTestPreferences(
     wrapLines: false,
     showHunkHeaders: true,
     showMenuBar: true,
+    showReviewInfo: true,
     showAgentNotes: false,
     copyDecorations: false,
     cursorLine: "row",
@@ -234,7 +235,10 @@ describe("useViewPreferenceQuitController", () => {
 
     try {
       await harness.update({
-        currentPreferences: createTestPreferences({ theme: "github-dark-dimmed" }),
+        currentPreferences: createTestPreferences({
+          theme: "github-dark-dimmed",
+          showReviewInfo: false,
+        }),
       });
       await act(async () => harness.controller().requestQuit());
       expect(harness.controller().saveConfigPromptOpen).toBe(true);
@@ -243,6 +247,7 @@ describe("useViewPreferenceQuitController", () => {
       await act(async () => harness.setup.renderOnce());
 
       expect(readFileSync(configPath, "utf8")).toContain('theme = "github-dark-dimmed"');
+      expect(readFileSync(configPath, "utf8")).toContain("review_info = false");
       expect(harness.controller().changedViewPreferences).toEqual([]);
       expect(harness.controller().saveConfigPromptOpen).toBe(false);
       expect(harness.showNotice).toHaveBeenCalledWith(`Saved view preferences to ${configPath}`);

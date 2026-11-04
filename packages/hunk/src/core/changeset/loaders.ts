@@ -368,6 +368,7 @@ export async function loadAppBootstrap(
     initialWrapLines: input.options.wrapLines ?? false,
     initialShowHunkHeaders: input.options.hunkHeaders ?? true,
     initialShowMenuBar: input.options.menuBar ?? true,
+    initialShowReviewInfo: input.options.reviewInfo ?? true,
     initialSidebar: input.options.sidebar ?? "auto",
     initialShowAgentNotes: input.options.agentNotes ?? false,
     initialCopyDecorations: input.options.copyDecorations ?? false,

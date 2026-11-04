@@ -79,8 +79,8 @@ const _mixedBatchItemIsNotACommand: SessionCommentApplyItemInput = {
 void _mixedBatchItemIsNotACommand;
 
 describe("session daemon request validation", () => {
-  test("uses the daemon revision for structured reloads with canonical layout payloads", () => {
-    expect(HUNK_SESSION_DAEMON_VERSION).toBe(17);
+  test("uses the daemon revision for structured reloads with review info preferences", () => {
+    expect(HUNK_SESSION_DAEMON_VERSION).toBe(18);
   });
 
   test("strictly parses cross-process capabilities", () => {
@@ -128,6 +128,24 @@ describe("session daemon request validation", () => {
     ).toMatchObject({
       nextInput: { options: { mode: "unified" } },
     });
+  });
+
+  test("round-trips boolean review info preferences and rejects invalid values", () => {
+    for (const reviewInfo of [true, false]) {
+      const request: SessionDaemonRequest = {
+        action: "reload",
+        selector: { sessionId: "s-1" },
+        nextInput: { kind: "show", ref: "HEAD", options: { reviewInfo } },
+      };
+      expect(parseSessionDaemonRequest(request)).toEqual(request);
+    }
+    expect(() =>
+      parseSessionDaemonRequest({
+        action: "reload",
+        selector: { sessionId: "s-1" },
+        nextInput: { kind: "show", ref: "HEAD", options: { reviewInfo: "false" } },
+      }),
+    ).toThrow();
   });
 
   test("rejects the removed fast option in reload payloads", () => {

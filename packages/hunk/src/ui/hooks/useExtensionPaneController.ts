@@ -84,28 +84,33 @@ export interface ExtensionPaneController {
   endPaneResize: (event?: TuiMouseEvent) => void;
   filesPaneVisible: boolean;
   onCurrentLinePaintChange: (update: ExtensionCurrentLinePaintUpdate) => void;
+  /** Logical open choices, independent of current availability and terminal bounds. */
+  openPaneKeys: readonly string[];
   paneLayout: ExtensionPaneLayoutPlan;
   paneLayoutSettled: boolean;
   reportPaneRenderFailure: (pane: SessionPane) => void;
   renderSidebar: boolean;
   resizingPaneKey: string | null;
+  setPaneOpen: (key: string, nextOpen: boolean | "toggle") => void;
   toggleFilesPane: () => void;
   updatePaneResize: (event: TuiMouseEvent) => void;
 }
 
-/** Initialize pane choices while applying the launch-time files-pane preference to its active slot. */
+/** Initialize pane choices from launch-time closures and the active files slot. */
 function initialOpenState(
   panes: readonly SessionPane[],
   initialSidebar: SidebarVisibility | undefined,
+  initialClosedPaneKeys: readonly string[],
 ): PaneOpenState {
   const initial = initialPaneOpenState(panes);
-  if (initialSidebar !== false) return initial;
-  const filesPaneKey = resolvePaneSlotKey({
-    panes,
-    slotKey: HUNK_FILES_PANE_KEY,
-    openKeys: initial.open,
-  });
-  return { ...initial, open: initial.open.filter((key) => key !== filesPaneKey) };
+  const closedKeys = [...initialClosedPaneKeys];
+  if (initialSidebar === false) {
+    closedKeys.push(
+      resolvePaneSlotKey({ panes, slotKey: HUNK_FILES_PANE_KEY, openKeys: initial.open }),
+    );
+  }
+
+  return { ...initial, open: initial.open.filter((key) => !closedKeys.includes(key)) };
 }
 
 /** Return whether one captured drag still owns the exact committed divider. */
@@ -136,6 +141,7 @@ export function useExtensionPaneController({
   createReviewCapabilityLease,
   currentLineCursor,
   extensions,
+  initialClosedPaneKeys = [],
   initialSidebar,
   minReviewHeight,
   minReviewWidth,
@@ -150,6 +156,8 @@ export function useExtensionPaneController({
   createReviewCapabilityLease: () => ExtensionCapabilityLease;
   currentLineCursor: { fileId: string; stableKey: string } | null;
   extensions: ExtensionLoadResult | undefined;
+  /** Start panes closed without overriding subsequent user or extension choices. */
+  initialClosedPaneKeys?: readonly string[];
   initialSidebar: SidebarVisibility | undefined;
   minReviewHeight: number;
   minReviewWidth: number;
@@ -159,7 +167,7 @@ export function useExtensionPaneController({
 }): ExtensionPaneController {
   const sessionPanes = useMemo(() => buildSessionPanes(extensions), [extensions]);
   const [paneOpenState, setPaneOpenState] = useState(() =>
-    initialOpenState(sessionPanes, initialSidebar),
+    initialOpenState(sessionPanes, initialSidebar, initialClosedPaneKeys),
   );
   const [paneSizeOverrides, setPaneSizeOverrides] = useState<Record<string, PaneSizeOverride>>({});
   const [paneResize, setPaneResize] = useState<PaneResizeState | null>(null);
@@ -167,7 +175,7 @@ export function useExtensionPaneController({
     const filesKey = resolvePaneSlotKey({
       panes: sessionPanes,
       slotKey: HUNK_FILES_PANE_KEY,
-      openKeys: initialOpenState(sessionPanes, initialSidebar).open,
+      openKeys: initialOpenState(sessionPanes, initialSidebar, initialClosedPaneKeys).open,
     });
     const edge = sessionPanes.find((pane) => pane.key === filesKey)?.placement;
     const revealFiles = !pagerMode && initialSidebar === true;
@@ -688,6 +696,7 @@ export function useExtensionPaneController({
     endPaneResize,
     filesPaneVisible: visiblePaneKeys.includes(visibleFilesPaneKey),
     onCurrentLinePaintChange,
+    openPaneKeys: committedPaneOpenState.open,
     paneLayout,
     paneLayoutSettled: availabilitySnapshot.request === availabilityRequest,
     reportPaneRenderFailure,
@@ -695,6 +704,7 @@ export function useExtensionPaneController({
       ({ pane }) => pane.placement === "left" || pane.placement === "right",
     ),
     resizingPaneKey: paneResize?.key ?? null,
+    setPaneOpen,
     toggleFilesPane,
     updatePaneResize,
   };

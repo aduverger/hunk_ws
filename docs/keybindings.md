@@ -168,11 +168,17 @@ Review and shared commands:
 | `hunk.view.toggleLineNumbers`                  | Toggle line numbers                            | `l`                          |
 | `hunk.view.toggleLineWrap`                     | Toggle line wrapping                           | `w`                          |
 | `hunk.view.toggleMenuBar`                      | Toggle menu bar                                | `M`                          |
+| `hunk.view.toggleReviewInfo`                   | Toggle review metadata and commit list         | _(none)_                     |
 
 Workspace review and history surfaces provide repository selection and a
 **View → Repository selector** visibility toggle. Their commands ship unbound and are unavailable
 in ordinary single-repository windows. The selector appears above the native Files
 tree (use `--sidebar` to show that pane), or below the menu in history.
+
+**View → Review info** toggles the metadata and comparison commit list above the diff.
+Set `review_info = false` in config to start with it hidden, or save the changed
+preference when quitting. The toggle ships unbound and can be remapped with
+`hunk.view.toggleReviewInfo`; it does not hide the Files sidebar.
 
 The files-pane command follows the named `hunk:files` role. If an extension
 replaces that role, the command and **View → Files pane** toggle the resolved

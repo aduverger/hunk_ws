@@ -79,6 +79,7 @@ const commonOptionsSchema = z.strictObject({
   wrapLines: z.boolean().optional(),
   hunkHeaders: z.boolean().optional(),
   menuBar: z.boolean().optional(),
+  reviewInfo: z.boolean().optional(),
   animations: z.boolean().optional(),
   sidebar: z.union([z.boolean(), z.literal("auto")]).optional(),
   agentNotes: z.boolean().optional(),

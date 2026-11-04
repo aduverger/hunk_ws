@@ -239,6 +239,39 @@ Choices for the terminal slice, ordered least-confident first:
 2. Keep the selector visibility toggle in View and preserve both public command ids
    and their keybindings. Menu placement does not rename commands or change switching.
 
+## Review info visibility decisions
+
+Choices below are ordered least-confident first:
+
+1. Leave the toggle unbound; if asking were free, ask which shortcut is preferred.
+   It remains available through View and the remappable `hunk.view.toggleReviewInfo`
+   command when the input supports review metadata. Plain patches and file comparisons
+   keep their existing menus. No additional CLI flag is introduced.
+2. Keep review info visible by default. `review_info = false` hides both the fixed
+   metadata summary and comparison commit list; it does not change Files or history.
+3. Derive the preference from the existing pane controller's logical open choices,
+   not responsive visibility. Reuse normal refresh, per-repository retention, and
+   save-on-quit persistence rather than adding a second visibility store.
+4. Carry the option through the existing strict reload schema and bump the session
+   daemon revision to 18. Do not restart the user's running daemon automatically.
+
+Validation for this follow-up:
+
+- Final full runs: 5,204 unit tests passed with 40 existing skips; 297 PTY tests passed
+  with one macOS-only skip. All 11 TTY smoke, 118 review-conformance, and four real-Node
+  broker tests passed. Typecheck, lint, formatting, dependency boundaries, generated
+  documentation, and the version-18 wire fixture passed.
+- A separate real-workspace PTY check hid and restored the API branch comparison's
+  commit list while keeping its code and Files selector visible, then quit without
+  a save prompt after restoring the initial preference.
+- Earlier full runs exposed the JSX change-atlas menu interaction, corrected by
+  omitting the unavailable toggle from ordinary file comparisons. A later unit run
+  hit the GC-retention assertion and a portable file-watch timeout; their focused
+  reruns and the final complete runs passed. Their root causes were not established
+  in this change. No tests were skipped or excluded to obtain the final passes.
+- Verified from source on Linux arm64. Native macOS and Windows remain unverified;
+  the installed executable, personal config, and running daemon were not replaced.
+
 ## Simplification decisions
 
 No product defaults changed. These implementation choices are ordered least-confident first:
