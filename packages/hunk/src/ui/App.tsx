@@ -36,12 +36,17 @@ import {
 import type { CliInput, CursorLine, LayoutMode } from "../core/run/commandInputs";
 import { sanitizeTerminalLine } from "../lib/terminalText";
 import {
+  qualifiedViewKey,
   resolveExtensionFileViews,
   resolveExtensionKeyboardModes,
   resolveExtensionSessionOptions,
 } from "../extensions/apply";
 import { projectExtensionReviewNotes } from "../extensions/reviewSnapshot";
-import { supportsReviewInfo } from "../extensions/default/ui/reviewInfo";
+import {
+  BUNDLED_COMPARISON_REVIEW_INFO_VIEW_ID,
+  BUNDLED_REVIEW_INFO_VIEW_ID,
+  supportsReviewInfo,
+} from "../extensions/default/ui/reviewInfo";
 import type { ExtensionNotifyType, ExtensionLoadResult } from "../extensions/types";
 import type { ReviewProducer } from "../app/review/producer";
 import type { HunkSessionBrokerClient } from "../session/broker/brokerClient";
@@ -125,7 +130,7 @@ import {
   MIN_EXTENSION_REVIEW_HEIGHT,
   type PlannedPane,
 } from "./lib/extensionPanes";
-import { HUNK_FILES_PANE_KEY } from "../extensions/extensionIds";
+import { HUNK_FILES_PANE_KEY, HUNK_VENDOR_EXTENSION_ID } from "../extensions/extensionIds";
 import { maxFileHeaderStatsWidth } from "./lib/fileHeader";
 import { setMouseCapture } from "./lib/mouseCapture";
 import { openSelectedFileInEditor } from "./lib/openInEditor";
@@ -150,7 +155,10 @@ type FocusArea = "files" | "filter" | "note";
 type StoredFocusArea = Exclude<FocusArea, "filter">;
 
 const FAST_CODE_HORIZONTAL_SCROLL_COLUMNS = 8;
-const REVIEW_INFO_PANE_KEYS = ["hunk:review-info", "hunk:comparison-review-info"] as const;
+const REVIEW_INFO_PANE_KEYS = [
+  BUNDLED_REVIEW_INFO_VIEW_ID,
+  BUNDLED_COMPARISON_REVIEW_INFO_VIEW_ID,
+].map((paneId) => qualifiedViewKey(HUNK_VENDOR_EXTENSION_ID, paneId));
 
 const LazyAgentSkillDialog = lazy(async () => ({
   default: (await import("./components/chrome/AgentSkillDialog")).AgentSkillDialog,

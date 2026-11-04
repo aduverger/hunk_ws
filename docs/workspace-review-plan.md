@@ -272,6 +272,29 @@ Validation for this follow-up:
 - Verified from source on Linux arm64. Native macOS and Windows remain unverified;
   the installed executable, personal config, and running daemon were not replaced.
 
+## UI follow-up ship simplification
+
+No product decisions or defaults changed. Reuse existing definitions rather than
+introducing another identity or visibility abstraction:
+
+1. Derive the Review info pane keys from the bundled pane ids and existing qualified-key
+   helper. Preserve the same two addressed panes, command availability, and preferences.
+2. Seed sidebar reveal from the already-initialized logical pane state instead of
+   rebuilding that state. Preserve launch-time closures, Files replacements, and pager rules.
+
+Review scope note: the shared Review info pane also renders change-request summaries.
+The toggle hides those too. The user explicitly approved hiding comparison commits and
+single-commit metadata; extending this to change-request metadata follows the existing
+pane ownership and remains unchanged for independent review disposition.
+
+Focused simplification validation: 164 unit/controller/protocol tests passed, all
+13 workspace PTY cases passed on a serial rerun, and the JSX change-atlas PTY case
+passed. Typecheck, lint, formatting, dependency boundaries, and generated docs passed.
+The initial workspace PTY run hit a destination-already-visible assertion immediately
+after cancelling the repository picker in the remapped-command case (12 passed, one
+failed); preserve this observation for test curation rather than changing tests here.
+Full regression and native macOS/Windows validation remain for subsequent ship phases.
+
 ## Simplification decisions
 
 No product defaults changed. These implementation choices are ordered least-confident first:

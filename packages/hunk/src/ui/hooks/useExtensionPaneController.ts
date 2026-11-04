@@ -175,7 +175,7 @@ export function useExtensionPaneController({
     const filesKey = resolvePaneSlotKey({
       panes: sessionPanes,
       slotKey: HUNK_FILES_PANE_KEY,
-      openKeys: initialOpenState(sessionPanes, initialSidebar, initialClosedPaneKeys).open,
+      openKeys: paneOpenState.open,
     });
     const edge = sessionPanes.find((pane) => pane.key === filesKey)?.placement;
     const revealFiles = !pagerMode && initialSidebar === true;
