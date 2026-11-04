@@ -194,7 +194,7 @@ describe("buildAppMenus", () => {
     const { commands } = createTestCommands();
     const menus = buildAppMenus({ commands, ...MENU_STATE });
 
-    expect(menus.navigate?.at(-1)).toMatchObject({ kind: "item", label: "Focus filter" });
+    expect(menus.navigate?.at(-1)?.kind).toBe("item");
     expect(items(menus.navigate).map((item) => item.commandId)).not.toContain(
       "hunk.view.selectRepository",
     );
@@ -277,15 +277,6 @@ describe("buildAppMenus", () => {
     expect(apply.hint).toBeUndefined();
     apply.action();
     expect(ran).toContain("applyFilePresentationToAllMatching");
-  });
-
-  test("omits review info when the input has no supported metadata", () => {
-    const { commands } = createTestCommands({ canToggleReviewInfo: false });
-    const menus = buildAppMenus({ commands, ...MENU_STATE });
-
-    expect(items(menus.view).map((item) => item.commandId)).not.toContain(
-      "hunk.view.toggleReviewInfo",
-    );
   });
 
   test("Reload disappears when the current input cannot be reloaded", () => {

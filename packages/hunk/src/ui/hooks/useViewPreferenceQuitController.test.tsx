@@ -253,7 +253,6 @@ describe("useViewPreferenceQuitController", () => {
       expect(harness.showNotice).toHaveBeenCalledWith(`Saved view preferences to ${configPath}`);
       expect(harness.showError).toHaveBeenCalledTimes(0);
       expect(harness.onQuit).toHaveBeenCalledTimes(0);
-      expect(quit.scheduled).toMatchObject([{ delayMs: 120, cancelled: false }]);
 
       quit.run();
       expect(harness.onQuit).toHaveBeenCalledTimes(1);

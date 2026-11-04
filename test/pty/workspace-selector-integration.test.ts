@@ -136,6 +136,26 @@ test.skipIf(process.platform === "win32")(
 );
 
 test.skipIf(process.platform === "win32")(
+  "omits review info controls from plain file comparisons",
+  async () => {
+    const fixture = harness.createMultiHunkFilePair();
+    const session = await harness.launchHunk({
+      args: ["diff", "--files", fixture.before, fixture.after, "--no-extensions"],
+      cwd: fixture.dir,
+      cols: 140,
+      rows: 30,
+    });
+    try {
+      await session.waitForText("line60", { timeout: 15_000 });
+      const menu = await harness.clickAndWaitForText(session, /View/, "Line wrapping");
+      expect(menu).not.toContain("Review info");
+    } finally {
+      session.close();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
   "review info follows menu and remapped keys across refreshes and isolated repository switches",
   async () => {
     const root = createTestWorkspace();
@@ -285,7 +305,11 @@ test.skipIf(process.platform === "win32")(
       await harness.pressAndWaitForText(session, ["shift", "w"], "▾ a-api");
       await harness.clickAndWaitForText(session, /Navigate/, "Repository…");
       await harness.clickAndWaitForText(session, "Repository…", "1. a-api");
-      await session.press("escape");
+      await harness.pressAndWaitForSnapshot(
+        session,
+        "escape",
+        (text) => !text.includes("1. a-api"),
+      );
       await harness.pressAndWaitForText(session, ["shift", "r"], "Repository");
       await session.press("down");
       await harness.pressAndWaitForText(session, "enter", "web after");

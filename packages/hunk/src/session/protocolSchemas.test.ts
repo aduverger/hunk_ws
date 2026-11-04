@@ -79,8 +79,14 @@ const _mixedBatchItemIsNotACommand: SessionCommentApplyItemInput = {
 void _mixedBatchItemIsNotACommand;
 
 describe("session daemon request validation", () => {
-  test("uses the daemon revision for structured reloads with review info preferences", () => {
-    expect(HUNK_SESSION_DAEMON_VERSION).toBe(18);
+  test("rejects daemon capabilities from before review info reload preferences", () => {
+    expect(
+      parseSessionDaemonCapabilities({
+        version: HUNK_SESSION_API_VERSION,
+        daemonVersion: 17,
+        actions: ["list", "reload"],
+      }),
+    ).toBeNull();
   });
 
   test("strictly parses cross-process capabilities", () => {
